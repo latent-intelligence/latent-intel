@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"S","tools":[],"mcp_servers":[]}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Compaction "}}}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"is bounded."}}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Compaction is bounded."}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Compaction is bounded.","num_turns":1,"duration_ms":900,"total_cost_usd":0.01,"usage":{"input_tokens":12,"output_tokens":5,"cache_creation":{"ephemeral_5m":3}}}

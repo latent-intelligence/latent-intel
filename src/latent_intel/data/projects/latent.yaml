@@ -1,0 +1,74 @@
+# latent — the project that ships with the engine.
+#
+# It declares branding and nothing else. There is deliberately no default store: a tool
+# that arrives already pointed at something has decided for you, and this one should not.
+#
+# It is also the worked example. Everything a client project may set is shown here,
+# commented, in the order the loader reads it. Copy this file, not the documentation.
+
+schema_version: 1
+name: latent
+title: Latent
+description: >
+  Context over heterogeneous sources — wikis, files, MCP servers — with provenance.
+
+# Where names resolve. A project may carry its own registry so `from: design-wiki`
+# means the same thing on every machine the project is cloned to.
+#
+# registry: ./knowledge-stores.yaml
+
+# Location variables, substituted into `registry:` and each source `target:`.
+# An environment variable of the same name WINS, so a deployment overrides without
+# editing this file. Locations only — credentials never appear here.
+#
+# vars:
+#   MIRROR: s3://example-bucket/li
+
+# Sources. Two ways to name one, and the difference matters:
+#
+#   from:    a registry id, re-resolved per machine. Portable.
+#   target:  a literal path or URI. Relative paths resolve against THIS FILE'S
+#            directory, so a cloned project repo works from anywhere.
+#
+# `remote: true` prefers a registry entry's mirror over any local copy — which is a
+# different thing from a `target:` that is already remote, like an s3:// URI.
+#
+# A wiki needs no extra and no local copy: point at a published store — one that has a
+# `manifest.json`, which is what `lw manifest` and `just publish` write — and the base
+# install reads it over fsspec.
+#
+# `context:` pairs a wiki with the material it summarises, which is what lets `wiki_raw`
+# escalate from a page to its underlying source. Optional: without it a wiki still
+# searches and fetches, and only that escalation says it has nothing to read.
+#
+# sources:
+#   - {id: wiki,  kind: wiki,  target: "${MIRROR}/latent-wiki/data/wikis/design",
+#      options: {context: "${MIRROR}/knowledge/context"}}
+#   - {id: named, kind: wiki,  from: design-wiki, remote: true}
+#   - {id: docs,  kind: files, target: "${MIRROR}/context/raw"}
+#   - {id: local, kind: files, target: ./corpus}
+#   - {id: tools, kind: mcp,   target: "npx -y @example/mcp"}
+
+branding:
+  name: LATENT
+  tagline: context, with provenance
+  # logo: ./logo.txt          # or an inline block scalar; falls back to the wordmark
+  # prompt: "latent › "       # defaults to the lowercased name
+  # theme:                    # semantic tokens only — unknown names are reported
+  #   accent: "#a7c080"
+
+# agent:                      # RESERVED — parses, nothing reads it yet
+#   persona: ./persona.md     # prepended or substituted into the system prompt
+#   persona_mode: append      # append | replace
+#   runtime: claude-cli       # a default the user may still override
+#   runtimes:
+#     claude-cli: {model: sonnet}
+
+# commands: ./commands        # *.md, one per command — live
+# skills:   ./skills          # RESERVED — resolves, nothing reads it yet
+
+# defaults:
+#   approval: ask
+#   limit: 10
+
+# pins: [wiki]                # RESERVED — parsed and ignored. See the plan.

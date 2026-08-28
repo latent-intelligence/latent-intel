@@ -1,0 +1,34 @@
+# A complete project, committed as a fixture — and the shape a real deployment takes.
+#
+# It stands in for a client or an internal engagement: its own sources, branding,
+# commands and backend location, none of which the engine knows anything about.
+# `test_the_engine_knows_about_no_client` greps `src/` for the markers below.
+
+schema_version: 1
+name: research
+title: Research Intelligence
+description: Standing context over a research corpus and its working notes.
+
+# Locations, never secrets. An environment variable of the same name wins, so a
+# deployment points this elsewhere without editing the file.
+vars:
+  RESEARCH_MIRROR: s3://research-mirror-fixture/li
+
+sources:
+  # Relative — resolves against THIS FILE, so a cloned repo works from anywhere.
+  - {id: notes, kind: files, target: ./corpus}
+  # Remote — declared portably through a variable.
+  - {id: mirror, kind: files, target: "${RESEARCH_MIRROR}/context/raw"}
+
+branding:
+  name: RESEARCH
+  tagline: standing context, with provenance
+  logo: ./logo.txt
+  prompt: "research › "
+  theme:
+    accent: "#7aa2f7"
+
+commands: ./commands
+
+defaults:
+  approval: ask

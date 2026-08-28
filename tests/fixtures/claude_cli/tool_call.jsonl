@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"S","tools":["mcp__design__wiki_get"],"mcp_servers":[{"name":"design","status":"connected"}]}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_1","name":"mcp__design__wiki_get","input":{"key":"context-collapse"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_1","content":[{"type":"text","text":"[concept] context-collapse"}],"is_error":false}]}}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Found it."}}}
+{"type":"result","subtype":"success","is_error":false,"result":"Found it.","usage":{"input_tokens":8,"output_tokens":3}}

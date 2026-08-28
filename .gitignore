@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+.python-version
+
+# uv
+.uv/
+
+# Test and type caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets — credentials never live beside configuration
+.env
+*.pem
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
+
+# Local data — recorded sessions, caches, scratch stores.
+# Never versioned; see ../house-rules/paths.md.
+/data

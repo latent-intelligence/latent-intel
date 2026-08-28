@@ -1,0 +1,4 @@
+[claude-code:unrecognized_model] {"model":"x"}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"still fine"}}}
+{"type":"result","subtype":"succ
+{"type":"result","subtype":"success","is_error":false,"result":"still fine","usage":{"input_tokens":1,"output_tokens":1}}

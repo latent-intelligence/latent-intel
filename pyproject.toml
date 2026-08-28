@@ -1,0 +1,128 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "latent-intel"
+version = "0.1.0"
+description = "A client over heterogeneous context — wikis, vector indexes and MCP servers — with interchangeable terminal and web frontends."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Latent Intelligence" }]
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "prompt-toolkit>=3.0",
+    "pydantic>=2.7",
+    "anyio>=4.0",
+    "mcp>=1.2",
+    "pyyaml>=6.0",
+    # Base, not an extra: a `.env` is how a machine with no `aws configure` reaches a
+    # store at all, and "out of the box" cannot have an asterisk on the first run.
+    "python-dotenv>=1.0",
+    "universal-pathlib>=0.2",
+    "fsspec>=2024.0",
+    # Base, not an extra: the deployment case is a published wiki on object storage,
+    # and "out of the box" cannot have an asterisk on exactly that case.
+    "s3fs>=2024.0",
+]
+
+[project.optional-dependencies]
+# No extra pulls a sibling package. `latent-wiki` and `latent-records` are not published,
+# so declaring them here promised an install nobody could perform: `latent-intel[wiki]`
+# failed to resolve off any checkout but this workspace, and the local-path pins that made
+# it work here put an unresolvable entry in `uv.lock` — which broke plain `uv sync`, and
+# with it `just check`, for every clone that had no siblings beside it.
+#
+# The authoring machine gets the sibling by path instead, which needs no metadata:
+#
+#     uv tool install . --with ../latent-wiki
+#
+# Reading a published store never needed it. See `connectors/wiki.py`.
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "anyio[trio]",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-PyYAML",
+    "import-linter>=2.0",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/latent-intelligence/latent-intel"
+Repository = "https://github.com/latent-intelligence/latent-intel"
+
+[project.scripts]
+latent-intel = "latent_intel.frontends.cli.main:main"
+intel = "latent_intel.frontends.cli.main:main"
+
+# The plug-and-play seam. Our own adapters register the same way a third party's would,
+# so the extension path is the one we use ourselves and cannot rot unnoticed.
+[project.entry-points."latent_intel.connectors"]
+files = "latent_intel.connectors.files:FilesConnector"
+mcp = "latent_intel.connectors.mcp:McpConnector"
+wiki = "latent_intel.connectors.wiki:WikiConnector"
+vector = "latent_intel.connectors.vector:VectorConnector"
+
+[project.entry-points."latent_intel.runtimes"]
+claude-cli = "latent_intel.agent.runtimes.claude_cli:ClaudeCliRuntime"
+api = "latent_intel.agent.runtimes.api:ApiRuntime"
+openrouter = "latent_intel.agent.runtimes.openrouter:OpenRouterRuntime"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/latent_intel"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src", "tests", "README.md", "pyproject.toml"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/latent_intel/frontends/cli/*.py" = ["B008"]  # typer.Option in defaults is idiomatic
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/latent_intel"]
+
+# `latent_wiki` and `latent_records` are optional siblings, imported inside a guarded
+# block and absent from any clone that does not have them beside it. Without this, the
+# type check passes only on the authoring machine.
+[[tool.mypy.overrides]]
+module = ["mcp.*", "latent_wiki.*", "latent_records.*", "s3fs.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.importlinter]
+root_package = "latent_intel"
+
+[[tool.importlinter.contracts]]
+# The rule that keeps a web frontend an addition rather than a rewrite. Without it, the
+# first convenient `from ...connectors.wiki import` quietly ends the design — and it
+# would still pass every test, which is why this is enforced rather than documented.
+name = "Frontends see only the Session API, the event models and the renderer"
+type = "forbidden"
+source_modules = ["latent_intel.frontends"]
+forbidden_modules = [
+    "latent_intel.connectors",
+    "latent_intel.agent",
+    "latent_intel.context",
+    "latent_intel.registry",
+]
+# Reaching these *through* Session is the design — `session.available()` exists precisely
+# so a frontend can list the registry without importing it. What must never happen is a
+# frontend importing one directly, which is what this now checks.
+allow_indirect_imports = true

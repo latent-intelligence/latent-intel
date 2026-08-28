@@ -1,0 +1,2 @@
+[claude-code:unrecognized_model] {"model":"no-such-model"}
+{"type":"result","subtype":"success","is_error":true,"api_error_status":404,"terminal_reason":"api_error","result":"There's an issue with the selected model (no-such-model).","usage":{}}
