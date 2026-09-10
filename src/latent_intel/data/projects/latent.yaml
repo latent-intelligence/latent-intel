@@ -34,7 +34,7 @@ description: >
 # different thing from a `target:` that is already remote, like an s3:// URI.
 #
 # A wiki needs no extra and no local copy: point at a published store — one that has a
-# `manifest.json`, which is what `lw manifest` and `just publish` write — and the base
+# `manifest.json`, which is what a wiki compiler's publish step writes — and the base
 # install reads it over fsspec.
 #
 # `context:` pairs a wiki with the material it summarises, which is what lets `wiki_raw`
@@ -42,7 +42,7 @@ description: >
 # searches and fetches, and only that escalation says it has nothing to read.
 #
 # sources:
-#   - {id: wiki,  kind: wiki,  target: "${MIRROR}/latent-wiki/data/wikis/design",
+#   - {id: wiki,  kind: wiki,  target: "${MIRROR}/wikis/design",
 #      options: {context: "${MIRROR}/knowledge/context"}}
 #   - {id: named, kind: wiki,  from: design-wiki, remote: true}
 #   - {id: docs,  kind: files, target: "${MIRROR}/context/raw"}

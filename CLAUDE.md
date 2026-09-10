@@ -1,7 +1,5 @@
 # CLAUDE.md — latent-intel
 
-> Shared principles, conventions, and tooling are in [`../house-rules/`](../house-rules/). See [`../house-rules/CLAUDE.md`](../house-rules/CLAUDE.md) for the index.
-
 ## Project
 
 `latent-intel` is the access layer over heterogeneous context: an LLM-wiki
@@ -15,8 +13,7 @@ it is an addition rather than a third implementation of the product.
 
 How to use it: [`docs/getting-started.md`](docs/getting-started.md), then
 [`docs/user-guide.md`](docs/user-guide.md).
-Design record: `docs/context/` in this package. The plan that produced it is
-`~/.claude/plans/` — moved here when it stops changing.
+Design record: `docs/context/` in this package.
 
 ## Package invariants
 

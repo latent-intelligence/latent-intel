@@ -39,11 +39,11 @@ nothing beyond this and credentials for wherever it lives.
 ### The one case this does not cover
 
 An **unpublished** store — a working directory with no `manifest.json` — is the authoring
-machine's case, and only `latent-wiki` can read it. That package is not on an index, so
-you add it by path rather than through an extra:
+machine's case, and only the wiki compiler that writes it can read it. Add that package
+alongside the engine rather than through an extra:
 
 ```bash
-uv tool install . --with ../latent-wiki --reinstall
+uv tool install . --with <wiki-compiler> --reinstall
 ```
 
 Until you do, such a store is skipped with an explanation and the rest of your sources
@@ -95,7 +95,7 @@ from a directory's contents would be wrong exactly when it matters:
 
 ```bash
 intel connect ~/knowledge/context/raw --kind files --as notes
-intel connect s3://<bucket>/li/latent-wiki/data/wikis/design --kind wiki --as design
+intel connect s3://<bucket>/wikis/design --kind wiki --as design
 ```
 
 A wiki and the material it summarises are a **pair**, and a project file can say so:
@@ -104,7 +104,7 @@ A wiki and the material it summarises are a **pair**, and a project file can say
 sources:
   - id: design
     kind: wiki
-    target: s3://<bucket>/li/latent-wiki/data/wikis/design
+    target: s3://<bucket>/wikis/design
     options:
       context: s3://<bucket>/li/knowledge/context     # optional
 ```
@@ -124,8 +124,8 @@ $ intel connect design-wiki --remote --as design
 ```
 
 That `built` date only appears on a store loaded through its `manifest.json`. If it is
-missing on a remote store, the manifest was not published — run `just manifest <project>`
-in `latent-wiki` and push again.
+missing on a remote store, the manifest was not published — publish it with your wiki
+compiler and push again.
 
 **What is attached, and what else is reachable:**
 
@@ -309,10 +309,9 @@ shadowing the other. Each tool shows its **declared** effect — `none`, `extern
 
 Two things worth knowing:
 
-**Point at the server, not at a wrapper.** Give it `uv run … lw serve` and killing the
+**Point at the server, not at a wrapper.** Give it `uv run … <server>` and killing the
 client kills `uv`, leaving the real server orphaned. Give it the executable —
-`/path/.venv/bin/lw serve --store …` — and cleanup is exact. `lw serve --print-config`
-emits the direct form.
+`/path/.venv/bin/<server> …` — and cleanup is exact.
 
 **Our own wiki does not need MCP.** `--kind wiki` reads the published store directly —
 one GET for the manifest, page bodies only when asked: no subprocess, no tool-schema

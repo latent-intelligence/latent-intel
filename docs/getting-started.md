@@ -24,9 +24,9 @@ From a clone instead — if you are working on the engine itself — `uv tool in
 
 That is the whole install — no extras, no sibling package. Files, MCP servers and wikis,
 local or `s3://`, all work from it, because a published wiki store is a versioned format
-(`manifest.json` plus `pages/`) that the client reads directly. `latent-wiki` is what you
-install to *build* a wiki, not to read one, and it is added by path
-(`--with ../latent-wiki`) on the machine that authors one.
+(`manifest.json` plus `pages/`) that the client reads directly. A wiki compiler is what
+you install to *build* a wiki, not to read one, and it is added alongside the engine
+(`--with <wiki-compiler>`) only on the machine that authors one.
 
 Check it:
 
@@ -79,13 +79,13 @@ Point at a store and search it. Nothing else is needed — object storage uses w
 credentials your environment already has.
 
 ```bash
-intel connect s3://<bucket>/li/latent-wiki/data/wikis/design --kind wiki --as design
+intel connect s3://<bucket>/wikis/design --kind wiki --as design
 intel search "context collapse"
 intel get design:context-collapse
 ```
 
 ```
-$ intel connect s3://<bucket>/li/latent-wiki/data/wikis/design --kind wiki --as design
+$ intel connect s3://<bucket>/wikis/design --kind wiki --as design
 ✓ wiki   design  148 pages  search fetch tools    built 2026-08-24
 recorded in ~/.config/latent-intel/config.yaml
 ```
@@ -143,7 +143,7 @@ branding:
 sources:
   - id: design
     kind: wiki
-    target: s3://<bucket>/li/latent-wiki/data/wikis/design
+    target: s3://<bucket>/wikis/design
     options:
       context: s3://<bucket>/li/knowledge/context   # the material the wiki summarises
   - id: notes

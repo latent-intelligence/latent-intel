@@ -21,14 +21,14 @@ The quickest way to see it work. Sources are attached one at a time and recorded
 own config, so nothing is shared and nothing needs authoring up front.
 
 ```bash
-intel connect s3://<bucket>/li/latent-wiki/data/wikis/design --kind wiki --as design
+intel connect s3://<bucket>/wikis/design --kind wiki --as design
 intel search "context collapse"
 intel                                    # the interactive shell
 ```
 
 **No extras, no local copy.** A published wiki store is a versioned format —
 `manifest.json` plus `pages/` — and the client reads that format directly from wherever
-the store lives: a path, or `s3://` with your usual credentials. `latent-wiki` is what
+the store lives: a path, or `s3://` with your usual credentials. A wiki compiler is what
 you install to *build* a wiki, not to read one.
 
 **A source can be named rather than located.** A registered store resolves to its local
@@ -52,7 +52,7 @@ branding:
 sources:
   - id: design
     kind: wiki
-    target: s3://<bucket>/li/latent-wiki/data/wikis/design
+    target: s3://<bucket>/wikis/design
     options:
       context: s3://<bucket>/li/knowledge/context   # the material the wiki summarises
   - id: notes
@@ -283,10 +283,10 @@ uv tool install . --reinstall    # put your build on PATH
 
 `just check` is what CI runs, and it passes on a fresh clone with nothing beside it — no
 sibling package is needed to build, test or type-check. If you are also *authoring* a
-wiki, add `latent-wiki` by path, since it is not on an index:
+wiki, add your wiki compiler alongside the engine:
 
 ```bash
-uv tool install . --with ../latent-wiki --reinstall
+uv tool install . --with <wiki-compiler> --reinstall
 ```
 
 That is only for reading an **unpublished** store — a working directory with no
