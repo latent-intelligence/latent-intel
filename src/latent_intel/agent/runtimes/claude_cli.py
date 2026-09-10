@@ -39,6 +39,7 @@ import shlex
 import shutil
 from collections import deque
 from collections.abc import AsyncIterator, Sequence
+from pathlib import Path
 from subprocess import PIPE
 from typing import Any
 
@@ -67,6 +68,56 @@ _STDERR_LINES = 20
 
 #: A single JSON line can carry a whole tool result. Generous, but bounded.
 _MAX_LINE = 8 * 1024 * 1024
+
+#: The one line of an npm `cmd-shim` that matters: the program it runs, named relative
+#: to the shim's own directory (`%dp0%`). Current builds point at `bin\claude.exe`;
+#: older ones at a `cli.js` run through `node`.
+_SHIM_TARGET = re.compile(r'"%dp0%\\([^"]+)"')
+
+
+def resolve_command(command: Sequence[str]) -> list[str] | None:
+    """A launchable argv prefix for `command`, or None when its head cannot be found.
+
+    `available()` and `stream()` both use this, so they cannot disagree — and on
+    Windows they did. `shutil.which` honours PATHEXT and finds the npm shim
+    `claude.cmd`, while `CreateProcess` given the bare name looks for `claude.exe` and
+    raises `WinError 2`. The check said yes; the spawn said no.
+
+    Launching the resolved shim would fix the crash and nothing else. A `.cmd` runs
+    through `cmd.exe`, which caps the command line at 8191 characters, re-parses every
+    argument — the JSON in `--mcp-config` included — and, when terminated, exits
+    leaving the program it started running. So a shim is read and its target launched
+    directly: an `.exe` as is, a script through `node`. No `cmd.exe` in the chain.
+    """
+    if not command:
+        return None
+    head, *rest = command
+    found = shutil.which(head)
+    if found is None:
+        return None
+    return [*_unwrap_shim(Path(found)), *rest]
+
+
+def _unwrap_shim(path: Path) -> list[str]:
+    """What a Windows batch shim actually runs, or the shim itself when unclear."""
+    if path.suffix.lower() not in (".cmd", ".bat"):
+        return [str(path)]
+    try:
+        body = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return [str(path)]
+    match = _SHIM_TARGET.search(body)
+    if match is None:
+        return [str(path)]
+    target = path.parent.joinpath(*match.group(1).split("\\"))
+    if not target.is_file():
+        return [str(path)]
+    suffix = target.suffix.lower()
+    if suffix == ".exe":
+        return [str(target)]
+    if suffix in (".js", ".cjs", ".mjs") and (node := shutil.which("node")):
+        return [node, str(target)]
+    return [str(path)]
 
 
 def sanitise(name: str) -> str:
@@ -193,12 +244,7 @@ class ClaudeCliRuntime:
         self.cwd = cwd
 
     def available(self) -> bool:
-        if not self.command:
-            return False
-        head = self.command[0]
-        # An absolute or relative path (a test's fake interpreter) is taken as given;
-        # a bare name has to be findable.
-        return shutil.which(head) is not None
+        return resolve_command(self.command) is not None
 
     async def stream(
         self,
@@ -212,8 +258,17 @@ class ClaudeCliRuntime:
         sources = options.get("sources") or []
         prompt = messages[-1].text if messages else ""
 
+        resolved = resolve_command(self.command)
+        if resolved is None:
+            yield emitter.emit(
+                ev.AgentFailed,
+                message=f"cannot find `{self.command[0] if self.command else ''}`",
+                kind="runtime_error",
+                remedy="install Claude Code, or set `command:` under this runtime",
+            )
+            return
         argv = build_argv(
-            self.command,
+            resolved,
             model=self.model,
             servers=servers,
             allow=allowed_tools(tools, servers, self.approval),
@@ -225,13 +280,22 @@ class ClaudeCliRuntime:
         stderr_tail: deque[str] = deque(maxlen=_STDERR_LINES)
         saw_result = False
 
-        async with await anyio.open_process(
-            argv,
-            stdin=PIPE,
-            stdout=PIPE,
-            stderr=PIPE,
-            cwd=self.cwd,
-        ) as process:
+        # Failures inside `run()` are events: a frontend iterating over a transport has
+        # nowhere to catch an exception, and a spawn that fails must say so in-band.
+        try:
+            opened = await anyio.open_process(
+                argv, stdin=PIPE, stdout=PIPE, stderr=PIPE, cwd=self.cwd
+            )
+        except OSError as exc:
+            yield emitter.emit(
+                ev.AgentFailed,
+                message=f"could not start {argv[0]}: {exc}",
+                kind="runtime_error",
+                remedy="run `claude doctor` to check the CLI itself",
+            )
+            return
+
+        async with opened as process:
             try:
                 async with anyio.create_task_group() as tasks:
                     tasks.start_soon(self._feed, process, prompt)

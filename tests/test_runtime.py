@@ -17,6 +17,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel.agent import base as agent
+from latent_intel.agent.runtimes import claude_cli
 from latent_intel.agent.runtimes.claude_cli import (
     ClaudeCliRuntime,
     allowed_tools,
@@ -207,3 +208,82 @@ async def test_silence_with_a_bad_exit_is_reported_rather_than_looking_empty() -
 
 def test_a_missing_binary_is_unavailable_not_an_exception() -> None:
     assert not ClaudeCliRuntime(command="definitely-not-a-real-binary").available()
+
+
+# -- resolving the executable -------------------------------------------------
+
+
+def _shim(directory: Path, target: str) -> Path:
+    """An npm `cmd-shim` as generated on Windows. Only the last line matters: it names
+    the program relative to the shim's own directory."""
+    shim = directory / "claude.cmd"
+    shim.write_text(
+        "@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n"
+        f':start\r\nSETLOCAL\r\nCALL :find_dp0\r\n"%dp0%\\{target}" %*\r\n',
+        encoding="utf-8",
+    )
+    return shim
+
+
+def _which(**table: str | None) -> object:
+    return lambda name: table.get(name)
+
+
+def test_an_npm_shim_to_an_exe_is_unwrapped_to_the_exe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The crash on Windows: `which` finds `claude.cmd`, `CreateProcess` given the bare
+    name does not. Launching the shim would route through `cmd.exe`, so the resolver
+    launches what the shim launches."""
+    exe = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code" / "bin"
+    exe.mkdir(parents=True)
+    exe = exe / "claude.exe"
+    exe.write_bytes(b"")
+    shim = _shim(tmp_path, r"node_modules\@anthropic-ai\claude-code\bin\claude.exe")
+    monkeypatch.setattr(claude_cli.shutil, "which", _which(claude=str(shim)))
+    assert claude_cli.resolve_command(["claude", "-p"]) == [str(exe), "-p"]
+
+
+def test_an_npm_shim_to_a_script_runs_through_node(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code"
+    script.mkdir(parents=True)
+    script = script / "cli.js"
+    script.write_text("")
+    shim = _shim(tmp_path, r"node_modules\@anthropic-ai\claude-code\cli.js")
+    monkeypatch.setattr(
+        claude_cli.shutil, "which", _which(claude=str(shim), node="/usr/bin/node")
+    )
+    assert claude_cli.resolve_command(["claude"]) == ["/usr/bin/node", str(script)]
+
+
+def test_a_shim_with_no_recognisable_target_is_launched_as_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shim = tmp_path / "claude.cmd"
+    shim.write_text("@echo something else entirely\r\n", encoding="utf-8")
+    monkeypatch.setattr(claude_cli.shutil, "which", _which(claude=str(shim)))
+    assert claude_cli.resolve_command(["claude"]) == [str(shim)]
+
+
+def test_a_real_binary_passes_through_with_its_arguments() -> None:
+    """The fake-interpreter path every subprocess test relies on."""
+    assert claude_cli.resolve_command([sys.executable, str(FAKE), "text"]) == [
+        sys.executable,
+        str(FAKE),
+        "text",
+    ]
+
+
+@pytest.mark.anyio
+async def test_an_unfindable_command_fails_as_an_event_not_an_exception() -> None:
+    """Failures inside `run()` are events: a frontend iterating over a transport has
+    nowhere to catch an exception."""
+    r = ClaudeCliRuntime(command="definitely-not-a-real-binary")
+    events = [
+        e async for e in r.stream([Message(text="q")], [], emitter=ev.Emitter(uuid4()))
+    ]
+    assert len(events) == 1
+    assert isinstance(events[0], ev.AgentFailed)
+    assert events[0].kind == "runtime_error"
