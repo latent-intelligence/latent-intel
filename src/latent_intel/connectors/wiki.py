@@ -85,6 +85,14 @@ EMPTY_STORE = (
     "— a path or s3:// URL containing {manifest} — or correct its target in the "
     "project file."
 )
+#: A remote read the provider refused. S3 answers 403 for a wrong key, a policy without
+#: `s3:GetObject`/`s3:ListBucket` on the prefix, and — without list permission — a key
+#: that simply is not there, so the message names all three rather than guessing.
+REFUSED = (
+    "{path}: {error} — the credentials in the environment were refused. Check the key "
+    "(`intel doctor` lists which variables are set), the policy on this prefix, and "
+    "that the bucket and path are the ones intended."
+)
 UNPUBLISHED_STORE = (
     "{root} has no {manifest}, so it is an unpublished store this client cannot read. "
     "Point the source at a published copy, or publish this one with the tool that "
@@ -215,12 +223,24 @@ class WikiConnector:
         path that happens to work on the machine that built it.
         """
         path = self.root / MANIFEST_NAME
-        try:
-            if not path.is_file():
+        if "://" in self.target:
+            # Read, never pre-check: over fsspec `is_file()` answers False to a 403, a
+            # missing bucket and a missing key alike, and the refusal that follows
+            # got reported as "does not exist" — sending a client with the wrong key
+            # to look for a directory. The read raises the real reason.
+            try:
+                text = path.read_text(encoding="utf-8")
+            except FileNotFoundError:
                 return None
-            text = path.read_text(encoding="utf-8")
-        except (OSError, FileNotFoundError):
-            return None
+            except OSError as exc:
+                raise ConnectError(REFUSED.format(path=path, error=exc)) from exc
+        else:
+            try:
+                if not path.is_file():
+                    return None
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                return None
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:

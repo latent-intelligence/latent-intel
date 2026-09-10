@@ -310,3 +310,54 @@ def test_every_tool_declares_a_read_effect(store: Path) -> None:
 async def test_unknown_tool_is_refused(store: Path) -> None:
     with pytest.raises(ConnectError):
         await connect(store).call("wiki_write", {})
+
+
+class _RemoteRoot:
+    """A stand-in for an `s3://` root whose reads fail the way s3fs fails them."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def __truediv__(self, name: str) -> _RemoteRoot:
+        return self
+
+    def read_text(self, encoding: str = "utf-8") -> str:
+        raise self.error
+
+    def exists(self) -> bool:
+        return False
+
+    def is_dir(self) -> bool:
+        return False
+
+    def __str__(self) -> str:
+        return "s3://bucket/wikis/w"
+
+
+def test_a_refused_remote_read_says_refused_not_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Over fsspec, `is_file()` answers False to a 403 as readily as to a 404, so the
+    connector must read and report the refusal — a client with the wrong key was being
+    told its store did not exist."""
+    _without_latent_wiki(monkeypatch, ImportError)
+    refused = _RemoteRoot(PermissionError("Forbidden"))
+    monkeypatch.setattr(wiki_module, "_as_path", lambda target: refused)
+    with pytest.raises(ConnectError) as caught:
+        wiki_module.WikiConnector("w", "s3://bucket/wikis/w")
+    message = str(caught.value)
+    assert "Forbidden" in message
+    assert "refused" in message
+    assert "does not exist" not in message
+
+
+def test_a_missing_remote_manifest_still_reports_no_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _without_latent_wiki(monkeypatch, ImportError)
+    monkeypatch.setattr(
+        wiki_module, "_as_path", lambda target: _RemoteRoot(FileNotFoundError("404"))
+    )
+    with pytest.raises(ConnectError) as caught:
+        wiki_module.WikiConnector("w", "s3://bucket/wikis/w")
+    assert "does not exist" in str(caught.value)
