@@ -187,7 +187,7 @@ $ intel
  │ search  ·  fetch                        2 sources  ·  412 items│
  ╰────────────────────────────────────────────────────────────────╯
 
-                    /help  /connect  /sources  /quit
+                    /help  /connect  /sources  /exit
 
 research › search context collapse
 ```

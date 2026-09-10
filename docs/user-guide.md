@@ -159,7 +159,7 @@ Bare `intel` opens it. This is the primary way in.
  │ search  ·  fetch  ·  tools                         1 source  ·  148 items  │
  ╰────────────────────────────────────────────────────────────────────────────╯
 
-                        /help  /connect  /sources  /quit
+                        /help  /connect  /sources  /exit
 
 latent ›
 ```
@@ -202,7 +202,7 @@ once it has chosen…
 | `/disconnect <id>` | detach one |
 | `/use [id]` | which source a bare key resolves against |
 | `/tools` | what the router exposes, and each tool's declared effect |
-| `/clear` `/quit` | clear the screen · leave (Ctrl-D also leaves) |
+| `/clear` `/exit` | clear the screen · leave (Ctrl-D also leaves) |
 | `search <query>` | every attached source, grouped |
 | `open <source:key>` | one document in full |
 | `ask <question>` | the agent — see [runtimes](#no-agent-runtime-configured) |

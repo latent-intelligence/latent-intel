@@ -148,7 +148,7 @@ def test_banner_lines_never_exceed_the_terminal() -> None:
             "0.1.0",
             ("search", "fetch", "tools"),
             "2 sources  ·  610 items",
-            hints=("/help", "/quit"),
+            hints=("/help", "/exit"),
         )
         for line in console.export_text().splitlines():
             assert len(line.rstrip()) <= width, f"width={width}: {line!r}"

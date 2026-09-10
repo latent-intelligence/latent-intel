@@ -82,7 +82,7 @@ def test_quit_and_exit_are_the_same() -> None:
     for line in ("/quit", "/exit"):
         result = parse(line)
         assert isinstance(result, Local)
-        assert result.action == "quit"
+        assert result.action == "exit"
 
 
 def test_disconnect_and_use_carry_their_argument() -> None:
@@ -155,7 +155,7 @@ def test_help_lists_every_command_without_being_written_twice() -> None:
     text = console.export_text()
 
     for name in SLASH:
-        if name == "exit":  # an alias for /quit, deliberately not listed twice
+        if name == "quit":  # an alias for /exit, deliberately not listed twice
             continue
         assert f"/{name}" in text, f"/{name} is in the grammar but not in help"
 

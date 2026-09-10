@@ -87,14 +87,14 @@ SLASH: dict[str, Spec] = {
     "model": Spec(0, 1, "/model [name]", "which model that backend uses", "agent"),
     "clear": Spec(0, 0, "/clear", "clear the screen"),
     "help": Spec(0, 1, "/help [command]", "this"),
-    "quit": Spec(0, 0, "/quit", "leave"),
     "exit": Spec(0, 0, "/exit", "leave"),
+    "quit": Spec(0, 0, "/quit", "leave"),
 }
 
 #: Bare-word verbs. Everything else is treated as a question for the agent.
 VERBS = ("search", "open", "get", "ask")
 
-ALIASES = {"exit": "quit", "get": "open"}
+ALIASES = {"quit": "exit", "get": "open"}
 
 
 def parse(
@@ -127,7 +127,7 @@ def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
     if spec is None:
         # A project's own commands are looked up after the built-ins, never before: the
         # engine's grammar is identical on every deployment, and a project cannot
-        # shadow `/quit`.
+        # shadow `/exit`.
         if procedures is not None and parts[0] in procedures:
             return Procedure(parts[0], " ".join(parts[1:]))
         close = [c for c in SLASH if c.startswith(parts[0][:2])]
@@ -144,7 +144,7 @@ def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
 
     match name:
         case (
-            "quit"
+            "exit"
             | "help"
             | "clear"
             | "tools"

@@ -66,7 +66,7 @@ def help_text(procedures: dict[str, Any] | None = None) -> str:
     """
     groups: dict[str, list[str]] = {}
     for name, spec in SLASH.items():
-        if name == "exit":  # an alias for /quit; listing both is noise
+        if name == "quit":  # an alias for /exit; listing both is noise
             continue
         groups.setdefault(spec.group, []).append(
             f"  [tool]/{name}[/]{' ' * max(1, 14 - len(name))}{escape(spec.summary)}"
@@ -162,7 +162,7 @@ async def _loop(session: Session, problems: list[str]) -> None:
         __version__,
         capabilities,
         scale,
-        hints=("/help", "/connect", "/sources", "/quit"),
+        hints=("/help", "/connect", "/sources", "/exit"),
         brand=brand,
     )
     report(problems + command_problems)
@@ -276,7 +276,7 @@ def _local(
 ) -> bool:
     """Handle a shell-side command. True means leave."""
     match local.action:
-        case "quit":
+        case "exit":
             return True
         case "clear":
             console.clear()
