@@ -125,23 +125,51 @@ def test_reads_a_published_store_without_latent_wiki(
     assert Capability.SEARCH in descriptor.capabilities
 
 
-def test_missing_manifest_names_the_fix(
+def test_an_unreadable_store_says_which_case_it_is(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An unpublished store says both ways out, and names a command that resolves.
+    """The three roots fail differently, so they must not share one message.
 
-    It used to name `latent-intel[wiki]`, which could not resolve off any checkout but
-    the authoring workspace — the tool telling the user to run something that fails.
+    A deployment hosting its store on S3 keeps no local copy by design. Telling that
+    machine its absent directory "has no manifest.json" sent it chasing a publish step
+    for something that was never there.
     """
+    _without_latent_wiki(monkeypatch, ImportError)
+
+    absent = tmp_path / "gone"
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    unpublished = tmp_path / "unpublished"
+    (unpublished / "pages").mkdir(parents=True)
+    (unpublished / "pages" / "a.md").write_text("---\ntitle: A\n---\nbody\n")
+
+    for root, expected in (
+        (absent, "does not exist"),
+        (empty, "is empty"),
+        (unpublished, "unpublished store"),
+    ):
+        with pytest.raises(ConnectError) as caught:
+            connect(root)
+        assert expected in str(caught.value), f"{root.name}: {caught.value}"
+
+
+def test_no_failure_names_a_package_the_reader_cannot_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A client reads a published store; the tool that writes one is not its business.
+
+    Naming that tool in an error is advice a client machine cannot act on, and it names
+    a package that is not published.
+    """
+    _without_latent_wiki(monkeypatch, ImportError)
     root = tmp_path / "unpublished"
     root.mkdir()
-    _without_latent_wiki(monkeypatch, ImportError)
+    (root / "pages").mkdir()
     with pytest.raises(ConnectError) as caught:
         connect(root)
     message = str(caught.value)
-    assert "lw manifest" in message
-    assert "--with ../latent-wiki" in message
-    assert "[wiki]" not in message
+    for leak in ("latent-wiki", "latent_wiki", "lw manifest", "just publish", "[wiki]"):
+        assert leak not in message, f"error names {leak}: {message}"
 
 
 def test_a_future_manifest_is_refused_not_misread(store: Path) -> None:

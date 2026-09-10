@@ -73,12 +73,11 @@ class Entry:
     def target(self, *, remote: bool = False) -> str | None:
         """What to point the connector at.
 
-        **Local when it is actually there, the mirror otherwise.** Registry paths are
-        machine-specific — a Drive path that exists on a laptop does not exist on a
+        **Local when it actually holds the store, the mirror otherwise.** Registry paths
+        are machine-specific — a Drive path that exists on a laptop does not exist on a
         build host — so preferring local unconditionally makes every entry unusable
-        anywhere else. Checking existence rather than assuming it is what lets one
-        registry serve both. `remote=True` forces the mirror, which is the deployment
-        case and also how you test that the mirror is current.
+        anywhere else. `remote=True` forces the mirror, which is the deployment case and
+        also how you test that the mirror is current.
         """
         if self.access.startswith("mcp:"):
             return self.access.split(":", 1)[1]
@@ -87,15 +86,31 @@ class Entry:
         for name in PATH_PREFERENCE:
             if name in self.paths:
                 candidate = expand(self.paths[name])
-                if "://" in candidate or Path(candidate).exists():
+                if "://" in candidate or has_content(Path(candidate)):
                     return candidate
-        # Every local path is missing — this machine does not have the store. A mirror
+        # No local path holds anything — this machine does not have the store. A mirror
         # is a better answer than "not connectable".
         return self.mirror
 
     @property
     def connectable(self) -> bool:
         return bool(self.kind and self.target())
+
+
+def has_content(path: Path) -> bool:
+    """Whether a local path actually holds something.
+
+    **Existence is not readiness.** A cloud-synced folder — OneDrive, Drive — leaves an
+    empty placeholder directory on a machine that has never pulled the data, and a
+    deployment that keeps no local copy by design has exactly that. Treating the
+    placeholder as the store made an entry resolve to an empty local path and never
+    reach the mirror it declares, which failed later and further away, as a store with
+    no manifest.
+    """
+    try:
+        return path.is_file() or (path.is_dir() and any(path.iterdir()))
+    except OSError:
+        return False
 
 
 def expand(value: str) -> str:

@@ -68,10 +68,27 @@ PAGES_DIR = "pages"
 
 _FRONTMATTER = re.compile(r"\A---\r?\n.*?\r?\n---[ \t]*\r?\n?", re.DOTALL)
 
-MISSING_MANIFEST = (
-    "{root} has no {manifest} and `latent_wiki` is not installed. "
-    "Publish the store with `lw manifest` (it is what `just publish` runs), or add the "
-    "package by path:  uv tool install . --with ../latent-wiki --reinstall"
+#: Why an unpublished store could not be read, by what is actually at the root. The
+#: three cases have different fixes, and one message for all of them sent a deployment
+#: with no local copy — the normal case for a store hosted on S3 — chasing a publish
+#: step for a directory that was never there. The remedy named is the source, not a
+#: package:
+#: a client reads a published store and never needs the tool that wrote one.
+NO_STORE = (
+    "{root} does not exist, so this machine has no copy of the store. Point the source "
+    "at a published store — a path or s3:// URL containing {manifest} — or correct its "
+    "target in the project file."
+)
+EMPTY_STORE = (
+    "{root} is empty, so this machine has no copy of the store. If it is a synced "
+    "folder the data has not arrived; otherwise point the source at a published store "
+    "— a path or s3:// URL containing {manifest} — or correct its target in the "
+    "project file."
+)
+UNPUBLISHED_STORE = (
+    "{root} has no {manifest}, so it is an unpublished store this client cannot read. "
+    "Point the source at a published copy, or publish this one with the tool that "
+    "built it."
 )
 
 
@@ -217,7 +234,7 @@ class WikiConnector:
             raise ConnectError(
                 f"{self.id}: {MANIFEST_NAME} declares manifest_version {declared}; "
                 f"this build reads {MANIFEST_VERSION} — upgrade latent-intel, or "
-                f"regenerate the store with `lw manifest`"
+                f"regenerate the store with the tool that built it"
             )
         return data
 
@@ -237,6 +254,22 @@ class WikiConnector:
             )
         return pages
 
+    def _unreadable(self) -> str:
+        """Which of the three unpublished cases this root is, as a message template.
+
+        A remote root that cannot be listed is reported as missing: an unreachable
+        `s3://` prefix and an absent directory are the same fact to the caller, and
+        guessing which would be a guess about someone else's network.
+        """
+        try:
+            if not self.root.exists():
+                return NO_STORE
+            if self.root.is_dir() and not any(self.root.iterdir()):
+                return EMPTY_STORE
+        except OSError:
+            return NO_STORE
+        return UNPUBLISHED_STORE
+
     def _load_library(self) -> None:
         """An unpublished store, through `latent-wiki` if this machine has it.
 
@@ -247,7 +280,7 @@ class WikiConnector:
             from latent_wiki.store import Store
         except ImportError:
             raise ConnectError(
-                MISSING_MANIFEST.format(root=self.root, manifest=MANIFEST_NAME)
+                self._unreadable().format(root=self.root, manifest=MANIFEST_NAME)
             ) from None
 
         from latent_wiki.errors import LatentWikiError

@@ -325,7 +325,9 @@ async def test_every_run_event_survives_json(corpus: Path) -> None:
 
 def test_unknown_registry_id_lists_what_is_known(tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "manifest.json").write_text("{}")
     (tmp_path / "b").mkdir()
+    (tmp_path / "b" / "note.md").write_text("x")
     path = tmp_path / "stores.yaml"
     path.write_text(
         f"stores:\n"
@@ -350,8 +352,17 @@ def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
     )
     assert registry.resolve("w", str(path)) == ("wiki", "s3://bucket/w")
 
-    (tmp_path / "absent").mkdir()  # now the local copy is there
-    assert registry.resolve("w", str(path)) == ("wiki", f"{tmp_path}/absent")
+    # An empty directory is a placeholder, not a store. A synced folder leaves one on a
+    # machine that never pulled the data, and a deployment that keeps no local copy by
+    # design has exactly that — it must still reach the mirror.
+    local = tmp_path / "absent"
+    local.mkdir()
+    registry.clear_cache()
+    assert registry.resolve("w", str(path)) == ("wiki", "s3://bucket/w")
+
+    (local / "manifest.json").write_text("{}")  # now the local copy is really there
+    registry.clear_cache()
+    assert registry.resolve("w", str(path)) == ("wiki", str(local))
     # …and --remote still forces the mirror, which is how you check it is current.
     assert registry.resolve("w", str(path), remote=True) == ("wiki", "s3://bucket/w")
 
