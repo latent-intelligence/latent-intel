@@ -144,8 +144,13 @@ AWS_DEFAULT_REGION=us-east-1
 `~/.config/latent-intel/.env` does the same thing machine-wide, and the project's file
 wins where both name a variable.
 
-Three properties worth knowing, because each is a decision rather than an accident:
+Four properties worth knowing, because each is a decision rather than an accident:
 
+- **Those two places, and nowhere else.** The working directory is never read, and
+  neither is the root of a checkout that happens to contain the deployment. A project
+  is named and switched, never inferred from where you stand, and an ambient `.env`
+  would bring back exactly that. `intel doctor` prints which file was loaded — or,
+  when none was, the two paths it looked in.
 - **An exported variable always beats the file.** `.env` fills gaps only, so
   `AWS_PROFILE=other intel search …` still works as a one-off. It is the same precedence
   a project's `vars:` follows.

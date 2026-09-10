@@ -61,6 +61,10 @@ AWS_DEFAULT_REGION=us-east-1
 where both set a variable, and **anything already exported beats both** — so a one-off
 `AWS_PROFILE=other intel search …` still does what you mean.
 
+Those are the only two places. The working directory and the root of a checkout are
+never read, so a `.env` left there is silently ignored — `intel doctor` shows which file
+was loaded, or the two paths it looked in when none was.
+
 Credential *values* never reach a command line: a served source is a subprocess handed
 the file's path, not its contents.
 
