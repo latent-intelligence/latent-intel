@@ -32,4 +32,7 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LATENT_INTEL_PROJECTS", str(tmp_path / "projects"))
     monkeypatch.delenv("LATENT_INTEL_PROJECT", raising=False)
     registry_module.clear_cache()
+    from latent_intel import env as env_module
+
+    env_module.reset()  # the list of loaded `.env` files is process-global
     return tmp_path

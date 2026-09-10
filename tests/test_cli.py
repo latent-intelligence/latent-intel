@@ -249,3 +249,29 @@ def test_attach_failures_are_escaped_and_shown_first() -> None:
         shared.err_console = original
 
     assert "latent-intel[wiki,s3]" in console_err.export_text()
+
+
+def test_doctor_reports_the_env_by_name_and_never_by_value(
+    isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one place a credential's presence is printed must stay safe to paste into a
+    chat. And "is my .env picked up?" needs a better answer than a failed connect."""
+    from latent_intel import env as env_module
+
+    secret = "sentinel-never-printed-9f3a"
+    home = config_module.home()
+    home.mkdir(parents=True, exist_ok=True)
+    (home / ".env").write_text(f"AWS_SECRET_ACCESS_KEY={secret}\n")
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    # `.env` is applied by the console-script entry (`main`), which `CliRunner`
+    # bypasses by invoking the app directly — so apply it the way `main` does.
+    env_module.load(None, home)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "environment" in result.stdout
+    # The console wraps long paths, so assert the fact rather than the full string.
+    assert "✓ .env" in result.stdout
+    assert "no .env" not in result.stdout
+    assert "AWS_SECRET_ACCESS_KEY" in result.stdout
+    assert secret not in result.stdout

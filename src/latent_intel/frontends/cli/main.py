@@ -10,12 +10,15 @@ scripting path, and it is also how a web client will eventually be fed.
 
 from __future__ import annotations
 
+import os
+
 import anyio
 import typer
 from rich.markup import escape
 
 from ... import __version__
 from ... import config as config_module
+from ... import env as env_module
 from ... import settings as settings_module
 from ...commands import Ask, Connect, Fetch, Find
 from ...models import SessionError
@@ -283,6 +286,34 @@ async def _doctor() -> None:
             console.print(f"  [dim]·[/] [dim]{name} — declared, not implemented[/]")
     if configured and (model := config_module.load().model_for(configured)):
         console.print(f"  [dim]model:[/] [source]{model}[/]")
+
+    # Names only, never values: this is the one place a credential's presence is
+    # reported, and it must stay safe to paste into a chat. "Is my .env picked up?"
+    # was otherwise unanswerable short of watching a connect fail.
+    console.print("\n[accent.strong]environment[/]")
+    for path in env_module.files():
+        console.print(f"  [ok]✓[/] [dim].env[/]  {escape(str(path))}")
+    if not env_module.files():
+        resolved = settings_module.load()
+        looked = [
+            directory / env_module.FILENAME
+            for directory in (
+                resolved.project.directory if resolved.project else None,
+                config_module.home(),
+            )
+            if directory is not None
+        ]
+        console.print("  [dim]no .env — looked in:[/]")
+        for path in looked:
+            console.print(f"    [dim]{escape(str(path))}[/]")
+    present = [name for name in env_module.AWS_VARIABLES if os.environ.get(name)]
+    if present:
+        console.print(f"  [dim]aws:[/] {', '.join(present)} [dim](set)[/]")
+    else:
+        console.print(
+            "  [dim]aws: nothing in the environment — botocore will try "
+            "`aws configure`, SSO, then a role[/]"
+        )
 
     async with session_scope() as (session, problems):
         console.print("\n[accent.strong]attached[/]")

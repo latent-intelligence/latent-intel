@@ -27,6 +27,17 @@ from pathlib import Path
 
 FILENAME = ".env"
 
+#: What botocore reads from the environment, for `intel doctor` to report by name.
+#: Presence only — a value is never printed anywhere.
+AWS_VARIABLES = (
+    "AWS_PROFILE",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_DEFAULT_REGION",
+    "AWS_ENDPOINT_URL",
+)
+
 #: Every file loaded this process, nearest-first. Recorded so a subprocess can be handed
 #: the same paths; see `serve.launch_spec`.
 _loaded: list[Path] = []

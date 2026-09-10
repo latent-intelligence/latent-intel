@@ -104,17 +104,40 @@ def test_the_environment_beats_a_committed_default(
     assert project.load(path).sources[0].target == "s3://deployed/li/raw"
 
 
-def test_an_unset_variable_stays_visible_rather_than_becoming_empty(
+def test_an_unset_variable_is_a_named_problem_not_a_local_path(
     tmp_path: Path,
 ) -> None:
-    """An unresolved `${VAR}` that silently became `` would produce a path like
-    `/raw` and a baffling error much later."""
+    """An unresolved `${VAR}` used to stay in the string, which the path rule then
+    joined to the project directory: `<project>/${LI_S3}/wikis/sbm`, a local path that
+    exists nowhere, reported much later as a store with no manifest. The source is
+    skipped and the variable named, so the fix is one line in `vars:` or one export."""
     path = write(
         tmp_path,
         "unset",
-        "sources:\n  - {id: d, kind: files, target: '${NOT_SET}/raw'}\n",
+        "sources:\n"
+        "  - {id: d, kind: wiki, target: '${NOT_SET}/wikis/d'}\n"
+        "  - {id: ok, kind: files, target: 's3://bucket/raw'}\n",
     )
-    assert "${NOT_SET}" in (project.load(path).sources[0].target or "")
+    loaded = project.load(path)
+    assert [s.id for s in loaded.sources] == ["ok"]
+    assert any("NOT_SET" in p and "'d'" in p for p in loaded.problems), loaded.problems
+
+
+def test_options_are_substituted_like_targets(tmp_path: Path) -> None:
+    """`context:` beside a wiki is a location too. Honouring `${LI_S3}` in `target:`
+    and passing it through literally one line below it was the quiet kind of wrong."""
+    path = write(
+        tmp_path,
+        "opts",
+        "vars: {LI_S3: 's3://bucket/li'}\n"
+        "sources:\n"
+        "  - id: w\n"
+        "    kind: wiki\n"
+        "    target: '${LI_S3}/wikis/w'\n"
+        "    options: {context: '${LI_S3}/context/w', limit: 8}\n",
+    )
+    source = project.load(path).sources[0]
+    assert source.options == {"context": "s3://bucket/li/context/w", "limit": 8}
 
 
 # -- discovery --------------------------------------------------------------

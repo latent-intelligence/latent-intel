@@ -61,6 +61,26 @@ def substitute(value: str, variables: dict[str, str]) -> str:
     return _VAR.sub(one, value)
 
 
+class UnsetVariable(LookupError):
+    """A `${NAME}` that neither `vars:` nor the environment defines."""
+
+
+def _substituted(value: str, variables: dict[str, str]) -> str:
+    """`substitute`, refusing a value it could not complete.
+
+    Leaving `${LI_S3}` in place and carrying on made a deployment whose variable was
+    missing resolve every source to `<project dir>/${LI_S3}/…` — a local path that
+    exists nowhere, reported much later as a store with no manifest. A filter that
+    silently does nothing is worse than an error, and this is the same rule.
+    """
+    expanded = substitute(value, variables)
+    if missing := _VAR.findall(expanded):
+        raise UnsetVariable(
+            f"${{{missing[0]}}} is not defined — add it under `vars:` or export it"
+        )
+    return expanded
+
+
 def _resolve(value: str, base: Path, variables: dict[str, str]) -> str:
     """A path or URI from a project file, made usable.
 
@@ -68,7 +88,7 @@ def _resolve(value: str, base: Path, variables: dict[str, str]) -> str:
     directory would corrupt it, which is the bug this codebase has now shipped four
     times in other guises.
     """
-    expanded = substitute(value, variables)
+    expanded = _substituted(value, variables)
     if "://" in expanded:
         return expanded
     path = Path(expanded).expanduser()
@@ -128,16 +148,28 @@ def load(path: Path | str) -> Project:
             problems.append(f"source '{row['id']}' names neither `from` nor `target`")
             continue
         target = row.get("target")
+        try:
+            # Resolved here rather than at attach time: the base directory is this
+            # file's, and by attach time nobody remembers where the file was. Options
+            # carry locations too (`context:` beside a wiki), so they get the same
+            # substitution — a variable honoured in `target:` and ignored one line
+            # below it is the quiet kind of wrong.
+            resolved = _resolve(str(target), base, variables) if target else None
+            options = {
+                str(k): _substituted(v, variables) if isinstance(v, str) else v
+                for k, v in (row.get("options") or {}).items()
+            }
+        except UnsetVariable as exc:
+            problems.append(f"source '{row['id']}' skipped: {exc}")
+            continue
         sources.append(
             SourceSpec(
                 id=str(row["id"]),
                 kind=str(row.get("kind") or ""),
                 from_registry=str(row["from"]) if row.get("from") else None,
-                # Resolved here rather than at attach time: the base directory is this
-                # file's, and by attach time nobody remembers where the file was.
-                target=_resolve(str(target), base, variables) if target else None,
+                target=resolved,
                 remote=bool(row.get("remote")),
-                options=dict(row.get("options") or {}),
+                options=options,
             )
         )
 
@@ -145,21 +177,29 @@ def load(path: Path | str) -> Project:
         value = raw.get(key)
         if not value:
             return None
-        resolved = Path(_resolve(str(value), base, variables))
+        try:
+            resolved = Path(_resolve(str(value), base, variables))
+        except UnsetVariable as exc:
+            problems.append(f"{key}: {exc}")
+            return None
         if not resolved.is_dir():
             problems.append(f"{key}: {resolved} is not a directory")
             return None
         return resolved
 
-    registry_value = raw.get("registry")
+    registry: str | None = None
+    if registry_value := raw.get("registry"):
+        try:
+            registry = _resolve(str(registry_value), base, variables)
+        except UnsetVariable as exc:
+            problems.append(f"registry: {exc}")
+
     return Project(
         name=name,
         path=path,
         title=str(raw.get("title") or name),
         description=str(raw.get("description") or "").strip(),
-        registry=_resolve(str(registry_value), base, variables)
-        if registry_value
-        else None,
+        registry=registry,
         variables=variables,
         sources=sources,
         branding=dict(raw.get("branding") or {}),
