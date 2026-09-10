@@ -125,15 +125,3 @@ vocabulary free to change without touching a single connector.
    Only an unpublished store needs the extra, and says so by naming both ways out.
 5. `intel search --json | parse_event` yields no `UnknownEvent` — the guarantee the web
    client will depend on, checked against live output rather than fixtures alone.
-
-## Not yet built (in order)
-
-- **Vector connector** over `latent-records`. Late and read-only: that package has no
-  tests yet.
-- **Agent runtimes** — `claude_cli` (`claude -p`, no API key), `api` (via
-  `latent-extraction`), `openrouter`. The `Runtime` Protocol and entry points ship; no
-  backend does. Note the asymmetry: with `api` and `openrouter` our tool router drives
-  the loop, while `claude_cli` owns its own and receives our connectors as an
-  `--mcp-config`. Both emit the same events; the difference stays inside `agent/`.
-- **HTTP transport** — `Command` in, `AgentEvent` out. Mechanical once it is wanted.
-- **Web workbench** — the reason for all of the above.
