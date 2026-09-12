@@ -394,7 +394,8 @@ A **runtime** is who runs the agent loop and which protocol it speaks. A **host*
 serves the endpoint — one row in that runtime's table, differing in credentials and
 model names and in nothing else.
 
-`ask` needs a backend. Two ship, and they trade the same thing in opposite directions.
+`ask` needs a backend. Three ship: one shells out to a binary that owns its own agent
+loop, and two run the turn in this process — one per wire protocol.
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
@@ -404,9 +405,11 @@ model names and in nothing else.
   credentials in the environment and the `api` extra — from a clone
   `uv tool install ".[api]"`, or
   `uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"`.
-
-A runtime over the OpenAI protocol — OpenRouter, OpenAI, Azure OpenAI, local servers —
-is the next one, and is not built yet.
+- **`openai`** runs the turn in this process over the OpenAI-compatible protocol, and
+  reaches every attached source the same way `anthropic` does. Hosts `openai` and
+  `foundry` ship; OpenRouter, classic Azure OpenAI and local servers are the next rows.
+  Same `api` extra — one install carries both SDKs — and it has **no default model**,
+  because every host names its models differently.
 
 ```
 latent › /runtime anthropic
@@ -429,6 +432,9 @@ runtimes:
     model: claude-sonnet-5
     max_tokens: 16384
     max_tool_rounds: 10      # how many model round-trips one question may take
+  openai:
+    host: foundry            # or `openai`
+    model: my-gpt-deployment # required, and a deployment name, not a catalogue id
 ```
 
 The same block may be written by a project, under `agent:` — which is how a deployment
@@ -439,6 +445,7 @@ agent:
   runtime: anthropic
   runtimes:
     anthropic: {host: foundry, model: claude-sonnet-5}
+    openai: {host: foundry, model: my-gpt-deployment}
 ```
 
 A model name is never validated here — we cannot enumerate them and a hardcoded list goes
@@ -447,32 +454,49 @@ stale. An unknown name fails when you ask, with the runtime's own message.
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
 MCP servers, so under `claude-cli` only `mcp` and `wiki` sources are visible to it —
 `files` and `vector` run in this process and have no server to point at. `intel doctor`
-marks the difference under `attached`. Under `anthropic` the distinction does not apply:
-the loop is ours, so everything attached is a tool.
+marks the difference under `attached`. Under `anthropic` and `openai` the distinction
+does not apply: the loop is ours, so everything attached is a tool.
 
-**Credentials for `anthropic`.** Names only, always in the environment, never in a config
-file.
+**Credentials for the in-process runtimes.** Names only, always in the environment,
+never in a config file.
 A project's `.env` is loaded before the runtime is built, so deployment credentials live
-there:
+there.
+
+`anthropic`:
 
 | host | needs | optional |
 |---|---|---|
 | `foundry` (default) | `ANTHROPIC_FOUNDRY_API_KEY`, and one of `ANTHROPIC_FOUNDRY_RESOURCE` / `ANTHROPIC_FOUNDRY_BASE_URL` | — |
 | `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` |
 
-`LATENT_INTEL_ANTHROPIC_HOST` selects the host when the config does not; an explicit
-`host:` beats it. `intel doctor` names exactly which variable is missing:
+`openai`:
+
+| host | needs | optional |
+|---|---|---|
+| `openai` (default) | `OPENAI_API_KEY` | `OPENAI_BASE_URL` |
+| `foundry` | `FOUNDRY_API_KEY`, and one of `FOUNDRY_RESOURCE` / `FOUNDRY_BASE_URL` | — |
+
+**One Foundry resource has one key.** A machine already reaching Foundry over the
+Anthropic protocol needs nothing more: `ANTHROPIC_FOUNDRY_API_KEY` and
+`ANTHROPIC_FOUNDRY_RESOURCE` stand in for the `FOUNDRY_*` pair wherever it is unset, and
+the reason names both. `ANTHROPIC_FOUNDRY_BASE_URL` does not stand in — it points at the
+other surface of the same resource.
+
+`LATENT_INTEL_ANTHROPIC_HOST` and `LATENT_INTEL_OPENAI_HOST` select a host when the
+config does not; an explicit `host:` beats them. `intel doctor` names exactly which
+variable is missing:
 
 ```
 runtimes
   ! anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry'
   ✓ claude-cli
+  ! openai — set OPENAI_API_KEY for host 'openai'
 ```
 
 **Foundry resolves deployment names, not dated model ids.** `claude-sonnet-5` works;
 `claude-sonnet-5-20260101` returns a 404, and the failure says so.
 
-**Approval.** Neither runtime has an interactive prompt — `claude -p` has none, and there
+**Approval.** No runtime has an interactive prompt — `claude -p` has none, and there
 is no one to ask inside a stream — so the tool list is decided up front from each tool's
 declared effect. Under `approval: ask` or `never` only non-writing tools are offered;
 under `auto`, writes are too. `ask` therefore means the cautious end until this package
