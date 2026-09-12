@@ -304,7 +304,11 @@ invariants there before a first change.
 ## Status
 
 Early, but usable. Both terminal frontends work over the `files`, `wiki` and `mcp`
-connectors, and `intel ask` runs against the `claude-cli` runtime. The vector connector,
-the `api` and `openrouter` runtimes, the HTTP transport and the web frontend are declared
-and unimplemented — `intel doctor` lists each as *declared, not implemented* rather than
-failing when you reach for one.
+connectors, and `intel ask` runs against two runtimes: `claude-cli`, which shells to the
+`claude` binary, and `anthropic`, which runs the turn in process over the Anthropic
+Messages protocol against Azure AI Foundry or the Anthropic API (the `api` extra: `uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"`). The vector
+connector, the HTTP transport and the web frontend are declared and unimplemented —
+`intel doctor` lists each as *declared, not implemented* rather than failing when you
+reach for one, and names the environment variables a runtime is missing rather than only
+saying it cannot run. A runtime over the OpenAI protocol — OpenRouter, OpenAI, Azure
+OpenAI, local servers — is the next one, and is not built yet.
