@@ -23,7 +23,13 @@ from latent_intel import registry as registry_module
 #: available in a test asserting it is not, and the failure would only appear on someone
 #: else's machine. Prefix-matched so a variable the SDK grows is covered the day it
 #: arrives.
-CREDENTIAL_PREFIXES = ("ANTHROPIC_", "LATENT_INTEL_ANTHROPIC_")
+CREDENTIAL_PREFIXES = (
+    "ANTHROPIC_",
+    "LATENT_INTEL_ANTHROPIC_",
+    "OPENAI_",
+    "FOUNDRY_",
+    "LATENT_INTEL_OPENAI_",
+)
 
 
 @pytest.fixture(autouse=True)

@@ -230,6 +230,30 @@ def test_a_field_that_is_none_is_absent_rather_than_zero() -> None:
     assert "cache_read_input_tokens" not in totals.totals(duration_ms=1)
 
 
+def test_named_counts_are_summed_the_same_way_an_sdk_object_is() -> None:
+    """A protocol that names its usage fields differently translates them and calls
+    this, so the two paths must not drift into two accumulators."""
+    totals = turn.UsageTotals()
+    totals.add_counts(input_tokens=10, output_tokens=2)
+    totals.add_counts(input_tokens=40, output_tokens=6, cache_read_input_tokens=100)
+
+    assert totals.totals(duration_ms=900) == {
+        "input_tokens": 50,
+        "output_tokens": 8,
+        "cache_read_input_tokens": 100,
+        "duration_ms": 900,
+        "num_turns": 2,
+    }
+
+
+def test_a_named_count_that_is_none_is_absent_rather_than_zero() -> None:
+    """The caller passes every field it knows about, whether the response carried one
+    or not; a zero would claim caching was in play when it was not."""
+    totals = turn.UsageTotals()
+    totals.add_counts(input_tokens=3, output_tokens=1, cache_read_input_tokens=None)
+    assert "cache_read_input_tokens" not in totals.totals(duration_ms=1)
+
+
 def test_usage_with_nothing_recorded_still_reports_the_turn() -> None:
     assert turn.UsageTotals().totals(duration_ms=5) == {
         "duration_ms": 5,

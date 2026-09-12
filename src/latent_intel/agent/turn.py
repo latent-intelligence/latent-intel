@@ -170,12 +170,18 @@ class UsageTotals:
         self.rounds = 0
 
     def add(self, usage: Any) -> None:
-        """One round. A field that is absent or None is skipped rather than counted as
-        zero — cache fields are None when caching was not in play, and a zero would
-        claim it was."""
+        """One round, from an SDK object whose fields are already named `USAGE_KEYS`."""
+        self.add_counts(**{key: getattr(usage, key, None) for key in USAGE_KEYS})
+
+    def add_counts(self, **counts: int | None) -> None:
+        """One round, from named integers — what a protocol naming its usage fields
+        differently has after translating them.
+
+        A count that is absent or None is skipped rather than counted as zero: cache
+        fields are None when caching was not in play, and a zero would claim it was.
+        """
         self.rounds += 1
-        for key in USAGE_KEYS:
-            value = getattr(usage, key, None)
+        for key, value in counts.items():
             if isinstance(value, int):
                 self._tokens[key] = self._tokens.get(key, 0) + value
 

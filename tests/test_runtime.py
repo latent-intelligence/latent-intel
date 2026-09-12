@@ -61,11 +61,12 @@ def test_an_unknown_kind_names_what_is_installed() -> None:
         agent.build("telepathy")
 
 
-def test_the_anthropic_runtime_loads_even_where_it_cannot_run() -> None:
-    """Absent and unusable are different states. `anthropic` imports its SDK inside a
-    turn, so it is listed — with a reason — on a machine with no credentials, rather
-    than vanishing and taking the diagnosis with it."""
+def test_the_in_process_runtimes_load_even_where_they_cannot_run() -> None:
+    """Absent and unusable are different states. Both import their SDK inside a turn,
+    so each is listed — with a reason — on a machine with no credentials, rather than
+    vanishing and taking the diagnosis with it."""
     assert "anthropic" in agent.available_kinds()
+    assert "openai" in agent.available_kinds()
 
 
 # -- argv, as a pure function -----------------------------------------------

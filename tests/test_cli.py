@@ -177,6 +177,8 @@ def test_doctor_names_the_variables_a_runtime_is_missing() -> None:
     assert result.exit_code == 0
     assert "anthropic" in result.stdout
     assert "ANTHROPIC_FOUNDRY_API_KEY" in result.stdout
+    assert "openai" in result.stdout
+    assert "OPENAI_API_KEY" in result.stdout
 
 
 def test_connect_records_the_source_and_search_finds_it(tmp_path: Path) -> None:

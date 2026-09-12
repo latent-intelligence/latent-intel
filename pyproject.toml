@@ -42,11 +42,14 @@ dependencies = [
 #
 # Reading a published store never needed it. See `connectors/wiki.py`.
 api = [
-    # The Anthropic SDK, which ships `AnthropicFoundry` alongside `Anthropic`. An extra
-    # rather than a base dependency: a base install reads a published wiki and answers
-    # through `claude-cli` without ever importing it, and `anthropic.py` imports it
-    # lazily so the absence is a missing runtime rather than a start-up failure.
+    # One extra installs every in-process runtime's SDK: `anthropic` ships
+    # `AnthropicFoundry` alongside `Anthropic`, and `openai` reaches every
+    # OpenAI-compatible host. An extra rather than a base dependency: a base install
+    # reads a published wiki and answers through `claude-cli` without ever importing
+    # either, and each runtime module imports its SDK lazily so the absence is a
+    # missing runtime rather than a start-up failure.
     "anthropic>=0.87",
+    "openai>=1.60",
 ]
 dev = [
     "pytest>=8.0",
@@ -78,6 +81,7 @@ vector = "latent_intel.connectors.vector:VectorConnector"
 [project.entry-points."latent_intel.runtimes"]
 claude-cli = "latent_intel.agent.runtimes.claude_cli:ClaudeCliRuntime"
 anthropic = "latent_intel.agent.runtimes.anthropic:AnthropicRuntime"
+openai = "latent_intel.agent.runtimes.openai:OpenAIRuntime"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/latent_intel"]
