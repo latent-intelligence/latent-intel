@@ -76,8 +76,9 @@ class Round:
     """One round-trip: what streams, how it finishes, or what it raises."""
 
     text: tuple[str, ...] = ()
-    #: `(id, name, argument fragments)` per call, in the order they stream.
-    tool_calls: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    #: `(id, name, argument fragments)` per call, in the order they stream. The id is
+    #: optional because some hosts omit it, which is a case the runtime has to survive.
+    tool_calls: tuple[tuple[str | None, str, tuple[str, ...]], ...] = ()
     finish_reason: str | None = "stop"
     usage: Usage | None = field(
         default_factory=lambda: Usage(prompt_tokens=1, completion_tokens=1)

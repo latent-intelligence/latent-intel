@@ -74,6 +74,41 @@ def offered(tools: Sequence[ToolSpec], approval: str) -> list[ToolSpec]:
     ]
 
 
+class ToolNameCollision(ValueError):
+    """Two attached tools fold to the same wire name.
+
+    Raised rather than resolved: the definitions list would carry a duplicate name,
+    which the API rejects with a 400, and the lookup a runtime keeps would silently
+    route every call to whichever spec was folded last. Neither failure names the two
+    sources that collided, and this one does.
+    """
+
+
+def wired(
+    tools: Sequence[ToolSpec], approval: str
+) -> list[tuple[str, ToolSpec]]:
+    """The tools this turn offers, each paired with the name it goes out under.
+
+    The one place `offered` and `wire_name` are composed, so both runtimes get the
+    collision check rather than one of them growing it later. `wire_name` is not
+    invertible — a dot, a space and any other unsafe character all fold to `_` — so
+    `my wiki`/`search` and `my_wiki`/`search` arrive here as one name.
+    """
+    pairs: list[tuple[str, ToolSpec]] = []
+    taken: dict[str, ToolSpec] = {}
+    for spec in offered(tools, approval):
+        name = wire_name(spec)
+        first = taken.get(name)
+        if first is not None:
+            raise ToolNameCollision(
+                f"'{first.qualified}' and '{spec.qualified}' are both offered to the "
+                f"model as '{name}' — attach one of them under a different id"
+            )
+        taken[name] = spec
+        pairs.append((name, spec))
+    return pairs
+
+
 def input_schema(spec: ToolSpec) -> dict[str, Any]:
     """A tool's parameters, as a schema the API will accept.
 
@@ -192,6 +227,7 @@ class UsageTotals:
 
 __all__ = [
     "USAGE_KEYS",
+    "ToolNameCollision",
     "ToolRouter",
     "UsageTotals",
     "dispatch",
@@ -199,4 +235,5 @@ __all__ = [
     "offered",
     "system_prompt",
     "wire_name",
+    "wired",
 ]

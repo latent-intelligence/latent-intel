@@ -257,7 +257,10 @@ class Session:
         status: dict[str, str | None] = {}
         for name, cls in agent.available_kinds().items():
             try:
-                runtime = cls()
+                # Built the way `_resolve_runtime` builds it, or `doctor` diagnoses a
+                # different object than the one that answers: a configured model, host
+                # or key would all be invisible here and the verdict wrong with them.
+                runtime = cls(**Session._runtime_options(name))
                 if runtime.available():
                     status[name] = None
                     continue
@@ -312,7 +315,10 @@ class Session:
         missing: the file says it is on.
         """
         resolved = settings_module.load()
-        return {"approval": resolved.approval, **resolved.runtime_options(kind)}
+        # `approval` last: it is resolved across all three layers, and a copy nested
+        # under `runtimes:<kind>:` would otherwise override the resolved one from the
+        # layer beneath it. `settings.load()` reports that key rather than honouring it.
+        return {**resolved.runtime_options(kind), "approval": resolved.approval}
 
     def mcp_servers(self) -> dict[str, dict[str, Any]]:
         """Connected sources a subprocess agent can reach, as an `mcpServers` block.

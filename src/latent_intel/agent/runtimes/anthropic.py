@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ... import events as ev
-from ...models import Message, ToolSpec
+from ...models import Message, RuntimeUnavailable, ToolSpec
 from .. import turn
 
 
@@ -56,7 +56,8 @@ class Host:
     client: str
     #: The credential variable. Its *name* is reported when authentication fails.
     key: str
-    #: Where the endpoint lives. Any one of these is enough.
+    #: Where the endpoint lives. Any one of these is enough, and where there is more
+    #: than one, exactly one: the SDK refuses a client given both.
     endpoint: tuple[str, ...]
     #: Whether one of `endpoint` must be set for the client to be constructible at all,
     #: or whether the SDK has a default and these are only overrides.
@@ -138,8 +139,16 @@ class AnthropicRuntime:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
         client_factory: Callable[[], Any] | None = None,
-        **_: Any,
+        **unknown: Any,
     ) -> None:
+        # Rejected, not ignored: a key this runtime never reads is a setting the file
+        # says is on and nothing honours — a typo in `model:` is the common case, and
+        # it used to build a runtime silently running on the default.
+        if unknown:
+            raise RuntimeUnavailable(
+                f"unknown option(s) for runtime '{self.id}': "
+                f"{', '.join(sorted(unknown))} — see `runtimes: {self.id}:` in config"
+            )
         self.model = model or DEFAULT_MODEL
         #: Option beats environment beats default. The environment is how one machine
         #: runs against Foundry and another against the public API with the same
@@ -180,6 +189,15 @@ class AnthropicRuntime:
             missing.append(" or ".join(host.endpoint))
         if missing:
             return f"set {', '.join(missing)} for host '{self.host}'"
+        # The SDK raises `base_url and resource are mutually exclusive` when a host
+        # takes both, so reporting ✓ here would move the failure to the first question
+        # and strip the variable names off it on the way.
+        conflicting = [name for name in host.endpoint if os.environ.get(name)]
+        if len(host.endpoint) > 1 and len(conflicting) > 1:
+            return (
+                f"set only one of {', '.join(conflicting)} for host "
+                f"'{self.host}' — both are set"
+            )
         return None
 
     # -- one turn -------------------------------------------------------------
@@ -285,24 +303,29 @@ class AnthropicRuntime:
         call_tool = options.get("call_tool")
         sources = options.get("sources") or []
 
-        offered = [
-            (turn.wire_name(spec), spec)
-            for spec in turn.offered(tools, self.approval)
-        ]
-        by_name = dict(offered)
+        # Raises on a wire-name collision, before a client exists and before anything
+        # is sent; `stream` turns it into the one terminal event this turn gets.
+        wired = turn.wired(tools, self.approval)
+        by_name = dict(wired)
         definitions = [
             {
                 "name": name,
                 "description": spec.description,
                 "input_schema": turn.input_schema(spec),
             }
-            for name, spec in offered
+            for name, spec in wired
         ]
         system = turn.system_prompt(sources)
         # Text only. A prior turn's tool blocks are not replayed: they refer to
         # `tool_use_id`s from a request this one never made.
+        #
+        # An empty one is dropped rather than sent: the API rejects a non-final
+        # assistant message with empty content, so one turn that completed with no text
+        # would fail every later question in the session.
         transcript: list[dict[str, Any]] = [
-            {"role": message.role, "content": message.text} for message in messages
+            {"role": message.role, "content": message.text}
+            for message in messages
+            if message.text.strip()
         ]
         usage = turn.UsageTotals()
         began = time.monotonic()
@@ -378,12 +401,24 @@ class AnthropicRuntime:
                     continue  # a long-running turn the API asks us to resume
 
                 elapsed = int((time.monotonic() - began) * 1000)
-                if stop is None or stop in _STOP_DONE:
+                if stop in _STOP_DONE:
                     yield emitter.emit(
                         ev.AgentCompleted,
                         text="".join(answer),
                         streamed=True,
                         usage=usage.totals(elapsed),
+                    )
+                    return
+
+                # No stop reason at all is a stream that was cut — by a proxy, by a
+                # host that ended the response early — and calling it success reports
+                # whatever arrived before the cut as the whole answer.
+                if stop is None:
+                    yield emitter.emit(
+                        ev.AgentFailed,
+                        message="the stream ended without a stop reason",
+                        kind="unexpected_stop",
+                        remedy="ask again",
                     )
                     return
 

@@ -36,7 +36,7 @@ from ... import events as ev
 from ... import procedures as procedures_module
 from ... import settings as settings_module
 from ...commands import Command, Connect
-from ...models import Descriptor
+from ...models import Descriptor, RuntimeUnavailable
 from ...session import Session
 from ...ui import banner
 from ...ui import render as render_module
@@ -377,7 +377,14 @@ def _runtime(session: Session, name: str) -> None:
         )
         return
 
-    session.set_runtime(name)
+    try:
+        session.set_runtime(name)
+    except RuntimeUnavailable as exc:
+        # Building a runtime can now refuse — an option it does not know is rejected
+        # rather than ignored — and a traceback in a REPL is not a diagnosis. Nothing
+        # is persisted, because the config as written is what was refused.
+        console.print(f"[fail]✗[/] {escape(str(exc))}")
+        return
     settings = config_module.load()
     settings.runtime = name
     config_module.save(settings)

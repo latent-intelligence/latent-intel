@@ -69,6 +69,17 @@ def test_the_in_process_runtimes_load_even_where_they_cannot_run() -> None:
     assert "openai" in agent.available_kinds()
 
 
+def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
+    """Ignoring it honoured a file that says the setting is on — a misspelled `model:`
+    launched the binary on its own default. `agent.build` propagates the refusal, so
+    `/runtime` and `doctor` both report it where it was typed."""
+    with pytest.raises(RuntimeUnavailable) as caught:
+        agent.build("claude-cli", model="m", nonsense=1, hsot="foundry")
+    message = str(caught.value)
+    assert "hsot" in message and "nonsense" in message
+    assert "runtimes: claude-cli:" in message
+
+
 # -- argv, as a pure function -----------------------------------------------
 
 

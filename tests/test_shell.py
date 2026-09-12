@@ -186,6 +186,32 @@ def test_a_project_command_appears_in_help_with_brackets_intact() -> None:
     assert "[topic]" in text
 
 
+def test_a_runtime_option_this_build_rejects_prints_rather_than_tracebacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Building a runtime now refuses an option it does not know, and `/runtime` is
+    where a typo in one is typed. A traceback in a REPL is not a diagnosis, and nothing
+    is persisted, because the config as written is what was refused."""
+    from rich.console import Console
+
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+    from latent_intel.ui.theme import THEME
+
+    config = config_module.load()
+    config.runtimes = {"claude-cli": {"modle": "opus"}}
+    config_module.save(config)
+
+    console = Console(theme=THEME, width=100, record=True)
+    monkeypatch.setattr(repl, "console", console)
+    repl._runtime(Session(), "claude-cli")
+
+    text = console.export_text()
+    assert "modle" in text
+    assert config_module.load().runtime is None
+
+
 def test_completion_offers_every_slash_command() -> None:
     """The completion list is derived, not hand-maintained.
 

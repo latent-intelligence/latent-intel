@@ -47,7 +47,7 @@ import anyio
 from anyio.abc import Process
 
 from ... import events as ev
-from ...models import Effect, Message, ToolSpec
+from ...models import Effect, Message, RuntimeUnavailable, ToolSpec
 from .. import turn
 
 #: Usage keys that are integers in claude's payload. Everything else there is a nested
@@ -212,8 +212,16 @@ class ClaudeCliRuntime:
         command: str | Sequence[str] = "claude",
         approval: str = "ask",
         cwd: str | None = None,
-        **_: Any,
+        **unknown: Any,
     ) -> None:
+        # Rejected, not ignored: a key this runtime never reads is a setting the file
+        # says is on and nothing honours, and the most likely one is a misspelling of
+        # a key that would have changed how the binary is launched.
+        if unknown:
+            raise RuntimeUnavailable(
+                f"unknown option(s) for runtime '{self.id}': "
+                f"{', '.join(sorted(unknown))} — see `runtimes: {self.id}:` in config"
+            )
         self.model = model
         #: A string is split; a sequence is taken as-is, so a test can point at a fake
         #: interpreter without touching PATH.

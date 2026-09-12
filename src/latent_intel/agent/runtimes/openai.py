@@ -50,7 +50,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ... import events as ev
-from ...models import Message, ToolSpec
+from ...models import Message, RuntimeUnavailable, ToolSpec
 from .. import turn
 
 
@@ -69,6 +69,7 @@ class Host:
     key: str
     #: Where the endpoint lives, resource first and full base URL last. Any one of
     #: these is enough, and `resource_url` says how the first becomes the second.
+    #: Setting two is reported rather than ranked silently — see `unavailable_reason`.
     endpoint: tuple[str, ...]
     #: Whether one of `endpoint` must be set for the client to be constructible at all,
     #: or whether the SDK has a default and these are only overrides.
@@ -189,8 +190,16 @@ class OpenAIRuntime:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
         client_factory: Callable[[], Any] | None = None,
-        **_: Any,
+        **unknown: Any,
     ) -> None:
+        # Rejected, not ignored: a key this runtime never reads is a setting the file
+        # says is on and nothing honours — a typo in `model:` is the common case, and
+        # it used to build a runtime that then reported no model was set at all.
+        if unknown:
+            raise RuntimeUnavailable(
+                f"unknown option(s) for runtime '{self.id}': "
+                f"{', '.join(sorted(unknown))} — see `runtimes: {self.id}:` in config"
+            )
         self.model = model or ""
         #: Option beats environment beats default. The environment is how one machine
         #: runs against Foundry and another against the public API with the same
@@ -230,6 +239,15 @@ class OpenAIRuntime:
             missing.append(" or ".join(_named(name, host) for name in host.endpoint))
         if missing:
             return f"set {', '.join(missing)} for host '{self.host}'"
+        # `base_url` prefers the resource and would quietly ignore the other, which is
+        # the same ambiguity the Anthropic SDK refuses outright. Reported for the same
+        # reason it is there: one of the two is not doing what whoever set it thinks.
+        conflicting = [name for name in host.endpoint if os.environ.get(name)]
+        if len(host.endpoint) > 1 and len(conflicting) > 1:
+            return (
+                f"set only one of {', '.join(conflicting)} for host "
+                f"'{self.host}' — both are set"
+            )
         if not self.model:
             return (
                 "no model is set — set `model:` under `runtimes: openai:`, because "
@@ -344,11 +362,10 @@ class OpenAIRuntime:
         sources = options.get("sources") or []
         host = HOSTS[self.host]
 
-        offered = [
-            (turn.wire_name(spec), spec)
-            for spec in turn.offered(tools, self.approval)
-        ]
-        by_name = dict(offered)
+        # Raises on a wire-name collision, before a client exists and before anything
+        # is sent; `stream` turns it into the one terminal event this turn gets.
+        wired = turn.wired(tools, self.approval)
+        by_name = dict(wired)
         definitions = [
             {
                 "type": "function",
@@ -358,7 +375,7 @@ class OpenAIRuntime:
                     "parameters": turn.input_schema(spec),
                 },
             }
-            for name, spec in offered
+            for name, spec in wired
         ]
         system = turn.system_prompt(sources)
         # The system prompt is a message here rather than a parameter, and it is first:
@@ -368,8 +385,14 @@ class OpenAIRuntime:
             transcript.append({"role": "system", "content": system})
         # Text only. A prior turn's tool messages are not replayed: they refer to
         # `tool_call_id`s from a request this one never made.
+        #
+        # An empty one is dropped rather than sent: a turn that completed with no text
+        # records an empty assistant message, and a host that rejects one would fail
+        # every later question in the session over a turn that already ended.
         transcript += [
-            {"role": message.role, "content": message.text} for message in messages
+            {"role": message.role, "content": message.text}
+            for message in messages
+            if message.text.strip()
         ]
         usage = turn.UsageTotals()
         began = time.monotonic()
@@ -450,6 +473,13 @@ class OpenAIRuntime:
                 # Counted after the stream rather than on the usage chunk, so a host
                 # that sends none still contributes a round to `num_turns`.
                 usage.add_counts(**counts)
+                # Some local servers stream a call with no id at all. The id is only
+                # ever a key tying the `tool` message back to the assistant's call, so
+                # one is synthesised from the index and used in both places rather than
+                # sending `""` twice and hoping the host matches them.
+                for index in sorted(calls):
+                    if not calls[index]["id"]:
+                        calls[index]["id"] = f"call_{index}"
                 assistant: dict[str, Any] = {
                     "role": "assistant",
                     "content": "".join(said) or None,
@@ -468,9 +498,31 @@ class OpenAIRuntime:
                     ]
                 transcript.append(assistant)
 
-                # The reason is checked as well as the calls: a host that streams tool
-                # calls and then says `stop` still asked for them.
-                if calls or finish == "tool_calls":
+                # Before any dispatch: a call truncated by the output limit arrives as
+                # unparseable JSON, and dispatching it would report the model's own
+                # broken fragment as a failed tool and burn the round bound retrying.
+                if finish is not None and finish in _STOP_FAILURES:
+                    kind, message, remedy = _STOP_FAILURES[finish]
+                    yield emitter.emit(
+                        ev.AgentFailed, message=message, kind=kind, remedy=remedy
+                    )
+                    return
+
+                # A finish reason asking for tools with nothing reassembled is not a
+                # turn to continue: the next round would send an assistant message with
+                # neither content nor calls and get the same answer again.
+                if finish == "tool_calls" and not calls:
+                    yield emitter.emit(
+                        ev.AgentFailed,
+                        message="the model asked for tools but sent no calls",
+                        kind="unexpected_stop",
+                        remedy="ask again",
+                    )
+                    return
+
+                # The calls decide, not the reason: a host that streams tool calls and
+                # then says `stop` still asked for them.
+                if calls:
                     for index in sorted(calls):
                         call = calls[index]
                         spec = by_name.get(call["name"])
@@ -498,7 +550,7 @@ class OpenAIRuntime:
                     continue
 
                 elapsed = int((time.monotonic() - began) * 1000)
-                if finish is None or finish in _STOP_DONE:
+                if finish in _STOP_DONE:
                     yield emitter.emit(
                         ev.AgentCompleted,
                         text="".join(answer),
@@ -507,11 +559,23 @@ class OpenAIRuntime:
                     )
                     return
 
-                kind, message, remedy = _STOP_FAILURES.get(
-                    finish, ("unexpected_stop", f"the model stopped: {finish}", "")
-                )
+                # No finish reason at all is a stream that was cut — by a proxy, by a
+                # host that ended the response early — and calling it success reports
+                # whatever arrived before the cut as the whole answer.
+                if finish is None:
+                    yield emitter.emit(
+                        ev.AgentFailed,
+                        message="the stream ended without a stop reason",
+                        kind="unexpected_stop",
+                        remedy="ask again",
+                    )
+                    return
+
                 yield emitter.emit(
-                    ev.AgentFailed, message=message, kind=kind, remedy=remedy
+                    ev.AgentFailed,
+                    message=f"the model stopped: {finish}",
+                    kind="unexpected_stop",
+                    remedy="",
                 )
                 return
 

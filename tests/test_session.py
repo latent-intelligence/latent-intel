@@ -673,6 +673,91 @@ def test_the_approval_setting_reaches_the_runtime_that_gates_on_it(
     assert session._runtime.approval == "auto"  # type: ignore[attr-defined]
 
 
+def test_a_runtime_is_diagnosed_as_it_is_built_not_bare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`doctor` built every runtime with no arguments, so it diagnosed a different
+    object than the one that answers: a configured model read as missing and a
+    configured host never evaluated at all."""
+    monkeypatch.setenv("FOUNDRY_API_KEY", "k")
+    monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: openai\n"
+        "  runtimes:\n"
+        "    openai: {model: gpt-5-deployment, host: foundry}\n",
+    )
+    assert Session.runtime_status()["openai"] is None
+
+
+def test_the_reason_a_runtime_cannot_run_is_the_configured_host_s(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The variables a bare `openai` wants are the public API's. A deployment on
+    Foundry that read `OPENAI_API_KEY` here would export the wrong one and see no
+    change."""
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: openai\n"
+        "  runtimes:\n"
+        "    openai: {model: gpt-5-deployment, host: foundry}\n",
+    )
+    reason = Session.runtime_status()["openai"]
+    assert reason is not None
+    assert "FOUNDRY_API_KEY" in reason
+    assert "OPENAI_API_KEY" not in reason
+
+
+def test_a_runtime_option_this_build_does_not_know_is_reported_not_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal a rejected option raises is a diagnosis, so it becomes the status
+    string rather than taking `doctor` down with it."""
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: openai\n"
+        "  runtimes:\n"
+        "    openai: {modle: gpt-5-deployment}\n",
+    )
+    reason = Session.runtime_status()["openai"]
+    assert reason is not None and "modle" in reason
+
+
+def test_approval_nested_under_a_runtime_never_overrides_the_resolved_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Approval is resolved across all three layers and belongs to the session. A copy
+    nested under one runtime used to win over the layer beneath it, so a user who chose
+    `never` got whatever the project had written — and was told nothing."""
+    from latent_intel import config as config_module
+    from latent_intel import settings as settings_module
+
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: anthropic\n"
+        "  runtimes:\n"
+        "    anthropic: {approval: auto}\n",
+    )
+    config = config_module.load()
+    config.approval = "never"
+    config_module.save(config)
+
+    session = Session()
+    session.set_runtime("anthropic")
+    assert session._runtime is not None
+    assert session._runtime.approval == "never"  # type: ignore[attr-defined]
+    problems = settings_module.load().problems
+    assert any("runtimes:anthropic" in problem for problem in problems)
+
+
 def test_runtime_status_names_the_reason_rather_than_only_the_verdict() -> None:
     """`runtime_kinds` derives from this, so the two cannot disagree."""
     status = Session.runtime_status()

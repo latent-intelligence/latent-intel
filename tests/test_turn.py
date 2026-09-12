@@ -73,6 +73,56 @@ def test_a_very_long_qualified_name_is_cut_to_the_limit() -> None:
 # -- the input schema -------------------------------------------------------
 
 
+# -- what goes out, and what may not ----------------------------------------
+
+
+def test_the_offered_tools_come_back_paired_with_the_names_they_go_out_under() -> None:
+    """One composition of `offered` and `wire_name`, so both runtimes gate and fold
+    identically rather than each doing half of it."""
+    tools = [
+        ToolSpec(name="search", source_id="my wiki", effect=Effect.EXTERNAL_READ),
+        ToolSpec(name="get", source_id="files", effect=Effect.EXTERNAL_READ),
+    ]
+    assert turn.wired(tools, "ask") == [
+        ("my_wiki_search", tools[0]),
+        ("files_get", tools[1]),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (("my wiki", "search"), ("my_wiki", "search")),
+        (("my", "wiki_search"), ("my_wiki", "search")),
+    ],
+)
+def test_two_tools_that_fold_to_one_wire_name_are_refused_by_name(
+    first: tuple[str, str], second: tuple[str, str]
+) -> None:
+    """Folding is not invertible, so the duplicate would reach the API as a 400 and the
+    runtime's own lookup would route every call to whichever spec folded last. Both
+    qualified names are in the message because neither one alone says what to change."""
+    tools = [
+        ToolSpec(name=first[1], source_id=first[0], effect=Effect.EXTERNAL_READ),
+        ToolSpec(name=second[1], source_id=second[0], effect=Effect.EXTERNAL_READ),
+    ]
+    with pytest.raises(turn.ToolNameCollision) as caught:
+        turn.wired(tools, "ask")
+    message = str(caught.value)
+    assert tools[0].qualified in message and tools[1].qualified in message
+    assert "my_wiki_search" in message
+    assert "different id" in message
+
+
+def test_a_tool_withheld_by_the_gate_cannot_collide_with_one_that_is_offered() -> None:
+    """The gate runs first, so a write that is never offered is not a name in use."""
+    tools = [
+        ToolSpec(name="search", source_id="my wiki", effect=Effect.LOCAL_WRITE),
+        ToolSpec(name="search", source_id="my_wiki", effect=Effect.EXTERNAL_READ),
+    ]
+    assert [name for name, _ in turn.wired(tools, "ask")] == ["my_wiki_search"]
+
+
 def test_a_tool_that_declares_no_parameters_still_gets_an_object_schema() -> None:
     """`ToolSpec.input_schema` defaults to `{}`, which is a legal Python default and an
     illegal tool definition."""

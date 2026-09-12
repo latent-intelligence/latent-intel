@@ -309,7 +309,7 @@ connectors, and `intel ask` runs against three runtimes: `claude-cli`, which she
 vendor's own API — `anthropic` over the Anthropic Messages protocol and `openai` over the
 OpenAI-compatible one (the `api` extra installs both SDKs: `uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"`). The vector
 connector, the HTTP transport and the web frontend are declared and unimplemented —
-`intel doctor` lists each as *declared, not implemented* rather than failing when you
-reach for one, and names the environment variables a runtime is missing rather than only
-saying it cannot run. OpenRouter, classic Azure OpenAI and local servers are host rows on
+`intel doctor` lists every installed runtime with the reason it cannot run here, naming
+the environment variables it is missing rather than only saying it cannot run, and flags
+a configured runtime that is not installed at all. OpenRouter, classic Azure OpenAI and local servers are host rows on
 the `openai` runtime, and are next.

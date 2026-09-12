@@ -24,7 +24,7 @@ from latent_intel.agent.runtimes.openai import (
     OpenAIRuntime,
     base_url,
 )
-from latent_intel.models import Effect, Message, ToolSpec
+from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
 from tests.fixtures.fake_openai import (
     FakeClient,
     PromptTokensDetails,
@@ -191,10 +191,31 @@ def test_host_selection_is_option_then_environment_then_default(
     assert OpenAIRuntime(host="openai").host == "openai"
 
 
-def test_a_config_key_this_runtime_does_not_know_is_ignored() -> None:
-    """A project may carry options for a runtime it is not currently using; a
-    TypeError from a stale key would take the whole session down."""
-    assert OpenAIRuntime(model="m", nonsense=1, cwd="/tmp").model == "m"
+def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
+    """Ignoring it honoured a file that says the setting is on — `modle:` built a
+    runtime that then reported no model was set at all. The keys are named because the
+    remedy is to fix or delete them, and a generic refusal says which file to open but
+    not which line."""
+    with pytest.raises(RuntimeUnavailable) as caught:
+        OpenAIRuntime(model="m", nonsense=1, cwd="/tmp")
+    message = str(caught.value)
+    assert "cwd" in message and "nonsense" in message
+    assert "runtimes: openai:" in message
+
+
+def test_both_endpoint_variables_at_once_are_reported_rather_than_silently_ranked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`base_url` prefers the resource, so the other one is doing nothing while the
+    file says it is the endpoint. The Anthropic SDK refuses the same pair outright, and
+    a runtime that disagreed with its sibling about this would be the worse answer."""
+    monkeypatch.setenv("FOUNDRY_API_KEY", "k")
+    monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
+    monkeypatch.setenv("FOUNDRY_BASE_URL", "https://example/openai/v1")
+    reason = OpenAIRuntime(host="foundry", model="m").unavailable_reason()
+    assert reason is not None
+    assert "FOUNDRY_RESOURCE" in reason and "FOUNDRY_BASE_URL" in reason
+    assert "only one" in reason
 
 
 # -- the ordinary turn ------------------------------------------------------
@@ -540,6 +561,123 @@ async def test_a_finish_reason_this_build_does_not_know_is_not_a_success(
     failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "unexpected_stop" and "something_new" in failed.message
+
+
+@pytest.mark.anyio
+async def test_a_call_truncated_by_the_output_limit_is_never_dispatched(
+    credentials: None,
+) -> None:
+    """`length` cuts the arguments mid-JSON. Dispatching that reported the model's own
+    broken fragment as a failed tool and spent the round bound retrying it, while the
+    real reason — the output limit — was never said at all."""
+    client = FakeClient(
+        Round(
+            tool_calls=(("c1", "design_wiki_get", ('{"ref": "wi',)),),
+            finish_reason="length",
+        )
+    )
+    events = await collect(
+        runtime(client_factory=client), [spec("wiki_get")], call_tool=_router
+    )
+    failed = terminal(events)
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "max_tokens"
+    assert not [e for e in events if isinstance(e, ev.ToolStarted)]
+
+
+@pytest.mark.anyio
+async def test_asking_for_tools_and_sending_none_ends_the_turn(
+    credentials: None,
+) -> None:
+    """The next round would send an assistant message with neither content nor calls
+    and get the same answer back, until the round bound stopped it."""
+    client = FakeClient(Round(finish_reason="tool_calls"))
+    failed = terminal(await collect(runtime(client_factory=client)))
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "unexpected_stop"
+    assert "no calls" in failed.message
+
+
+@pytest.mark.anyio
+async def test_a_call_with_no_id_is_given_one_that_both_messages_share(
+    credentials: None,
+) -> None:
+    """Some local servers omit the id. It is only ever a key tying the `tool` message
+    back to the assistant's call, and sending `""` twice left the host to guess."""
+    client = FakeClient(
+        Round(
+            tool_calls=((None, "design_wiki_get", ('{"ref": "wiki:compaction"}',)),),
+            finish_reason="tool_calls",
+        ),
+        Round(text=("done.",)),
+    )
+    events = await collect(
+        runtime(client_factory=client), [spec("wiki_get")], call_tool=_router
+    )
+    assert isinstance(terminal(events), ev.AgentCompleted)
+    sent = client.requests[1]["messages"]
+    assistant = next(m for m in sent if m.get("tool_calls"))
+    answer = next(m for m in sent if m["role"] == "tool")
+    assert assistant["tool_calls"][0]["id"] == "call_0"
+    assert answer["tool_call_id"] == "call_0"
+
+
+@pytest.mark.anyio
+async def test_a_stream_that_ends_with_no_finish_reason_is_not_an_answer(
+    credentials: None,
+) -> None:
+    """A response cut by a proxy ends with no finish reason, and treating that as
+    success reported whatever arrived before the cut as the whole answer."""
+    client = FakeClient(Round(text=("Compaction is",), finish_reason=None))
+    events = await collect(runtime(client_factory=client))
+    failed = terminal(events)
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "unexpected_stop"
+    assert "without a stop reason" in failed.message
+    assert not [e for e in events if isinstance(e, ev.AgentCompleted)]
+
+
+@pytest.mark.anyio
+async def test_two_tools_that_fold_to_one_name_end_the_turn_before_a_request(
+    credentials: None,
+) -> None:
+    """A duplicate name in the definitions list is a 400 from the API. Refused here, so
+    the message names both tools rather than one wire name."""
+    client = FakeClient(Round(text=("unused",)))
+    tools = [
+        ToolSpec(name="search", source_id="my wiki", effect=Effect.EXTERNAL_READ),
+        ToolSpec(name="search", source_id="my_wiki", effect=Effect.EXTERNAL_READ),
+    ]
+    failed = terminal(await collect(runtime(client_factory=client), tools))
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "runtime_error"
+    assert "my wiki.search" in failed.message
+    assert "my_wiki.search" in failed.message
+    assert client.requests == []
+
+
+@pytest.mark.anyio
+async def test_an_empty_earlier_answer_is_never_sent_back(
+    credentials: None,
+) -> None:
+    """A turn that completed with no text records an empty assistant message, and a
+    host that rejects one would fail every later question in that session over a turn
+    that had already ended."""
+    client = FakeClient(Round(text=("here it is.",)))
+    history = [
+        Message(role="user", text="a"),
+        Message(role="assistant", text=""),
+        Message(role="user", text="b"),
+    ]
+    events = [
+        event
+        async for event in runtime(client_factory=client).stream(
+            history, [], emitter=ev.Emitter(uuid4())
+        )
+    ]
+    assert isinstance(terminal(events), ev.AgentCompleted)
+    sent = client.requests[0]["messages"]
+    assert [m["content"] for m in sent] == ["a", "b"]
 
 
 @pytest.mark.anyio
