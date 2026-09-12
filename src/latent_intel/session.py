@@ -32,8 +32,9 @@ from uuid import UUID, uuid4
 
 import anyio
 
-from . import config, registry
 from . import events as ev
+from . import registry
+from . import settings as settings_module
 from .agent import base as agent
 from .commands import (
     Ask,
@@ -242,20 +243,44 @@ class Session:
         return sorted(connectors.available_kinds())
 
     @staticmethod
+    def runtime_status() -> dict[str, str | None]:
+        """Installed runtime kinds, each mapped to None when usable or to why not.
+
+        Here for the same reason as `connector_kinds`: a frontend may not import the
+        agent package. The reason rather than a bare boolean because "cannot run here"
+        is not a diagnosis when any one of four environment variables could be the
+        missing one — and finding out which meant reading the runtime's source.
+
+        Names of environment variables, never values: this string is printed by
+        `intel doctor`, whose output has to stay safe to paste into a support thread.
+        """
+        status: dict[str, str | None] = {}
+        for name, cls in agent.available_kinds().items():
+            try:
+                runtime = cls()
+                if runtime.available():
+                    status[name] = None
+                    continue
+                reason = (
+                    runtime.unavailable_reason()
+                    if isinstance(runtime, agent.Diagnosable)
+                    else None
+                )
+                status[name] = reason or "installed, but cannot run here"
+            except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
+                status[name] = str(exc) or "could not be built"
+        return status
+
+    @staticmethod
     def runtime_kinds() -> dict[str, bool]:
         """Installed runtime kinds, each mapped to whether it can run here.
 
-        Here for the same reason as `connector_kinds`: a frontend may not import the
-        agent package. A dict rather than a list because a runtime has an `available()`
-        answer that `intel doctor` needs and a connector kind does not.
+        Derived from `runtime_status` so the two can never disagree, and kept because
+        a caller that only wants the mark should not have to compare against None.
         """
-        kinds: dict[str, bool] = {}
-        for name, cls in agent.available_kinds().items():
-            try:
-                kinds[name] = bool(cls().available())
-            except Exception:  # noqa: BLE001 — a broken runtime is unavailable, not fatal
-                kinds[name] = False
-        return kinds
+        return {
+            name: reason is None for name, reason in Session.runtime_status().items()
+        }
 
     @property
     def runtime_kind(self) -> str | None:
@@ -272,9 +297,22 @@ class Session:
             self._runtime = None
             self._runtime_kind = None
             return
-        options = config.load().runtime_options(kind)
-        self._runtime = agent.build(kind, **options)
+        self._runtime = agent.build(kind, **self._runtime_options(kind))
         self._runtime_kind = kind
+
+    @staticmethod
+    def _runtime_options(kind: str) -> dict[str, Any]:
+        """What to build one runtime with — the resolved view, not the user's file.
+
+        Both halves of this were silently dropped before. A project declaring
+        `agent: {runtimes: {anthropic: {model: ...}}}` never reached the runtime it
+        named, because only `config.load()` was read; and `approval:` was resolved by
+        the settings layer and then consumed by nobody, so a user who chose `auto` got
+        the cautious gate anyway. A setting that does nothing is worse than one that is
+        missing: the file says it is on.
+        """
+        resolved = settings_module.load()
+        return {"approval": resolved.approval, **resolved.runtime_options(kind)}
 
     def mcp_servers(self) -> dict[str, dict[str, Any]]:
         """Connected sources a subprocess agent can reach, as an `mcpServers` block.
@@ -303,6 +341,24 @@ class Session:
             if isinstance(connector, connectors.ToolProvider):
                 specs.extend(connector.tools())
         return specs
+
+    async def call_tool(
+        self, source_id: str, name: str, arguments: dict[str, Any]
+    ) -> str:
+        """Run one tool on one connected source — the router an in-process runtime uses.
+
+        Raises rather than returning an error string. A runtime turns the exception
+        into a `ToolResult` with `ok=False`, which is a different thing on the wire
+        from output; a string would reach the model looking like an answer.
+        """
+        connector = self._connectors.get(source_id)
+        if connector is None:
+            raise SessionError(f"'{source_id}' is not connected")
+        if not isinstance(connector, connectors.ToolProvider):
+            raise CapabilityError(
+                f"'{source_id}' is a {connector.kind} source and offers no tools"
+            )
+        return await connector.call(name, arguments)
 
     async def find(
         self,
@@ -364,6 +420,7 @@ class Session:
             emitter=emitter,
             mcp_servers=self.mcp_servers(),
             sources=self.sources(),
+            call_tool=self.call_tool,
         ):
             if isinstance(event, ev.AgentCompleted):
                 self._history.append(Message(role="assistant", text=event.text))
@@ -373,16 +430,23 @@ class Session:
         """The configured runtime, or a failure naming what to do about it."""
         if self._runtime is not None:
             return self._runtime
-        settings = config.load()
-        if not settings.runtime:
+        resolved = settings_module.load()
+        if not resolved.runtime:
             raise RuntimeUnavailable(NO_RUNTIME)
-        runtime = agent.build(settings.runtime, **settings.runtime_options())
+        kind = resolved.runtime
+        runtime = agent.build(kind, **self._runtime_options(kind))
         if not runtime.available():
+            reason = (
+                runtime.unavailable_reason()
+                if isinstance(runtime, agent.Diagnosable)
+                else None
+            )
             raise RuntimeUnavailable(
-                f"the '{settings.runtime}' runtime is configured but cannot run here"
+                f"the '{kind}' runtime is configured but cannot run here"
+                + (f" — {reason}" if reason else "")
             )
         self._runtime = runtime
-        self._runtime_kind = settings.runtime
+        self._runtime_kind = kind
         return runtime
 
     async def aclose(self) -> None:

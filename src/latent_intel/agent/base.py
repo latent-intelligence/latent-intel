@@ -4,10 +4,10 @@ The second of the two extension points, and the mirror of `connectors/base.py`. 
 parallel is deliberate: a runtime is discovered, built and reported exactly the way a
 connector is, so someone who has read one file already knows this one.
 
-**A runtime owns how much of the loop it wants.** `api` and `openrouter` will hand the
-tool list to our own router and drive the turn themselves. `claude-cli` shells to a
-binary with its own agent loop, reaching our sources as MCP servers instead. Both
-asymmetries live behind `stream`; what comes out is the same event stream either way.
+**A runtime owns how much of the loop it wants.** `anthropic` hands the tool list to
+our own router and drives the turn itself. `claude-cli` shells to a binary with its own
+agent loop, reaching our sources as MCP servers instead. Both asymmetries live behind
+`stream`; what comes out is the same event stream either way.
 
 **`stream` is declared `def`, not `async def`, and that is not a slip.** An `async def`
 whose body yields has type `Callable[..., AsyncIterator[T]]`, but a Protocol member
@@ -62,14 +62,31 @@ class Runtime(Protocol):
         ...
 
 
+@runtime_checkable
+class Diagnosable(Protocol):
+    """A runtime that can say *why* it cannot run, not merely that it cannot.
+
+    Optional, and composed the way a connector composes `Servable` — an existing
+    runtime need not implement it. `claude-cli` has one reason and its name is the
+    remedy; a runtime reading four environment variables has four, and "cannot run
+    here" sends someone to read source code to find out which.
+    """
+
+    def unavailable_reason(self) -> str | None:
+        """Why this backend cannot run here, or None when it can.
+
+        Names of environment variables, never their values: `intel doctor` prints this,
+        and its output has to stay safe to paste into a support thread.
+        """
+        ...
+
+
 def available_kinds() -> dict[str, type]:
     """Every runtime class registered under the entry-point group.
 
-    Loaded on demand and failures swallowed, so a runtime whose module is not written
-    yet — or whose optional dependency is missing — is simply absent from the list
-    rather than an ImportError at start-up. `pyproject.toml` registers `api` and
-    `openrouter` against modules that do not exist; this is what lets that stay true
-    without anyone deleting the declaration.
+    Loaded on demand and failures swallowed, so a runtime whose optional dependency is
+    missing — or whose plugin is broken — is simply absent from the list rather than an
+    ImportError at start-up.
     """
     kinds: dict[str, type] = {}
     for entry in entry_points(group=ENTRY_POINT_GROUP):
@@ -93,4 +110,4 @@ def build(kind: str, **options: Any) -> Runtime:
     return cast(Runtime, kinds[kind](**options))
 
 
-__all__ = ["ENTRY_POINT_GROUP", "Runtime", "available_kinds", "build"]
+__all__ = ["ENTRY_POINT_GROUP", "Diagnosable", "Runtime", "available_kinds", "build"]

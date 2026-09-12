@@ -61,11 +61,11 @@ def test_an_unknown_kind_names_what_is_installed() -> None:
         agent.build("telepathy")
 
 
-def test_unimplemented_runtimes_are_absent_rather_than_fatal() -> None:
-    """`api` and `openrouter` are declared in pyproject against modules that do not
-    exist. Loading must skip them, not raise at start-up."""
-    kinds = agent.available_kinds()
-    assert "api" not in kinds and "openrouter" not in kinds
+def test_the_anthropic_runtime_loads_even_where_it_cannot_run() -> None:
+    """Absent and unusable are different states. `anthropic` imports its SDK inside a
+    turn, so it is listed — with a reason — on a machine with no credentials, rather
+    than vanishing and taking the diagnosis with it."""
+    assert "anthropic" in agent.available_kinds()
 
 
 # -- argv, as a pure function -----------------------------------------------

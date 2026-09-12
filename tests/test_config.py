@@ -22,12 +22,12 @@ def test_a_model_is_remembered_per_runtime(
     settings = config.Config()
     settings.runtime = "claude-cli"
     settings.set_runtime_option("claude-cli", "model", "sonnet")
-    settings.set_runtime_option("openrouter", "model", "anthropic/claude-3.5")
+    settings.set_runtime_option("openai", "model", "anthropic/claude-3.5")
     config.save(settings)
 
     reloaded = config.load()
     assert reloaded.model_for("claude-cli") == "sonnet"
-    assert reloaded.model_for("openrouter") == "anthropic/claude-3.5"
+    assert reloaded.model_for("openai") == "anthropic/claude-3.5"
     assert reloaded.model_for() == "sonnet"  # defaults to the configured runtime
 
 

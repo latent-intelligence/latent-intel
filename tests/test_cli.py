@@ -170,6 +170,15 @@ def test_doctor_runs_with_nothing_attached() -> None:
     assert "nothing attached" in result.stdout
 
 
+def test_doctor_names_the_variables_a_runtime_is_missing() -> None:
+    """A bare "cannot run here" is not a diagnosis when four variables could each be
+    the missing one. The names are safe to print; the values never appear."""
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "anthropic" in result.stdout
+    assert "ANTHROPIC_FOUNDRY_API_KEY" in result.stdout
+
+
 def test_connect_records_the_source_and_search_finds_it(tmp_path: Path) -> None:
     """The CLI is a new process each time, so 'attached' has to survive in config."""
     corpus = tmp_path / "corpus"
