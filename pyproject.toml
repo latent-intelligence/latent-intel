@@ -41,6 +41,16 @@ dependencies = [
 #     uv tool install . --with ../latent-wiki
 #
 # Reading a published store never needed it. See `connectors/wiki.py`.
+api = [
+    # One extra installs every in-process runtime's SDK: `anthropic` ships
+    # `AnthropicFoundry` alongside `Anthropic`, and `openai` reaches every
+    # OpenAI-compatible host. An extra rather than a base dependency: a base install
+    # reads a published wiki and answers through `claude-cli` without ever importing
+    # either, and each runtime module imports its SDK lazily so the absence is a
+    # missing runtime rather than a start-up failure.
+    "anthropic>=0.87",
+    "openai>=1.60",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov",
@@ -70,8 +80,8 @@ vector = "latent_intel.connectors.vector:VectorConnector"
 
 [project.entry-points."latent_intel.runtimes"]
 claude-cli = "latent_intel.agent.runtimes.claude_cli:ClaudeCliRuntime"
-api = "latent_intel.agent.runtimes.api:ApiRuntime"
-openrouter = "latent_intel.agent.runtimes.openrouter:OpenRouterRuntime"
+anthropic = "latent_intel.agent.runtimes.anthropic:AnthropicRuntime"
+openai = "latent_intel.agent.runtimes.openai:OpenAIRuntime"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/latent_intel"]

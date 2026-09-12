@@ -103,7 +103,7 @@ class Config:
     runtime: str | None = None
     #: Per-runtime settings, keyed by runtime name. Nested rather than flat because a
     #: model name means nothing without the runtime it belongs to: `model: opus` is
-    #: wrong the moment you switch to openrouter, and a flat key would go stale in
+    #: wrong the moment you switch to openai, and a flat key would go stale in
     #: silence. Nesting also means switching back remembers what you had.
     runtimes: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: `ask` before anything that writes, `never` to refuse writes outright, `auto` to

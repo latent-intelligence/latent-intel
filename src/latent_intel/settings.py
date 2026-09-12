@@ -152,6 +152,14 @@ def load(name: str | None = None) -> Settings:
     for kind, options in config.runtimes.items():
         project_runtimes.setdefault(kind, {}).update(options)
     settings.runtimes = project_runtimes
+    # Approval is resolved across all three layers and belongs to the session, not to
+    # one runtime. Named rather than silently dropped: a file that says writes are
+    # allowed while every write is withheld is the failure this whole layer exists for.
+    for kind, options in project_runtimes.items():
+        if "approval" in options:
+            problems.append(
+                f"approval under runtimes:{kind} is ignored — set it at the top level"
+            )
 
     # -- theme: token by token ------------------------------------------------
     branding = dict(loaded.branding) if loaded else {}

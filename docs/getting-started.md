@@ -61,6 +61,10 @@ AWS_DEFAULT_REGION=us-east-1
 where both set a variable, and **anything already exported beats both** — so a one-off
 `AWS_PROFILE=other intel search …` still does what you mean.
 
+The `anthropic` runtime reads its key from the same place: a project's `.env` is loaded
+before the runtime is built, so deployment credentials live there too. Which variables,
+per host, is in [`user-guide.md`](user-guide.md#choosing-a-runtime).
+
 Those are the only two places. The working directory and the root of a checkout are
 never read, so a `.env` left there is silently ignored — `intel doctor` shows which file
 was loaded, or the two paths it looked in when none was.

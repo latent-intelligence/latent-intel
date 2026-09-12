@@ -274,17 +274,25 @@ async def _doctor() -> None:
             console.print(f"  [dim]·[/] [dim]{name} — not installed[/]")
 
     console.print("\n[accent.strong]runtimes[/]")
-    runtimes = Session.runtime_kinds()
-    configured = config_module.load().runtime
-    for name, usable in sorted(runtimes.items()):
-        mark = "[ok]✓[/]" if usable else "[warn]![/]"
-        note = "" if usable else " [dim]— installed, but cannot run here[/]"
+    runtimes = Session.runtime_status()
+    resolved = settings_module.load()
+    configured = resolved.runtime
+    for name, reason in sorted(runtimes.items()):
+        mark = "[ok]✓[/]" if reason is None else "[warn]![/]"
+        # The reason, not "cannot run here": four environment variables could each be
+        # the missing one, and the difference is the whole value of running doctor.
+        note = "" if reason is None else f" [dim]— {escape(reason)}[/]"
         chosen = " [dim]← configured[/]" if name == configured else ""
         console.print(f"  {mark} [source]{name}[/]{note}{chosen}")
-    for name in ("claude-cli", "api", "openrouter"):
-        if name not in runtimes:
-            console.print(f"  [dim]·[/] [dim]{name} — declared, not implemented[/]")
-    if configured and (model := config_module.load().model_for(configured)):
+    # A runtime named in config that no entry point provides — a stale kind from an
+    # older build, a typo, a plugin whose extra is missing — has no row above, so
+    # doctor looked healthy while `ask` failed and pointed back here.
+    if configured and configured not in runtimes:
+        console.print(
+            f"  [warn]![/] [source]{escape(configured)}[/] "
+            "[dim]— configured, but not installed[/]"
+        )
+    if configured and (model := resolved.model_for(configured)):
         console.print(f"  [dim]model:[/] [source]{model}[/]")
 
     # Names only, never values: this is the one place a credential's presence is
@@ -294,7 +302,6 @@ async def _doctor() -> None:
     for path in env_module.files():
         console.print(f"  [ok]✓[/] [dim].env[/]  {escape(str(path))}")
     if not env_module.files():
-        resolved = settings_module.load()
         looked = [
             directory / env_module.FILENAME
             for directory in (

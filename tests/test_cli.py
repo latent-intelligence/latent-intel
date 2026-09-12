@@ -170,6 +170,48 @@ def test_doctor_runs_with_nothing_attached() -> None:
     assert "nothing attached" in result.stdout
 
 
+def test_doctor_names_the_variables_a_runtime_is_missing() -> None:
+    """A bare "cannot run here" is not a diagnosis when four variables could each be
+    the missing one. The names are safe to print; the values never appear."""
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "anthropic" in result.stdout
+    assert "ANTHROPIC_FOUNDRY_API_KEY" in result.stdout
+    assert "openai" in result.stdout
+    assert "OPENAI_API_KEY" in result.stdout
+
+
+def test_doctor_diagnoses_the_runtime_as_configured_not_bare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Doctor built every runtime with no arguments, so a configured model read as
+    missing and a configured host was never evaluated: the machine was told to set a
+    key it does not use, about a model it had already set."""
+    monkeypatch.setenv("FOUNDRY_API_KEY", "k")
+    monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
+    config = config_module.load()
+    config.runtime = "openai"
+    config.runtimes = {"openai": {"model": "gpt-5-deployment", "host": "foundry"}}
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "✓ openai" in result.stdout
+    assert "no model is set" not in result.stdout
+
+
+def test_doctor_flags_a_configured_runtime_that_is_not_installed() -> None:
+    """A stale kind from an older build, a typo, or a plugin whose extra is missing had
+    no row at all — so doctor looked healthy while `ask` failed pointing back at it."""
+    config = config_module.load()
+    config.runtime = "api"
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "api — configured, but not installed" in result.stdout
+
+
 def test_connect_records_the_source_and_search_finds_it(tmp_path: Path) -> None:
     """The CLI is a new process each time, so 'attached' has to survive in config."""
     corpus = tmp_path / "corpus"

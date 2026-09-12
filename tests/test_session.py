@@ -552,3 +552,215 @@ async def test_one_unreachable_source_does_not_stop_the_others(tmp_path: Path) -
     assert len(failures) == 1 and failures[0].startswith("bad:")
     assert [d.id for d in session.sources()] == ["good"]
     await session.aclose()
+
+
+# -- the tool router --------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_call_tool_routes_to_the_source_that_offers_it(corpus: Path) -> None:
+    """The in-process half of the agent loop: a runtime names a source and a tool, and
+    the session finds the connector. Nothing else knows the mapping."""
+    session = Session()
+    await session.connect(str(corpus), kind="files", source_id="notes")
+    names = [t.name for t in session.tools() if t.source_id == "notes"]
+    assert names, "the files connector offers tools"
+
+    output = await session.call_tool("notes", names[0], {"query": "retrieval"})
+    assert isinstance(output, str) and output
+    await session.aclose()
+
+
+@pytest.mark.anyio
+async def test_call_tool_raises_rather_than_returning_an_error_string() -> None:
+    """A string would reach the model looking like output. The runtime turns the
+    exception into a `ToolResult` with `ok=False`, which is a different thing."""
+    session = Session()
+    with pytest.raises(SessionError, match="not connected"):
+        await session.call_tool("nowhere", "search", {})
+
+
+@pytest.mark.anyio
+async def test_a_source_with_no_tools_says_so_rather_than_returning_nothing(
+    tmp_path: Path,
+) -> None:
+    session = Session()
+    await session.connect(str(tmp_path), kind="files", source_id="empty")
+    session._connectors["empty"] = Toolless()
+    with pytest.raises(CapabilityError, match="offers no tools"):
+        await session.call_tool("empty", "search", {})
+
+
+class Toolless:
+    """A connector with no `tools`/`call`. Real ones exist — `vector` is one."""
+
+    id = "empty"
+    kind = "vector"
+
+    def describe(self) -> Descriptor:
+        return Descriptor(id="empty", kind="vector")
+
+    async def aclose(self) -> None:
+        return None
+
+
+@pytest.mark.anyio
+async def test_ask_hands_the_runtime_the_router(corpus: Path) -> None:
+    """An in-process runtime cannot reach a connector — the contract forbids it — so
+    the router arrives as an option, the way `mcp_servers` does for a subprocess one."""
+    runtime = FakeRuntime()
+    session = Session(runtime=runtime)
+    await session.connect(str(corpus), kind="files", source_id="notes")
+    async for _ in session.ask("what is compaction?"):
+        pass
+
+    router = runtime.saw["options"]["call_tool"]
+    names = [t.name for t in session.tools()]
+    assert await router("notes", names[0], {"query": "retrieval"})
+    await session.aclose()
+
+
+# -- where a runtime's options come from ------------------------------------
+
+
+def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+    """Write and activate a project. `LATENT_INTEL_PROJECTS` is already isolated."""
+    directory = tmp_path / "projects"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "deploy.yaml").write_text(body, encoding="utf-8")
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "deploy")
+    from latent_intel import settings as settings_module
+
+    settings_module.invalidate()
+
+
+def test_a_project_runtime_block_reaches_the_runtime_it_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The silent failure this fixed: options were read from the user's config alone,
+    so a deployment that declared its model got the engine default and no complaint."""
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: anthropic\n"
+        "  runtimes:\n"
+        "    anthropic: {model: claude-opus-5, host: anthropic}\n",
+    )
+    session = Session()
+    session.set_runtime("anthropic")
+    built = session._runtime
+    assert built is not None
+    assert built.model == "claude-opus-5"  # type: ignore[attr-defined]
+    assert built.host == "anthropic"  # type: ignore[attr-defined]
+
+
+def test_the_approval_setting_reaches_the_runtime_that_gates_on_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`approval: auto` at the top of config.yaml was resolved and then read by nobody,
+    so the file said writes were allowed while every write was withheld."""
+    from latent_intel import config as config_module
+
+    config = config_module.load()
+    config.approval = "auto"
+    config.runtime = "claude-cli"
+    config_module.save(config)
+
+    session = Session()
+    session.set_runtime("claude-cli")
+    assert session._runtime is not None
+    assert session._runtime.approval == "auto"  # type: ignore[attr-defined]
+
+
+def test_a_runtime_is_diagnosed_as_it_is_built_not_bare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`doctor` built every runtime with no arguments, so it diagnosed a different
+    object than the one that answers: a configured model read as missing and a
+    configured host never evaluated at all."""
+    monkeypatch.setenv("FOUNDRY_API_KEY", "k")
+    monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: openai\n"
+        "  runtimes:\n"
+        "    openai: {model: gpt-5-deployment, host: foundry}\n",
+    )
+    assert Session.runtime_status()["openai"] is None
+
+
+def test_the_reason_a_runtime_cannot_run_is_the_configured_host_s(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The variables a bare `openai` wants are the public API's. A deployment on
+    Foundry that read `OPENAI_API_KEY` here would export the wrong one and see no
+    change."""
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: openai\n"
+        "  runtimes:\n"
+        "    openai: {model: gpt-5-deployment, host: foundry}\n",
+    )
+    reason = Session.runtime_status()["openai"]
+    assert reason is not None
+    assert "FOUNDRY_API_KEY" in reason
+    assert "OPENAI_API_KEY" not in reason
+
+
+def test_a_runtime_option_this_build_does_not_know_is_reported_not_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal a rejected option raises is a diagnosis, so it becomes the status
+    string rather than taking `doctor` down with it."""
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: openai\n"
+        "  runtimes:\n"
+        "    openai: {modle: gpt-5-deployment}\n",
+    )
+    reason = Session.runtime_status()["openai"]
+    assert reason is not None and "modle" in reason
+
+
+def test_approval_nested_under_a_runtime_never_overrides_the_resolved_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Approval is resolved across all three layers and belongs to the session. A copy
+    nested under one runtime used to win over the layer beneath it, so a user who chose
+    `never` got whatever the project had written — and was told nothing."""
+    from latent_intel import config as config_module
+    from latent_intel import settings as settings_module
+
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent:\n"
+        "  runtime: anthropic\n"
+        "  runtimes:\n"
+        "    anthropic: {approval: auto}\n",
+    )
+    config = config_module.load()
+    config.approval = "never"
+    config_module.save(config)
+
+    session = Session()
+    session.set_runtime("anthropic")
+    assert session._runtime is not None
+    assert session._runtime.approval == "never"  # type: ignore[attr-defined]
+    problems = settings_module.load().problems
+    assert any("runtimes:anthropic" in problem for problem in problems)
+
+
+def test_runtime_status_names_the_reason_rather_than_only_the_verdict() -> None:
+    """`runtime_kinds` derives from this, so the two cannot disagree."""
+    status = Session.runtime_status()
+    assert "claude-cli" in status
+    kinds = Session.runtime_kinds()
+    assert kinds == {name: reason is None for name, reason in status.items()}

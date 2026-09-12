@@ -47,7 +47,8 @@ import anyio
 from anyio.abc import Process
 
 from ... import events as ev
-from ...models import Effect, Message, ToolSpec
+from ...models import Effect, Message, RuntimeUnavailable, ToolSpec
+from .. import turn
 
 #: Usage keys that are integers in claude's payload. Everything else there is a nested
 #: dict or a float, and `AgentCompleted.usage` is `dict[str, int]`.
@@ -199,27 +200,6 @@ def _usage(payload: dict[str, Any]) -> dict[str, int]:
     return out
 
 
-def _system_prompt(sources: Sequence[Any]) -> str:
-    """Tell the agent what it is looking at, and how to cite it.
-
-    Cheap, and the difference between a generic chat and one that knows it has a wiki
-    attached. Citations are recoverable later only if it is asked for them now.
-    """
-    if not sources:
-        return ""
-    lines = [
-        "You are answering over attached context sources, reachable as MCP tools.",
-        "Attached:",
-    ]
-    for descriptor in sources:
-        caps = ", ".join(sorted(str(c) for c in descriptor.capabilities))
-        lines.append(f"  {descriptor.id} ({descriptor.kind}) — {caps}")
-    lines.append(
-        "Cite what you use as `source:key`. Say when the sources do not answer."
-    )
-    return "\n".join(lines)
-
-
 class ClaudeCliRuntime:
     """The `claude` binary, behind the `Runtime` Protocol."""
 
@@ -232,8 +212,16 @@ class ClaudeCliRuntime:
         command: str | Sequence[str] = "claude",
         approval: str = "ask",
         cwd: str | None = None,
-        **_: Any,
+        **unknown: Any,
     ) -> None:
+        # Rejected, not ignored: a key this runtime never reads is a setting the file
+        # says is on and nothing honours, and the most likely one is a misspelling of
+        # a key that would have changed how the binary is launched.
+        if unknown:
+            raise RuntimeUnavailable(
+                f"unknown option(s) for runtime '{self.id}': "
+                f"{', '.join(sorted(unknown))} — see `runtimes: {self.id}:` in config"
+            )
         self.model = model
         #: A string is split; a sequence is taken as-is, so a test can point at a fake
         #: interpreter without touching PATH.
@@ -272,7 +260,7 @@ class ClaudeCliRuntime:
             model=self.model,
             servers=servers,
             allow=allowed_tools(tools, servers, self.approval),
-            system_prompt=_system_prompt(sources),
+            system_prompt=turn.system_prompt(sources),
         )
         declared = {(t.source_id, t.name): t for t in tools}
         by_server = {sanitise(s): s for s in servers}

@@ -36,7 +36,7 @@ from ... import events as ev
 from ... import procedures as procedures_module
 from ... import settings as settings_module
 from ...commands import Command, Connect
-from ...models import Descriptor
+from ...models import Descriptor, RuntimeUnavailable
 from ...session import Session
 from ...ui import banner
 from ...ui import render as render_module
@@ -343,16 +343,19 @@ def _runtime(session: Session, name: str) -> None:
     `/disconnect` — both already write config on success. Asking here would be the
     inconsistent choice, not the careful one.
     """
-    kinds = Session.runtime_kinds()
+    kinds = Session.runtime_status()
     installed = ", ".join(sorted(kinds)) or "none installed"
 
     if not name:
-        current = session.runtime_kind or config_module.load().runtime
+        # The resolved view, not the user's file: a project may name the runtime and
+        # the model, and reading only config.yaml reported neither.
+        resolved = settings_module.load()
+        current = session.runtime_kind or resolved.runtime
         if not current:
             console.print("[dim]no runtime configured[/]")
             console.print(f"[dim]installed:[/] {escape(installed)}")
             return
-        model = config_module.load().model_for(current) or "its own default"
+        model = resolved.model_for(current) or "its own default"
         console.print(
             f"[dim]runtime[/] [source]{escape(current)}[/] [dim]({escape(model)})[/]"
         )
@@ -374,15 +377,26 @@ def _runtime(session: Session, name: str) -> None:
         )
         return
 
-    session.set_runtime(name)
+    try:
+        session.set_runtime(name)
+    except RuntimeUnavailable as exc:
+        # Building a runtime can now refuse — an option it does not know is rejected
+        # rather than ignored — and a traceback in a REPL is not a diagnosis. Nothing
+        # is persisted, because the config as written is what was refused.
+        console.print(f"[fail]✗[/] {escape(str(exc))}")
+        return
     settings = config_module.load()
     settings.runtime = name
     config_module.save(settings)
     console.print(f"[dim]runtime[/] [source]{escape(name)}[/]")
-    if not kinds[name]:
+    if (reason := kinds[name]) is not None:
         # Set anyway: a machine can be configured before the binary is installed, and
-        # the honest failure still arrives when someone asks.
-        console.print(f"[warn]![/] [dim]{escape(name)} cannot run here yet[/]")
+        # the honest failure still arrives when someone asks. The reason comes with it,
+        # because "cannot run here yet" does not say which variable to export.
+        console.print(
+            f"[warn]![/] [dim]{escape(name)} cannot run here yet — "
+            f"{escape(reason)}[/]"
+        )
 
 
 def _model(session: Session, name: str) -> None:
@@ -393,7 +407,7 @@ def _model(session: Session, name: str) -> None:
     a value with nowhere to live.
     """
     settings = config_module.load()
-    current = session.runtime_kind or settings.runtime
+    current = session.runtime_kind or settings_module.load().runtime
     if not current:
         console.print(
             "[fail]✗[/] no runtime configured [dim]— /runtime claude-cli first[/]"
@@ -401,7 +415,7 @@ def _model(session: Session, name: str) -> None:
         return
 
     if not name:
-        model = settings.model_for(current)
+        model = settings_module.load().model_for(current)
         if model:
             console.print(
                 f"[dim]model[/] [source]{escape(model)}[/] "

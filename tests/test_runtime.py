@@ -61,11 +61,23 @@ def test_an_unknown_kind_names_what_is_installed() -> None:
         agent.build("telepathy")
 
 
-def test_unimplemented_runtimes_are_absent_rather_than_fatal() -> None:
-    """`api` and `openrouter` are declared in pyproject against modules that do not
-    exist. Loading must skip them, not raise at start-up."""
-    kinds = agent.available_kinds()
-    assert "api" not in kinds and "openrouter" not in kinds
+def test_the_in_process_runtimes_load_even_where_they_cannot_run() -> None:
+    """Absent and unusable are different states. Both import their SDK inside a turn,
+    so each is listed — with a reason — on a machine with no credentials, rather than
+    vanishing and taking the diagnosis with it."""
+    assert "anthropic" in agent.available_kinds()
+    assert "openai" in agent.available_kinds()
+
+
+def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
+    """Ignoring it honoured a file that says the setting is on — a misspelled `model:`
+    launched the binary on its own default. `agent.build` propagates the refusal, so
+    `/runtime` and `doctor` both report it where it was typed."""
+    with pytest.raises(RuntimeUnavailable) as caught:
+        agent.build("claude-cli", model="m", nonsense=1, hsot="foundry")
+    message = str(caught.value)
+    assert "hsot" in message and "nonsense" in message
+    assert "runtimes: claude-cli:" in message
 
 
 # -- argv, as a pure function -----------------------------------------------
