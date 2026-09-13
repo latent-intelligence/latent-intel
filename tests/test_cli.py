@@ -200,6 +200,24 @@ def test_doctor_diagnoses_the_runtime_as_configured_not_bare(
     assert "no model is set" not in result.stdout
 
 
+def test_doctor_names_a_host_s_third_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The host's variables are diagnosed, not the runtime's: classic Azure OpenAI
+    needs an API version as well as a key and an endpoint, and the machine that set the
+    usual pair has no other way to learn which one is left."""
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "k")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    config = config_module.load()
+    config.runtime = "openai"
+    config.runtimes = {"openai": {"host": "azure-openai", "model": "m"}}
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "OPENAI_API_VERSION" in result.stdout
+
+
 def test_doctor_flags_a_configured_runtime_that_is_not_installed() -> None:
     """A stale kind from an older build, a typo, or a plugin whose extra is missing had
     no row at all — so doctor looked healthy while `ask` failed pointing back at it."""

@@ -612,6 +612,8 @@ async def test_rate_limiting_is_its_own_kind_not_a_generic_api_error(
 
 @pytest.mark.anyio
 async def test_any_other_status_reports_the_status(credentials: None) -> None:
+    """A body the endpoint sent nothing useful in leaves the status as the whole
+    report."""
     client = FakeClient(
         Round(
             raises=anthropic.APIStatusError(
@@ -622,6 +624,31 @@ async def test_any_other_status_reports_the_status(credentials: None) -> None:
     failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "api_error" and "500" in failed.message
+    assert failed.message == "the endpoint returned 500"
+
+
+@pytest.mark.anyio
+async def test_a_status_error_carries_the_endpoint_s_own_explanation(
+    credentials: None,
+) -> None:
+    """Both runtimes report a status error the same way, and a 400 that names the
+    offending parameter is the whole diagnosis. The body is this SDK's shape: the
+    `error` envelope reaches the exception intact here, where the openai SDK strips it
+    first — see the sibling test for the other half of the pair."""
+    detail = "max_tokens: must be greater than 0"
+    client = FakeClient(
+        Round(
+            raises=anthropic.BadRequestError(
+                "bad request",
+                response=_response(400),
+                body={"error": {"message": detail}},
+            )
+        )
+    )
+    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "api_error"
+    assert "400" in failed.message and detail in failed.message
 
 
 @pytest.mark.anyio

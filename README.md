@@ -311,5 +311,5 @@ OpenAI-compatible one (the `api` extra installs both SDKs: `uv tool install "lat
 connector, the HTTP transport and the web frontend are declared and unimplemented —
 `intel doctor` lists every installed runtime with the reason it cannot run here, naming
 the environment variables it is missing rather than only saying it cannot run, and flags
-a configured runtime that is not installed at all. OpenRouter, classic Azure OpenAI and local servers are host rows on
-the `openai` runtime, and are next.
+a configured runtime that is not installed at all. OpenRouter, classic Azure OpenAI and a
+local OpenAI-compatible server are host rows on the `openai` runtime, and ship with it.
