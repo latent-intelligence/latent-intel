@@ -57,8 +57,19 @@ still answer — one unreadable source never fails the whole command:
 
 `--kind vector` is declared but not implemented; `intel doctor` lists it as not installed.
 
-**Working on the package itself?** `uv sync --extra dev` and prefix commands with
-`uv run`. Everything below works either way.
+**Working on the package itself?** A **user build** is copied at install time; a **dev
+build** points at `src/` and tracks the working tree, so an edit is live and a
+half-finished branch is too.
+
+```bash
+uv tool install ".[api]" --reinstall              # user build — a snapshot of the checkout
+uv tool install --editable ".[api]" --reinstall   # dev build  — tracks the working tree
+```
+
+Both want `[api]`: without it the in-process runtimes report themselves as not installed,
+since `uv run` reads the project environment and a tool install does not. Or skip PATH —
+`uv sync --extra dev`, and prefix commands with `uv run`. Everything below works either
+way.
 
 Check what you got:
 
@@ -203,12 +214,40 @@ once it has chosen…
 | `/use [id]` | which source a bare key resolves against |
 | `/tools` | what the router exposes, and each tool's declared effect |
 | `/runtime [name]` `/model [name]` `/host [name]` | which backend answers `ask`, which model it uses, which host it talks to |
+| `/hosts` | every host either runtime can reach, and what each one needs |
 | `/clear` `/exit` | clear the screen · leave (Ctrl-D also leaves) |
 | `search <query>` | every attached source, grouped |
 | `open <source:key>` | one document in full |
 | `ask <question>` | the agent — see [runtimes](#no-agent-runtime-configured) |
 
-Anything that is not a `/`-command and not one of those verbs is treated as a question.
+### Which one do you type?
+
+**Anything that is not a `/`-command and not one of those verbs is a question for the
+agent** — so a bare line *is* `ask`, and the word is only ever needed to force it. The
+difference that matters is who does the looking:
+
+| you type | who acts | costs |
+|---|---|---|
+| `search context collapse` | **you** — over the attached sources, grouped per source | no model |
+| `open design:context-collapse` | **you** — one document, verbatim | no model |
+| `what did we decide about compaction?` | **the agent** — it searches and fetches for you, then writes | a model turn |
+| `ask what did we decide about compaction?` | identical to the line above | a model turn |
+
+`search` hands you hits to read; a bare prompt hands you an answer with the searching done
+on your behalf. Use `search` when you know roughly what you are looking for, and a question
+when you would rather be told.
+
+**The one case that needs `ask`.** A line beginning with `search`, `open`, `get` or `ask`
+is read as that verb, so `search strategies for grounding` searches — it does not ask. A
+near-miss is caught and suggested rather than silently rewritten:
+
+```
+latent › searching for a good name is hard
+✗ did you mean `search for a good name is hard`?
+  or to ask it as a question: ask searching for a good name is hard
+```
+
+Prefix `ask` when your question genuinely starts with one of those four words.
 
 **Editing.** History persists between sessions. Tab completes commands, source ids, and
 the refs from your last search. Ctrl-C abandons the line you are typing; Ctrl-D leaves.
@@ -543,6 +582,10 @@ openai
 OPENAI_API_VERSION for host 'azure-openai'
   ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
+
+Setting one up, host by host, is
+[`configuring-compute.md`](configuring-compute.md) — the practical path, where the tables
+above are the reference.
 
 Both read the same declarations, so a host reported ready by one is ready to the other.
 A runtime-level reason — a missing SDK, an unset model — stops every host at once and is

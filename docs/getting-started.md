@@ -74,8 +74,25 @@ the file's path, not its contents. `.env` is git-ignored at every depth, and a d
 directory is git-ignored too — nothing here is designed to be committed. A `.env` cannot
 select the active project either; that is `intel project use`, which persists.
 
-**Working on the package itself?** `uv sync --extra dev`, then prefix everything below
-with `uv run`.
+**Working on the package itself?** The two builds differ in one thing — whether the
+`intel` on your PATH moves when the repository does.
+
+```bash
+uv tool install ".[api]" --reinstall              # user build — a snapshot of the checkout
+uv tool install --editable ".[api]" --reinstall   # dev build  — tracks the working tree
+```
+
+A **user build** is copied at install time and stays put until you reinstall. A **dev
+build** points at `src/`, so an edit is live — and so is a half-finished branch, which is
+the cost: switch branches and the tool switches with you. Either way, a changed dependency
+or entry point still needs another reinstall.
+
+`[api]` adds the two in-process runtime SDKs, and both builds want it: leave it out and
+`intel ask` reports the runtime as not installed however much else is configured, because
+`uv run` reads the project's own environment while a tool install does not. Quote the
+argument — an unquoted `.[api]` is glob-expanded by the shell.
+
+To skip PATH entirely, `uv sync --extra dev` and prefix everything below with `uv run`.
 
 ---
 
@@ -207,5 +224,7 @@ Credentials never go in the config file; runtimes read the environment.
   what to do when something is wrong.
 - [`configuring-a-deployment.md`](configuring-a-deployment.md) — the deployment
   directory, branding, saved commands.
+- [`configuring-compute.md`](configuring-compute.md) — one section per host: what to
+  set, and what you should see.
 - [`demos/`](demos/) — scripted walkthroughs with captured output.
 - `intel --help`, and `intel <command> --help`.
