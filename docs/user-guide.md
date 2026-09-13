@@ -231,6 +231,9 @@ intel search "disclosure" --kind concept       # by page type, where a source ha
 intel search "disclosure" --limit 3            # hits per source
 intel get design:progressive-disclosure        # one document
 intel get progressive-disclosure               # bare key → the first attached source
+
+intel doctor                                   # what is installed, reachable, undeclared
+intel hosts                                    # every model endpoint, and what each needs
 ```
 
 **Results group by source and are never merged into one ranking.** A wiki's score is a
@@ -519,7 +522,7 @@ A host comes from `/host <name>` in the shell or `host:` in config, then from
 `LATENT_INTEL_ANTHROPIC_HOST` / `LATENT_INTEL_OPENAI_HOST` where neither says anything,
 then from the runtime's own default. `/host` writes the same `host:` key, so the two are
 one setting and the environment is the machine-by-machine fallback beneath both.
-`intel doctor` names exactly which variable is missing:
+`intel doctor` names exactly which variable is missing, for the host that is configured:
 
 ```
 runtimes
@@ -527,6 +530,25 @@ runtimes
   ✓ claude-cli
   ! openai — set OPENAI_API_KEY for host 'openai'
 ```
+
+**`intel hosts` asks the same question of every host instead**, which is the one a
+machine has before it has chosen one — what each endpoint would cost to set up, not why
+today failed:
+
+```
+openai
+  ! openai        ← configured  set OPENAI_API_KEY for host 'openai'
+  ✓ openrouter
+  ! azure-openai  set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+OPENAI_API_VERSION for host 'azure-openai'
+  ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
+```
+
+Both read the same declarations, so a host reported ready by one is ready to the other.
+A runtime-level reason — a missing SDK, an unset model — stops every host at once and is
+printed once above the table rather than against a host. `claude-cli` declares no hosts
+and says so. Walked through end to end in
+[`demos/choosing-a-host.md`](demos/choosing-a-host.md).
 
 **Foundry resolves deployment names, not dated model ids.** `claude-sonnet-5` works;
 `claude-sonnet-5-20260101` returns a 404, and the failure says so.

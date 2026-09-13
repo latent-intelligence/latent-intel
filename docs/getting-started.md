@@ -70,7 +70,9 @@ never read, so a `.env` left there is silently ignored — `intel doctor` shows 
 was loaded, or the two paths it looked in when none was.
 
 Credential *values* never reach a command line: a served source is a subprocess handed
-the file's path, not its contents.
+the file's path, not its contents. `.env` is git-ignored at every depth, and a deployment
+directory is git-ignored too — nothing here is designed to be committed. A `.env` cannot
+select the active project either; that is `intel project use`, which persists.
 
 **Working on the package itself?** `uv sync --extra dev`, then prefix everything below
 with `uv run`.
@@ -203,4 +205,7 @@ Credentials never go in the config file; runtimes read the environment.
 
 - [`user-guide.md`](user-guide.md) — every command, `--json` scripting, MCP servers,
   what to do when something is wrong.
+- [`configuring-a-deployment.md`](configuring-a-deployment.md) — the deployment
+  directory, branding, saved commands.
+- [`demos/`](demos/) — scripted walkthroughs with captured output.
 - `intel --help`, and `intel <command> --help`.

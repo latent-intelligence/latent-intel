@@ -114,6 +114,12 @@ vocabulary free to change without touching a single connector.
 - Tests mirror `src/`. Anything that needs a real store belongs in a manual check, not in
   the suite: `tests/fixtures/streams/*.jsonl` exist so renderers are testable with no
   store, no network and no model.
+- **`README.md` is hand-edited and confirmed before every change.** Re-read it
+  immediately before touching it — it is rewritten between and during sessions, and a
+  patch built against a copy read earlier silently reverts that work. Propose the change
+  and wait for a yes; hold proposed edits rather than applying them mid-run, including
+  under auto mode. This applies to `README.md` alone: everything under `docs/` is edited
+  freely.
 
 ## Acceptance criteria
 
