@@ -218,6 +218,53 @@ def test_doctor_names_a_host_s_third_variable(
     assert "OPENAI_API_VERSION" in result.stdout
 
 
+def test_hosts_lists_every_endpoint_with_what_it_still_needs() -> None:
+    """`doctor` diagnoses the configured host; this answers the question a machine has
+    before it has chosen one. Names of variables, never values."""
+    result = runner.invoke(app, ["hosts"])
+    assert result.exit_code == 0
+    for name in ("openrouter", "azure-openai", "local"):
+        assert name in result.stdout
+    assert "OPENROUTER_API_KEY" in result.stdout
+    assert "AZURE_OPENAI_ENDPOINT" in result.stdout
+
+
+def test_hosts_marks_the_configured_row_and_never_prints_a_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret-value")
+    config = config_module.load()
+    config.runtimes = {"openai": {"host": "openrouter", "model": "vendor/model"}}
+    config_module.save(config)
+
+    result = runner.invoke(app, ["hosts"])
+    assert result.exit_code == 0
+    assert "← configured" in result.stdout
+    assert "sk-secret-value" not in result.stdout
+
+
+def test_hosts_reports_a_runtime_level_reason_once_not_against_a_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unset model stops every host at once and belongs to none of them, while a
+    configured host's missing variables are already printed against that host."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    config = config_module.load()
+    config.runtimes = {"openai": {"host": "openrouter"}}
+    config_module.save(config)
+
+    result = runner.invoke(app, ["hosts"])
+    assert result.exit_code == 0
+    assert result.stdout.count("no model is set") == 1
+
+
+def test_hosts_says_so_for_a_runtime_that_declares_none() -> None:
+    """Omitting `claude-cli` would read as "not installed" beside two that are
+    listed."""
+    result = runner.invoke(app, ["hosts"])
+    assert "claude-cli — no hosts" in result.stdout
+
+
 def test_doctor_flags_a_configured_runtime_that_is_not_installed() -> None:
     """A stale kind from an older build, a typo, or a plugin whose extra is missing had
     no row at all — so doctor looked healthy while `ask` failed pointing back at it."""

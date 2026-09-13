@@ -53,6 +53,7 @@ from .models import (
     Descriptor,
     Doc,
     Hit,
+    HostReport,
     Message,
     Ref,
     RuntimeUnavailable,
@@ -277,16 +278,55 @@ class Session:
         """
         try:
             runtime = agent.build(kind, **Session._runtime_options(kind))
-            if runtime.available():
-                return None
-            reason = (
-                runtime.unavailable_reason()
-                if isinstance(runtime, agent.Diagnosable)
-                else None
-            )
-            return reason or "installed, but cannot run here"
         except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
             return str(exc) or "could not be built"
+        return Session._verdict(runtime)
+
+    @staticmethod
+    def _verdict(runtime: agent.Runtime) -> str | None:
+        """One built runtime's own verdict on itself, or None when it can run.
+
+        Split out so `host_report` reaches the same verdict as `runtime_reason` without
+        building the runtime a second time to get it. Two callers arriving at it two
+        ways is how a table and a line about one of its rows come to disagree.
+        """
+        if runtime.available():
+            return None
+        reason = (
+            runtime.unavailable_reason()
+            if isinstance(runtime, agent.Diagnosable)
+            else None
+        )
+        return reason or "installed, but cannot run here"
+
+    @staticmethod
+    def host_report(kind: str) -> HostReport:
+        """Every endpoint one runtime declares, and what each still needs.
+
+        The question `runtime_reason` cannot answer: it diagnoses the host that is
+        configured, which tells someone why today failed but not which of the others
+        they could reach instead, or what the one they are about to choose would cost
+        them. Both readings come off the same `Host` rows, so a host reported ready
+        here is ready in exactly the sense `doctor` means when it is the configured one.
+
+        One build, three answers. Asking `runtime_reason`, `runtime_setting` and the
+        host table separately would build the runtime three times and let the verdict
+        describe a different object than the host list beside it.
+
+        A runtime that declares no hosts — `claude-cli`, which shells to a binary that
+        has already chosen — reports an empty table rather than an error. It has
+        nothing to say here, which is not the same as something being wrong.
+        """
+        try:
+            runtime = agent.build(kind, **Session._runtime_options(kind))
+        except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
+            return HostReport(runtime=kind, reason=str(exc) or "could not be built")
+        return HostReport(
+            runtime=kind,
+            configured=Session._setting(runtime, "host"),
+            reason=Session._verdict(runtime),
+            hosts=runtime.host_status() if isinstance(runtime, agent.Hosted) else {},
+        )
 
     @staticmethod
     def runtime_setting(kind: str, key: str) -> str | None:
@@ -306,6 +346,12 @@ class Session:
             runtime = agent.build(kind, **Session._runtime_options(kind))
         except Exception:  # noqa: BLE001 — a broken runtime has no setting to report
             return None
+        return Session._setting(runtime, key)
+
+    @staticmethod
+    def _setting(runtime: agent.Runtime, key: str) -> str | None:
+        """One option off a runtime that is already built. See `runtime_setting` for
+        why it is read off the object and not out of the file."""
         value = getattr(runtime, key, None)
         return str(value) if value else None
 

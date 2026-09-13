@@ -167,6 +167,14 @@ class AnthropicRuntime:
             return "the anthropic SDK is not installed — install `latent-intel[api]`"
         return hosts.diagnose(host, name=self.host)
 
+    def host_status(self) -> dict[str, str | None]:
+        """Every host this runtime declares, and what each still needs.
+
+        The whole table, not the configured row: `intel hosts` asks this of a machine
+        that has not chosen yet. See `hosts.status`.
+        """
+        return hosts.status(HOSTS)
+
     # -- one turn -------------------------------------------------------------
 
     async def stream(

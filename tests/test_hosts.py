@@ -293,3 +293,32 @@ def test_the_connection_remedy_names_a_variable_a_url_or_neither(
     assert hosts.connection_remedy(host) == (
         "check AZURE_T_RESOURCE or AZURE_T_BASE_URL and the network"
     )
+
+
+# -- the whole table at once -------------------------------------------------
+
+
+def test_status_diagnoses_every_row_not_only_the_configured_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The question someone standing up a deployment has: which of these can I use,
+    and what would the others cost me. One satisfied row reads as ready while the
+    others still name what they want."""
+    table = {
+        "ready": row(key="AZURE_T_READY_KEY", required=("AZURE_T_READY_KEY",)),
+        "wanting": row(key="AZURE_T_OTHER_KEY", required=("AZURE_T_OTHER_KEY",)),
+    }
+    monkeypatch.setenv("AZURE_T_READY_KEY", "k")
+
+    assert hosts.status(table) == {
+        "ready": None,
+        "wanting": "set AZURE_T_OTHER_KEY for host 'wanting'",
+    }
+
+
+def test_status_reports_a_row_exactly_as_diagnose_does() -> None:
+    """The same string either way, because it is the same function. A table that
+    phrased a row's needs differently from the line `doctor` prints about that row
+    would be a second diagnosis to keep in step with the first."""
+    table = {"t": row()}
+    assert hosts.status(table)["t"] == hosts.diagnose(table["t"], name="t")

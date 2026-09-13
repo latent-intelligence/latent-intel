@@ -196,6 +196,26 @@ class SourceRequest(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class HostReport(BaseModel):
+    """Every endpoint one runtime declares, and what this machine can reach.
+
+    A value rather than three lookups, because each of them would build the runtime
+    again to answer half a question — and because the three have to describe one
+    object: a reason taken from a runtime built a moment after the host list was read
+    can disagree with it.
+    """
+
+    runtime: str
+    #: The host in force — config, project or environment, as the built runtime holds
+    #: it. None where the runtime could not be built at all.
+    configured: str | None = None
+    #: Why the runtime itself cannot run here, which may be nothing to do with a host:
+    #: an SDK that is not installed, a model nobody set.
+    reason: str | None = None
+    #: Host name → what it still needs, or None where it needs nothing.
+    hosts: dict[str, str | None] = Field(default_factory=dict)
+
+
 class Message(BaseModel):
     """One turn of conversation, as a runtime receives it.
 
@@ -242,6 +262,7 @@ __all__ = [
     "Doc",
     "Effect",
     "Hit",
+    "HostReport",
     "Message",
     "Provenance",
     "Ref",

@@ -790,3 +790,47 @@ def test_a_setting_is_reported_as_the_runtime_holds_it_not_as_the_file_spells_it
     monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
     assert Session.runtime_setting("anthropic", "host") == "anthropic"
     assert Session.runtime_setting("openai", "model") is None
+
+
+def test_the_host_report_covers_every_host_not_only_the_configured_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`runtime_reason` diagnoses the row that is configured, which says why today
+    failed but not which other host this machine could reach instead."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    report = Session.host_report("openai")
+
+    assert report.runtime == "openai"
+    assert report.configured == "openai"
+    assert report.hosts["openrouter"] is None
+    missing = report.hosts["azure-openai"]
+    assert missing is not None and "AZURE_OPENAI_ENDPOINT" in missing
+
+
+def test_the_host_report_agrees_with_the_reason_doctor_prints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One build, and the verdict is the one `runtime_reason` reaches — a table whose
+    rows were diagnosed a moment before or after the runtime that answers is a table
+    that can contradict the line above it."""
+    monkeypatch.setenv("LATENT_INTEL_OPENAI_HOST", "openrouter")
+    report = Session.host_report("openai")
+
+    assert report.configured == "openrouter"
+    assert report.reason == Session.runtime_reason("openai")
+    assert report.hosts["openrouter"] == report.reason
+
+
+def test_a_runtime_with_no_hosts_reports_an_empty_table_not_a_failure() -> None:
+    """`claude-cli` shells to a binary that has already chosen its endpoint. Having
+    nothing to declare is not the same as something being wrong."""
+    report = Session.host_report("claude-cli")
+    assert report.hosts == {}
+    assert report.runtime == "claude-cli"
+
+
+def test_an_uninstalled_runtime_reports_the_reason_it_could_not_be_built() -> None:
+    report = Session.host_report("nonsense")
+    assert report.hosts == {}
+    assert report.reason is not None
+    assert "no runtime of kind 'nonsense'" in report.reason

@@ -258,6 +258,20 @@ def diagnose(host: Host, *, name: str) -> str | None:
     )
 
 
+def status(table: Mapping[str, Host]) -> dict[str, str | None]:
+    """Every row in one runtime's table, each mapped to None when this machine can
+    reach it or to what it still needs.
+
+    `diagnose` over the whole table rather than the one row that is configured. That is
+    the question someone standing up a deployment actually has — not "why did this
+    fail" but "which of these can I use, and what would the others cost me" — and it is
+    answerable only because every row declares its needs the same way. The reason a row
+    gives here is the same string `doctor` prints when that row is the configured one,
+    since it comes from the same function.
+    """
+    return {name: diagnose(host, name=name) for name, host in table.items()}
+
+
 def unknown(name: str, known: Iterable[str]) -> str:
     """A host nobody has a row for. Sorted, because the order a table happens to be
     written in is not an order anyone can scan."""
@@ -311,6 +325,7 @@ __all__ = [
     "missing",
     "named",
     "names",
+    "status",
     "unknown",
     "value",
     "values",

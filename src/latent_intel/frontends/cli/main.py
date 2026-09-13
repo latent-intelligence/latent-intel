@@ -255,6 +255,47 @@ def run(
 
 
 @app.command()
+def hosts() -> None:
+    """Every endpoint each runtime can reach, and what each one needs."""
+    anyio.run(_hosts)
+
+
+async def _hosts() -> None:
+    from ...session import Session
+
+    for kind in sorted(Session.runtime_status()):
+        report = Session.host_report(kind)
+        if not report.hosts:
+            # `claude-cli` has no table. Saying so beats omitting the runtime, which
+            # reads as "not installed" next to two that are listed.
+            console.print(f"[accent.strong]{escape(kind)}[/] [dim]— no hosts[/]\n")
+            continue
+        console.print(f"[accent.strong]{escape(kind)}[/]")
+        # The runtime's own reason belongs here only when it is not one of the rows
+        # below: a missing SDK or an unset model stops every host at once, while a
+        # configured host's missing variables are already printed against that host.
+        # Derived rather than flagged, so the two can never both claim the same line.
+        if report.reason and report.hosts.get(report.configured or "") is None:
+            console.print(f"  [warn]![/] [dim]{escape(report.reason)}[/]")
+        width = max(len(name) for name in report.hosts)
+        for name, reason in report.hosts.items():
+            mark = "[ok]✓[/]" if reason is None else "[warn]![/]"
+            chosen = "[dim]← configured[/]  " if name == report.configured else ""
+            note = "" if reason is None else f"[dim]{escape(reason)}[/]"
+            # The padding sits outside the markup, so a ready row with nothing to
+            # report ends at its name rather than in a run of styled spaces.
+            pad = " " * (width - len(name))
+            row = f"  {mark} [source]{escape(name)}[/]{pad}  {chosen}{note}"
+            console.print(row.rstrip())
+        console.print()
+
+    console.print(
+        "[dim]Names of variables, never values — safe to paste. Set them in a `.env` "
+        "beside the project file, or export them.[/]"
+    )
+
+
+@app.command()
 def doctor() -> None:
     """What is installed, what is reachable, and what is not declared."""
     anyio.run(_doctor)
