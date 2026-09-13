@@ -266,7 +266,7 @@ class AnthropicRuntime:
         except anthropic.APIStatusError as exc:
             yield emitter.emit(
                 ev.AgentFailed,
-                message=f"the endpoint returned {exc.status_code}",
+                message=turn.status_message(exc),
                 kind="api_error",
                 remedy="",
             )

@@ -140,6 +140,27 @@ def system_prompt(sources: Sequence[Any]) -> str:
     return "\n".join(lines)
 
 
+def status_message(exc: Any) -> str:
+    """A status error from either SDK, as the one sentence a turn fails with.
+
+    The status alone sends someone to a network tab to find out what was wrong with the
+    request; the body usually already says — `Unrecognized request argument supplied:
+    max_completion_tokens` names the parameter and the fix. The message only: the
+    headers carry the credential and the request carries the transcript, and neither
+    belongs in an event a frontend renders or a user pastes into a thread.
+
+    Both SDKs shape the exception the same way — a `status_code` and a decoded `body` —
+    and a body that is anything else is not an error here, only a report without the
+    detail.
+    """
+    body = getattr(exc, "body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    detail = error.get("message") if isinstance(error, dict) else None
+    if isinstance(detail, str) and detail.strip():
+        return f"the endpoint returned {exc.status_code}: {detail}"
+    return f"the endpoint returned {exc.status_code}"
+
+
 async def dispatch(
     call_tool: ToolRouter | None,
     spec: ToolSpec | None,
@@ -233,6 +254,7 @@ __all__ = [
     "dispatch",
     "input_schema",
     "offered",
+    "status_message",
     "system_prompt",
     "wire_name",
     "wired",

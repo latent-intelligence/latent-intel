@@ -167,9 +167,9 @@ def test_a_configured_runtime_with_no_model_says_which_key_to_set(
 
 def test_an_unknown_host_names_the_known_ones() -> None:
     """A typo in a project file must not read as a missing credential."""
-    reason = OpenAIRuntime(host="openrouter").unavailable_reason()
+    reason = OpenAIRuntime(host="openroutr").unavailable_reason()
     assert reason is not None
-    assert "openrouter" in reason and "foundry" in reason and "openai" in reason
+    assert "openroutr" in reason and "foundry" in reason and "openai" in reason
 
 
 def test_no_credential_value_ever_reaches_the_reason(
@@ -788,6 +788,8 @@ async def test_rate_limiting_is_its_own_kind_not_a_generic_api_error(
 
 @pytest.mark.anyio
 async def test_any_other_status_reports_the_status(credentials: None) -> None:
+    """A body the endpoint sent nothing useful in leaves the status as the whole
+    report."""
     client = FakeClient(
         Round(
             raises=openai.APIStatusError("boom", response=_response(500), body=None)
@@ -796,6 +798,29 @@ async def test_any_other_status_reports_the_status(credentials: None) -> None:
     failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "api_error" and "500" in failed.message
+    assert failed.message == "the endpoint returned 500"
+
+
+@pytest.mark.anyio
+async def test_a_status_error_carries_the_endpoint_s_own_explanation(
+    credentials: None,
+) -> None:
+    """The status alone sends someone to a network tab to find out which parameter the
+    endpoint disliked; the body already names it."""
+    detail = "Unrecognized request argument supplied: max_completion_tokens"
+    client = FakeClient(
+        Round(
+            raises=openai.BadRequestError(
+                "bad request",
+                response=_response(400),
+                body={"error": {"message": detail}},
+            )
+        )
+    )
+    failed = terminal(await collect(runtime(client_factory=client)))
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "api_error"
+    assert "400" in failed.message and detail in failed.message
 
 
 @pytest.mark.anyio
@@ -813,6 +838,35 @@ async def test_an_unreachable_endpoint_names_where_it_is_configured(
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "connection"
     assert "FOUNDRY_RESOURCE" in failed.remedy
+
+
+@pytest.mark.anyio
+async def test_an_unreachable_default_endpoint_names_the_url_it_tried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row reached at its row's own URL has no variable to check, and naming one
+    nobody set reads as a misconfiguration rather than an outage."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    client = FakeClient(
+        Round(
+            raises=openai.APIConnectionError(
+                request=httpx.Request("POST", "https://example")
+            )
+        )
+    )
+    failed = terminal(
+        await collect(
+            OpenAIRuntime(
+                host="openrouter",
+                model="anthropic/claude-sonnet-5",
+                client_factory=client,
+            )
+        )
+    )
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "connection"
+    assert "https://openrouter.ai/api/v1" in failed.remedy
+    assert "OPENROUTER_BASE_URL" not in failed.remedy
 
 
 @pytest.mark.anyio
@@ -865,6 +919,407 @@ def test_the_openai_host_points_nowhere_in_particular() -> None:
     """None, not an empty string: the SDK has its own default and must be left to use
     it."""
     assert base_url(HOSTS["openai"]) is None
+
+
+# -- the host rows ----------------------------------------------------------
+
+
+def test_openrouter_wants_one_variable_and_names_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gateway publishes its base URL, so a key is the whole configuration — and
+    the one thing missing has to be named rather than implied."""
+    backend = OpenAIRuntime(host="openrouter", model="anthropic/claude-sonnet-5")
+    reason = backend.unavailable_reason()
+    assert reason is not None and "OPENROUTER_API_KEY" in reason
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert backend.available()
+
+
+def test_openrouter_points_at_the_gateway_without_a_variable() -> None:
+    """One published URL: requiring a variable for it would be asking every install to
+    retype the same string."""
+    assert base_url(HOSTS["openrouter"]) == "https://openrouter.ai/api/v1"
+
+
+def test_openrouters_base_url_variable_still_overrides_the_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A proxy in front of the gateway is the case the variable exists for."""
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://proxy.example/api/v1")
+    assert base_url(HOSTS["openrouter"]) == "https://proxy.example/api/v1"
+
+
+def test_one_url_field_serves_a_template_and_a_constant_alike(
+    credentials: None,
+) -> None:
+    """`url` is read two ways from one field — formatted where the row's first endpoint
+    variable names a resource, verbatim where it names none — and a row that sets it at
+    all must not disturb a row that does not."""
+    assert base_url(HOSTS["foundry"]).startswith("https://never-printed-resource.")
+    assert base_url(HOSTS["openrouter"]) == "https://openrouter.ai/api/v1"
+    assert base_url(HOSTS["openai"]) is None
+
+
+@pytest.mark.anyio
+async def test_openrouter_sends_the_parameter_the_gateway_documents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`max_completion_tokens` is the OpenAI API's name; the gateway normalises
+    `max_tokens` per vendor, which is what it documents."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    client = FakeClient(Round(text=("hi",)))
+    events = await collect(
+        OpenAIRuntime(
+            host="openrouter",
+            model="anthropic/claude-sonnet-5",
+            client_factory=client,
+            max_tokens=2048,
+        )
+    )
+    assert isinstance(terminal(events), ev.AgentCompleted)
+    request = client.requests[0]
+    assert request["max_tokens"] == 2048
+    assert "max_completion_tokens" not in request
+
+
+@pytest.mark.anyio
+async def test_openrouters_404_names_the_vendor_model_form(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bare `claude-sonnet-5` is the mistake this row invites, and the remedy is the
+    only place someone finds out the id carries a vendor."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    client = FakeClient(
+        Round(
+            raises=openai.NotFoundError(
+                "not found", response=_response(404), body=None
+            )
+        )
+    )
+    failed = terminal(
+        await collect(
+            OpenAIRuntime(
+                host="openrouter", model="claude-sonnet-5", client_factory=client
+            )
+        )
+    )
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "model_not_found"
+    assert "<vendor>/<model>" in failed.remedy
+
+
+def test_a_local_server_needs_its_own_address_and_nothing_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Where the server is, is the one thing nothing can guess — and a key is not
+    required, so demanding one would refuse a working install.
+
+    Rewritten from the version that set `OPENAI_BASE_URL`: this row reads its own
+    variables, so the public API's address does not configure it.
+    """
+    backend = OpenAIRuntime(host="local", model="qwen3")
+    reason = backend.unavailable_reason()
+    assert reason is not None and "LOCAL_OPENAI_BASE_URL" in reason
+    assert "LOCAL_OPENAI_API_KEY" not in reason
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    reason = backend.unavailable_reason()
+    assert reason is not None and "LOCAL_OPENAI_BASE_URL" in reason
+    monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
+    assert backend.available()
+
+
+def test_a_local_server_is_given_the_row_s_own_default_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SDK refuses to construct a client with no credential at all, even against a
+    server that never reads one."""
+    monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
+    seen: dict[str, Any] = {}
+
+    def factory(**kwargs: Any) -> FakeClient:
+        seen.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
+    OpenAIRuntime(host="local", model="qwen3")._client()
+    assert seen["api_key"] == HOSTS["local"].key_default
+    assert seen["base_url"] == "http://localhost:11434/v1"
+
+
+def test_the_public_api_key_never_reaches_a_local_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reason this row has its own variables: `OPENAI_API_KEY` is a credential
+    issued for api.openai.com, and forwarding it to whatever is listening on the LAN
+    sends it somewhere it was never meant to go."""
+    monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-sentinel-value")
+    seen: dict[str, Any] = {}
+
+    def factory(**kwargs: Any) -> FakeClient:
+        seen.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
+    OpenAIRuntime(host="local", model="qwen3")._client()
+    assert "sk-sentinel-value" not in seen.values()
+    assert seen["api_key"] == HOSTS["local"].key_default
+
+
+def test_a_local_server_that_does_check_a_key_is_given_the_real_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """vLLM behind an `--api-key` is the case: optional is not the same as ignored."""
+    monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.setenv("LOCAL_OPENAI_API_KEY", "sk-sentinel-value")
+    seen: dict[str, Any] = {}
+
+    def factory(**kwargs: Any) -> FakeClient:
+        seen.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
+    OpenAIRuntime(host="local", model="qwen3")._client()
+    assert seen["api_key"] == "sk-sentinel-value"
+
+
+def test_the_openai_and_local_hosts_resolve_from_one_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A laptop that talks to both — the public API for one question and a server on
+    the desk for the next — keeps all four variables in one `.env`, and neither row may
+    read the other's."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-public")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("LOCAL_OPENAI_API_KEY", "sk-lan")
+    monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
+    assert OpenAIRuntime(host="openai", model="gpt-5").available()
+    assert OpenAIRuntime(host="local", model="qwen3").available()
+    assert base_url(HOSTS["openai"]) == "https://api.openai.com/v1"
+    assert base_url(HOSTS["local"]) == "http://localhost:11434/v1"
+
+
+@pytest.mark.anyio
+async def test_a_local_server_answers_with_the_older_token_parameter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`max_completion_tokens` is newer than several of the servers this row exists
+    for, and one that ignores the bound streams until it is stopped."""
+    monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
+    client = FakeClient(Round(text=("hi",)))
+    events = await collect(
+        OpenAIRuntime(
+            host="local", model="qwen3", client_factory=client, max_tokens=1024
+        )
+    )
+    assert isinstance(terminal(events), ev.AgentCompleted)
+    assert client.requests[0]["max_tokens"] == 1024
+    assert "max_completion_tokens" not in client.requests[0]
+
+
+@pytest.mark.anyio
+async def test_a_local_404_names_the_server_s_own_model_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A local server serves whatever was pulled onto the machine, so only it can say
+    what the name is."""
+    monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
+    client = FakeClient(
+        Round(
+            raises=openai.NotFoundError(
+                "not found", response=_response(404), body=None
+            )
+        )
+    )
+    failed = terminal(
+        await collect(
+            OpenAIRuntime(host="local", model="qwen3", client_factory=client)
+        )
+    )
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "model_not_found"
+    assert "models list" in failed.remedy
+
+
+@pytest.fixture
+def azure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The three variables the classic surface needs, present and meaningless."""
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "never-printed-key")
+    monkeypatch.setenv(
+        "AZURE_OPENAI_ENDPOINT", "https://never-printed.openai.azure.com"
+    )
+    monkeypatch.setenv("OPENAI_API_VERSION", "2026-01-01")
+
+
+def test_azure_openai_names_all_three_of_its_variables() -> None:
+    """Three, not two: this client refuses to be built without a dated API version, and
+    someone who set only the pair every other row wants must be told which is left."""
+    backend = OpenAIRuntime(host="azure-openai", model="my-deployment")
+    reason = backend.unavailable_reason()
+    assert reason is not None
+    assert "AZURE_OPENAI_API_KEY" in reason
+    assert "AZURE_OPENAI_ENDPOINT" in reason
+    assert "OPENAI_API_VERSION" in reason
+
+
+def test_azure_openai_names_the_api_version_when_it_is_the_only_one_left(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The variable nobody expects, and the one whose absence would otherwise surface
+    as a 400 from the endpoint naming neither this runtime nor the fix."""
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "k")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    backend = OpenAIRuntime(host="azure-openai", model="my-deployment")
+    reason = backend.unavailable_reason()
+    assert reason is not None and "OPENAI_API_VERSION" in reason
+    assert "AZURE_OPENAI_API_KEY" not in reason
+    monkeypatch.setenv("OPENAI_API_VERSION", "2026-01-01")
+    assert backend.available()
+
+
+def test_azure_openai_is_built_with_its_own_client_and_its_own_kwargs(
+    azure: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row this hook exists for: a different class, `azure_endpoint` instead of
+    `base_url`, and a version the other rows have never heard of."""
+    seen: dict[str, Any] = {}
+
+    def factory(**kwargs: Any) -> FakeClient:
+        seen.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(openai, "AsyncAzureOpenAI", factory)
+    OpenAIRuntime(host="azure-openai", model="my-deployment")._client()
+    assert seen == {
+        "api_key": "never-printed-key",
+        "azure_endpoint": "https://never-printed.openai.azure.com",
+        "api_version": "2026-01-01",
+    }
+    assert "base_url" not in seen
+
+
+def built(monkeypatch: pytest.MonkeyPatch, **options: Any) -> dict[str, Any]:
+    """The kwargs one row's client is actually constructed with.
+
+    `base_url(host)` alone would not catch a row whose URL never reaches the client,
+    which is the failure these rows can have: the value is right and nothing sends it.
+    """
+    seen: dict[str, Any] = {}
+
+    def factory(**kwargs: Any) -> FakeClient:
+        seen.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
+    OpenAIRuntime(**options)._client()
+    return seen
+
+
+def test_foundry_is_built_with_the_url_its_resource_name_implies(
+    credentials: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The default construction hook: a key and a base URL, through `AsyncOpenAI`."""
+    seen = built(monkeypatch, host="foundry", model="gpt-5-deployment")
+    assert set(seen) == {"api_key", "base_url"}
+    assert seen["api_key"] == "never-printed-key"
+    assert seen["base_url"] == (
+        "https://never-printed-resource.services.ai.azure.com/openai/v1"
+    )
+
+
+def test_foundry_is_built_with_the_resource_the_variable_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The template is the row's, and the resource is the environment's."""
+    monkeypatch.setenv("FOUNDRY_API_KEY", "k")
+    monkeypatch.setenv("FOUNDRY_RESOURCE", "demo")
+    seen = built(monkeypatch, host="foundry", model="m")
+    assert seen["base_url"] == "https://demo.services.ai.azure.com/openai/v1"
+
+
+def test_openrouter_is_built_with_the_gateway_its_row_publishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No variable set, and the client still points at the gateway — and an
+    `OPENAI_BASE_URL` exported for the row next door does not move it."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    seen = built(monkeypatch, host="openrouter", model="anthropic/claude-sonnet-5")
+    assert seen["base_url"] == "https://openrouter.ai/api/v1"
+
+
+def test_openrouters_own_variable_is_what_moves_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A proxy in front of the gateway, as far as the client is concerned."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://proxy.example/api/v1")
+    seen = built(monkeypatch, host="openrouter", model="anthropic/claude-sonnet-5")
+    assert seen["base_url"] == "https://proxy.example/api/v1"
+
+
+def test_the_openai_row_is_built_with_no_base_url_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """None, not an empty string: the SDK has its own default and must be left to use
+    it, which is a thing only the constructed client can show."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    seen = built(monkeypatch, host="openai", model="gpt-5")
+    assert seen["base_url"] is None
+    assert seen["api_key"] == "k"
+
+
+@pytest.mark.anyio
+async def test_azure_openai_answers_an_ordinary_question(azure: None) -> None:
+    """Nothing about the turn differs — which is the claim the row is making.
+
+    Rewritten from the version asserting `max_completion_tokens`: that parameter is
+    gated on the dated API version here, so an older `OPENAI_API_VERSION` rejects the
+    request outright. `max_tokens` is accepted by every version.
+    """
+    client = FakeClient(Round(text=("hi",)))
+    events = await collect(
+        OpenAIRuntime(
+            host="azure-openai", model="my-deployment", client_factory=client
+        )
+    )
+    assert isinstance(terminal(events), ev.AgentCompleted)
+    assert client.requests[0]["model"] == "my-deployment"
+    assert "max_tokens" in client.requests[0]
+    assert "max_completion_tokens" not in client.requests[0]
+
+
+@pytest.mark.anyio
+async def test_azure_openais_404_names_the_deployment(azure: None) -> None:
+    """A catalogue id pasted in where a deployment name belongs is the mistake, and it
+    returns a 404 rather than anything that says so."""
+    client = FakeClient(
+        Round(
+            raises=openai.NotFoundError(
+                "not found", response=_response(404), body=None
+            )
+        )
+    )
+    failed = terminal(
+        await collect(
+            OpenAIRuntime(
+                host="azure-openai", model="gpt-5-2026-01-01", client_factory=client
+            )
+        )
+    )
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "model_not_found"
+    assert "deployment" in failed.remedy
+
+
+def test_no_azure_credential_value_reaches_a_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same rule for every row: `doctor` output is pasted into support threads."""
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "sk-sentinel-value")
+    reason = OpenAIRuntime(host="azure-openai", model="m").unavailable_reason()
+    assert reason is not None and "sk-sentinel-value" not in reason
 
 
 # -- a base install ---------------------------------------------------------

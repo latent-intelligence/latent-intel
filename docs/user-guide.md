@@ -406,10 +406,10 @@ loop, and two run the turn in this process — one per wire protocol.
   `uv tool install ".[api]"`, or
   `uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"`.
 - **`openai`** runs the turn in this process over the OpenAI-compatible protocol, and
-  reaches every attached source the same way `anthropic` does. Hosts `openai` and
-  `foundry` ship; OpenRouter, classic Azure OpenAI and local servers are the next rows.
-  Same `api` extra — one install carries both SDKs — and it has **no default model**,
-  because every host names its models differently.
+  reaches every attached source the same way `anthropic` does. Five hosts ship: `openai`,
+  `foundry`, `openrouter`, `azure-openai` and `local`. Same `api` extra — one install
+  carries both SDKs — and it has **no default model**, because every host names its
+  models differently.
 
 ```
 latent › /runtime anthropic
@@ -433,7 +433,7 @@ runtimes:
     max_tokens: 16384
     max_tool_rounds: 10      # how many model round-trips one question may take
   openai:
-    host: foundry            # or `openai`
+    host: foundry            # or `openai`, `openrouter`, `azure-openai`, `local`
     model: my-gpt-deployment # required, and a deployment name, not a catalogue id
 ```
 
@@ -471,10 +471,29 @@ there.
 
 `openai`:
 
-| host | needs | optional |
-|---|---|---|
-| `openai` (default) | `OPENAI_API_KEY` | `OPENAI_BASE_URL` |
-| `foundry` | `FOUNDRY_API_KEY`, and one of `FOUNDRY_RESOURCE` / `FOUNDRY_BASE_URL` | — |
+| host | needs | optional | model is |
+|---|---|---|---|
+| `openai` (default) | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | a published id |
+| `foundry` | `FOUNDRY_API_KEY`, and one of `FOUNDRY_RESOURCE` / `FOUNDRY_BASE_URL` | — | a deployment name |
+| `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` | `<vendor>/<model>` |
+| `azure-openai` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `OPENAI_API_VERSION` | — | a deployment name |
+| `local` | `LOCAL_OPENAI_BASE_URL` | `LOCAL_OPENAI_API_KEY` | whatever the server serves |
+
+**OpenRouter** is one key for open and low-cost models from every vendor at once; ids are
+`<vendor>/<model>`, e.g. `anthropic/claude-sonnet-5`, listed at openrouter.ai/models.
+
+**`local`** is any OpenAI-compatible server on your own machine — Ollama, vLLM, LM Studio
+— so development costs nothing. It reads its own two variables, `LOCAL_OPENAI_*`: a key
+issued for the public API must not be forwarded to whatever is listening on the LAN, and
+one pair shared between the rows would mean the two hosts could not both be configured in
+one `.env`. The address is what nothing can guess, and a key is optional because most such
+servers ignore one (a placeholder is sent, since the SDK refuses to build a client without
+any credential at all).
+
+**`azure-openai` is the classic surface**, and distinct from Foundry's OpenAI-compatible
+one — that is `host: foundry`. It needs the dated `OPENAI_API_VERSION` as well as the key
+and endpoint; there is no default, because a version guessed here goes stale and returns
+a 400 that names neither the variable nor the fix.
 
 **One Foundry resource has one key.** A machine already reaching Foundry over the
 Anthropic protocol needs nothing more: `ANTHROPIC_FOUNDRY_API_KEY` and
