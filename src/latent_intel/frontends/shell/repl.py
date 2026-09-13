@@ -44,6 +44,7 @@ from ...ui import theme as theme_module
 from .._shared import (
     active_brand,
     console,
+    print_hosts,
     record,
     report,
     session_scope,
@@ -301,6 +302,11 @@ def _local(
             _model(session, local.argument)
         case "host":
             _host(session, local.argument)
+        case "hosts":
+            # The whole table, printed by the same function `intel hosts` calls: a
+            # shell that phrased an endpoint's needs differently from the CLI would
+            # be a second answer to keep in step with the first.
+            print_hosts()
         case "project":
             _project(session, local.argument)
     return False

@@ -445,3 +445,34 @@ def test_a_model_the_runtime_accepts_is_persisted_and_nothing_is_refused(
         "claude-sonnet-5"
     )
     assert "✗" not in console.export_text()
+
+
+def test_hosts_prints_the_whole_table_through_the_shared_printer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/hosts` and `intel hosts` are one function, so the shell cannot phrase an
+    endpoint's needs differently from the CLI. Patched on `_shared`, because that is
+    where the console the printer writes to lives."""
+    from rich.console import Console
+
+    from latent_intel.frontends import _shared
+    from latent_intel.ui.theme import THEME
+
+    console = Console(theme=THEME, width=100, record=True)
+    monkeypatch.setattr(_shared, "console", console)
+    _shared.print_hosts()
+
+    text = console.export_text()
+    for name in ("openrouter", "azure-openai", "local"):
+        assert name in text
+    assert "OPENROUTER_API_KEY" in text
+    assert "claude-cli — no hosts" in text
+
+
+def test_hosts_takes_no_argument() -> None:
+    """A report, not a setting: `/host` chooses one and `/hosts` lists them all."""
+    result = parse("/hosts")
+    assert isinstance(result, Local)
+    assert result.action == "hosts" and result.argument == ""
+
+    assert isinstance(parse("/hosts openrouter"), Invalid)
