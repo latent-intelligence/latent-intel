@@ -85,6 +85,8 @@ SLASH: dict[str, Spec] = {
     "project": Spec(0, 1, "/project [name]", "which deployment is active", "agent"),
     "runtime": Spec(0, 1, "/runtime [name]", "which backend answers `ask`", "agent"),
     "model": Spec(0, 1, "/model [name]", "which model that backend uses", "agent"),
+    "host": Spec(0, 1, "/host [name]", "which host the runtime talks to", "agent"),
+    "hosts": Spec(0, 0, "/hosts", "every host, and what each one needs", "agent"),
     "clear": Spec(0, 0, "/clear", "clear the screen"),
     "help": Spec(0, 1, "/help [command]", "this"),
     "exit": Spec(0, 0, "/exit", "leave"),
@@ -151,6 +153,8 @@ def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
             | "use"
             | "runtime"
             | "model"
+            | "host"
+            | "hosts"
             | ("project")
         ):
             return Local(name, args[0] if args else "")

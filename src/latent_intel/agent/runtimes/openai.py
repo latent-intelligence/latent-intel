@@ -9,7 +9,8 @@ fragments to be reassembled, and a `finish_reason` instead of a stop reason.
 Foundry's OpenAI-compatible surface, the OpenAI API, OpenRouter, classic Azure OpenAI
 and a server on the machine you are sitting at: they differ in which variables name the
 credential and the endpoint, how the client is constructed, and what a 404 means — and
-in nothing else about a turn.
+in nothing else about a turn. The row *type* is `agent/hosts.py`, shared with the
+Anthropic runtime rather than declared twice.
 
 **A host decides its own construction.** Classic Azure OpenAI is reached through a
 different client class and named kwargs — `azure_endpoint` and `api_version` rather than
@@ -52,113 +53,59 @@ import json
 import os
 import time
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
 from typing import Any
 
 from ... import events as ev
-from ...models import Message, RuntimeUnavailable, ToolSpec
-from .. import turn
+from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
+from .. import hosts, turn
 
-# Construction, above `Host` because one of these is a field default there and a class
-# body is evaluated when it is read. The annotations are lazy; the defaults are not.
+# Construction, above the table because one of these is a row's field and a module body
+# is evaluated when it is read. The annotations are lazy; the values are not.
 
 
-def _construct_openai(host: Host) -> dict[str, Any]:
-    """The kwargs `AsyncOpenAI` takes: a key and, where it is not the SDK's own
-    default, a base URL. What almost every host on this protocol wants.
+def _construct_azure(host: hosts.Host, values: hosts.Values) -> dict[str, Any]:
+    """The kwargs `AsyncAzureOpenAI` takes instead of a base URL: the resource endpoint
+    under its own name, and the dated API version, which this client requires and no
+    other does.
 
-    An unset key falls back to the row's `key_default`: the SDK refuses to construct a
-    client with no credential at all, so a host that authenticates nobody still has to
-    be given something, and a recognisable word is what appears in its logs.
+    Read by name from the row's own resolved values, so the names a reason prints and
+    the names a client is built from cannot drift apart.
+
+    Exactly one credential kwarg, and the Entra ID token where both are set: the SDK
+    refuses a client given both, and a token is the deliberate choice while a key is
+    what a machine tends to still have exported from before. The other is omitted
+    rather than passed as None, because the SDK reads its own environment when a
+    credential is absent and a None it was handed is not absent.
     """
-    return {
-        "api_key": _value(host.key, host) or host.key_default,
-        "base_url": base_url(host),
+    kwargs: dict[str, Any] = {
+        "azure_endpoint": values["AZURE_OPENAI_ENDPOINT"],
+        "api_version": values["OPENAI_API_VERSION"],
     }
-
-
-def _construct_azure(host: Host) -> dict[str, Any]:
-    """The kwargs `AsyncAzureOpenAI` takes instead: the resource endpoint under its own
-    name, and the dated API version, which this client requires and no other does.
-
-    Read from the row's own fields rather than from variable names repeated here, so
-    the names a reason prints and the names a client is built from cannot drift apart.
-    """
-    return {
-        "api_key": _value(host.key, host),
-        "azure_endpoint": _value(host.endpoint[0], host),
-        "api_version": _value(host.extra_required[0], host),
-    }
-
-
-@dataclass(frozen=True)
-class Host:
-    """One endpoint the OpenAI SDK can reach.
-
-    Everything host-specific about a turn is in these fields, which is the claim the
-    design rests on: a new host is a row here, not a module.
-    """
-
-    #: The client class on the `openai` module. Resolved by name so the SDK stays
-    #: unimported until a turn actually starts.
-    client: str
-    #: The credential variable. Its *name* is reported when authentication fails.
-    key: str
-    #: Where the endpoint lives, resource first and full base URL last. Any one of
-    #: these is enough, and `url` says how the first becomes the second. Two of this
-    #: row's own set at once is reported rather than ranked silently; an address set
-    #: for this surface beats a resource inherited from the other surface's fallback,
-    #: deliberately — see `unavailable_reason` and `base_url`.
-    endpoint: tuple[str, ...]
-    #: Whether one of `endpoint` must be set for the client to be constructible at all,
-    #: or whether the SDK has a default and these are only overrides.
-    endpoint_required: bool
-    #: What a 404 most likely means here. The hosts fail differently enough that one
-    #: shared sentence would be wrong for one of them.
-    remedy_404: str
-    #: The base URL this row implies when no `endpoint` variable is set: a template
-    #: formatted with `{resource}` where the first `endpoint` variable names a resource
-    #: rather than an address, a constant where a gateway publishes one URL, and None
-    #: where the SDK's own default applies. A resource name is what a portal shows and
-    #: a URL is what it implies; a published gateway needs no variable at all, and
-    #: keeps one so a proxy in front of it can still be pointed at.
-    url: str | None = None
-    #: What is sent as the credential when `key` is unset, or None where the key is
-    #: required. A server on localhost authenticates nobody, and demanding a credential
-    #: for it would be a requirement invented here rather than one the endpoint has —
-    #: see `_construct_openai` for why something is still sent.
-    key_default: str | None = None
-    #: Our variable name → a variable already set for another surface of the same
-    #: platform that carries the same value. Read when ours is unset, and named in the
-    #: reason so nobody has to know the mapping to fix it.
-    fallback: dict[str, str] = field(default_factory=dict)
-    #: Variables this host needs beyond the credential and the endpoint, checked and
-    #: named exactly as those are. Empty for a host whose endpoint is the whole address.
-    extra_required: tuple[str, ...] = ()
-    #: The output-token parameter this host accepts. `max_tokens` is deprecated on the
-    #: OpenAI API and rejected by reasoning models; an older compatible host may still
-    #: want it, which is why it is a row rather than a constant.
-    tokens_param: str = "max_completion_tokens"
-    #: This host's variables, as the kwargs its client class is constructed with. A row
-    #: whose client takes `base_url` needs nothing here; one that spells its endpoint
-    #: some other way supplies its own rather than making `_client` grow a branch.
-    construct: Callable[[Host], dict[str, Any]] = field(default=_construct_openai)
+    token = values["AZURE_OPENAI_AD_TOKEN"]
+    if token:
+        kwargs["azure_ad_token"] = token
+    else:
+        kwargs["api_key"] = values["AZURE_OPENAI_API_KEY"]
+    return kwargs
 
 
 #: Every host reachable through the OpenAI SDK. A new one is a row.
-HOSTS: dict[str, Host] = {
-    "openai": Host(
+HOSTS: dict[str, hosts.OpenAIHost] = {
+    "openai": hosts.OpenAIHost(
         client="AsyncOpenAI",
         key="OPENAI_API_KEY",
         endpoint=("OPENAI_BASE_URL",),
-        endpoint_required=False,
+        required=("OPENAI_API_KEY",),
         remedy_404="check the model id against the ones the API publishes",
     ),
-    "foundry": Host(
+    "foundry": hosts.OpenAIHost(
         client="AsyncOpenAI",
         key="FOUNDRY_API_KEY",
+        # Both at once is refused: `base_url` takes the address and would quietly
+        # ignore the resource, which is the same ambiguity the Anthropic SDK refuses
+        # outright — and one of the two is not doing what whoever set it thinks.
         endpoint=("FOUNDRY_RESOURCE", "FOUNDRY_BASE_URL"),
-        endpoint_required=True,
+        required=("FOUNDRY_API_KEY", ("FOUNDRY_RESOURCE", "FOUNDRY_BASE_URL")),
         remedy_404=(
             "Foundry resolves deployment names — check the deployment exists on this "
             "resource and is served on its OpenAI-compatible surface"
@@ -169,11 +116,11 @@ HOSTS: dict[str, Host] = {
             "FOUNDRY_RESOURCE": "ANTHROPIC_FOUNDRY_RESOURCE",
         },
     ),
-    "openrouter": Host(
+    "openrouter": hosts.OpenAIHost(
         client="AsyncOpenAI",
         key="OPENROUTER_API_KEY",
         endpoint=("OPENROUTER_BASE_URL",),
-        endpoint_required=False,
+        required=("OPENROUTER_API_KEY",),
         remedy_404=(
             "OpenRouter model ids are `<vendor>/<model>` — check the id at "
             "openrouter.ai/models"
@@ -181,26 +128,34 @@ HOSTS: dict[str, Host] = {
         url="https://openrouter.ai/api/v1",
         tokens_param="max_tokens",
     ),
-    "azure-openai": Host(
+    "azure-openai": hosts.OpenAIHost(
         client="AsyncAzureOpenAI",
         key="AZURE_OPENAI_API_KEY",
         endpoint=("AZURE_OPENAI_ENDPOINT",),
-        endpoint_required=True,
+        # A key *or* an Entra ID token — a resource with key auth disabled is the
+        # common enterprise posture, and until the group existed this row demanded a
+        # credential such a resource cannot issue. Then the endpoint, then the dated
+        # API version this client requires and no other does: no default version, one
+        # guessed here goes stale and returns a 400 that names neither this file nor
+        # the variable that would fix it.
+        required=(
+            ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_AD_TOKEN"),
+            "AZURE_OPENAI_ENDPOINT",
+            "OPENAI_API_VERSION",
+        ),
         remedy_404=(
             "Azure OpenAI resolves deployment names — check the deployment exists on "
             "this resource"
         ),
-        # No default version. One guessed here goes stale and returns a 400 that names
-        # neither this file nor the variable that would fix it.
-        extra_required=("OPENAI_API_VERSION",),
-        # The row's default, not `max_tokens`: a reasoning deployment here rejects
-        # `max_tokens` on every API version, and a version old enough to reject
-        # `max_completion_tokens` also rejects the `stream_options` every turn sends —
-        # so the override bought nothing and cost the newer deployments. A resource
-        # that really does want the older name has `tokens_param:` on the runtime.
+        # The row's default token parameter, not `max_tokens`: a reasoning deployment
+        # here rejects `max_tokens` on every API version, and a version old enough to
+        # reject `max_completion_tokens` also rejects the `stream_options` every turn
+        # sends — so the override bought nothing and cost the newer deployments. A
+        # resource that really does want the older name has `tokens_param:` on the
+        # runtime.
         construct=_construct_azure,
     ),
-    "local": Host(
+    "local": hosts.OpenAIHost(
         client="AsyncOpenAI",
         # Its own variables, not the `openai` row's: a key for the public API
         # forwarded to a server on the LAN is a credential leaving the machine it was
@@ -208,9 +163,14 @@ HOSTS: dict[str, Host] = {
         # both be configured in one `.env`.
         key="LOCAL_OPENAI_API_KEY",
         endpoint=("LOCAL_OPENAI_BASE_URL",),
-        endpoint_required=True,
+        # The address only. A server on localhost authenticates nobody, so demanding a
+        # credential for it would be a requirement invented here rather than one the
+        # endpoint has — and the default below is why something is still sent.
+        required=("LOCAL_OPENAI_BASE_URL",),
         remedy_404="check the model name the server reports (e.g. its models list)",
-        key_default="local",
+        # The SDK refuses to construct a client with no credential at all, and a
+        # recognisable word is what appears in that server's logs.
+        defaults={"LOCAL_OPENAI_API_KEY": "local"},
         tokens_param="max_tokens",
     ),
 }
@@ -246,59 +206,6 @@ _STOP_FAILURES: dict[str, tuple[str, str, str]] = {
 #: reason absent from here and from `_STOP_FAILURES` is reported rather than guessed at:
 #: treating it as success would report a truncated answer as a complete one.
 _STOP_DONE = frozenset({"stop"})
-
-
-def _value(name: str, host: Host) -> str | None:
-    """One variable's value, or the value of what this host accepts in its place."""
-    return os.environ.get(name) or os.environ.get(host.fallback.get(name, ""))
-
-
-def _named(name: str, host: Host) -> str:
-    """One variable, as it is reported when it is missing — with the variable that
-    would also do, because a deployment that has set that one is already finished."""
-    other = host.fallback.get(name)
-    return f"{name} (or {other})" if other else name
-
-
-def _connection_remedy(host: Host) -> str:
-    """What to check when the endpoint did not answer.
-
-    A row reached at a default has no variable to check, and naming one nobody set
-    reads as a misconfiguration rather than an outage — so what was dialled is named
-    instead: the row's own URL where it implies one, and the SDK's default where
-    neither the row nor the environment says anything. A base URL is not a credential,
-    and it is the only thing that distinguishes a gateway being down from a proxy
-    variable pointing nowhere.
-    """
-    if not any(_value(name, host) for name in host.endpoint):
-        url = base_url(host)
-        if url is None:
-            return "could not reach the SDK's default endpoint — check the network"
-        return f"could not reach {url} — check the network"
-    names = " or ".join(_named(name, host) for name in host.endpoint)
-    return f"check {names} and the network"
-
-
-def base_url(host: Host) -> str | None:
-    """Where the client points, or None to let the SDK use its own default.
-
-    In order: the last `endpoint` variable, which is the full address and says exactly
-    where to go; then the row's `url`, filled in from the first `endpoint` variable
-    where the template names a resource and that variable is set, or taken verbatim
-    where it names none; then nothing. A resource name and a full base URL are two ways
-    of saying the same thing, so the second is built from the first rather than asked
-    for twice. Nothing here is logged: a base URL is not a credential, but it is read
-    from the same place one is.
-    """
-    address = _value(host.endpoint[-1], host)
-    if address:
-        return address
-    if host.url is None:
-        return None
-    if "{resource}" not in host.url:
-        return host.url
-    resource = _value(host.endpoint[0], host)
-    return host.url.format(resource=resource) if resource else None
 
 
 class OpenAIRuntime:
@@ -356,43 +263,25 @@ class OpenAIRuntime:
         """
         host = HOSTS.get(self.host)
         if host is None:
-            known = ", ".join(sorted(HOSTS))
-            return f"unknown host '{self.host}' — known hosts: {known}"
+            return hosts.unknown(self.host, HOSTS)
         if importlib.util.find_spec("openai") is None:
             return "the openai SDK is not installed — install `latent-intel[api]`"
-        missing: list[str] = []
-        if host.key_default is None and not _value(host.key, host):
-            missing.append(_named(host.key, host))
-        if host.endpoint_required and not any(
-            _value(name, host) for name in host.endpoint
-        ):
-            missing.append(" or ".join(_named(name, host) for name in host.endpoint))
-        missing += [
-            _named(name, host)
-            for name in host.extra_required
-            if not _value(name, host)
-        ]
-        if missing:
-            return f"set {', '.join(missing)} for host '{self.host}'"
-        # Two of this row's own endpoint variables set at once: `base_url` takes the
-        # address and would quietly ignore the resource, which is the same ambiguity
-        # the Anthropic SDK refuses outright, and one of the two is not doing what
-        # whoever set it thinks. Read from `os.environ` under this row's own names, so
-        # an address set for this surface beats a resource inherited from the other
-        # surface's fallback rather than being reported as a conflict — that pair is
-        # one deployment's setup plus one deliberate override, not a contradiction.
-        conflicting = [name for name in host.endpoint if os.environ.get(name)]
-        if len(host.endpoint) > 1 and len(conflicting) > 1:
-            return (
-                f"set only one of {', '.join(conflicting)} for host "
-                f"'{self.host}' — both are set"
-            )
+        if (reason := hosts.diagnose(host, name=self.host)) is not None:
+            return reason
         if not self.model:
             return (
                 "no model is set — set `model:` under `runtimes: openai:`, because "
                 "every host names its models differently and there is no default"
             )
         return None
+
+    def host_status(self) -> dict[str, HostStatus]:
+        """Every host this runtime declares, and what each still needs.
+
+        The whole table, not the configured row: `intel hosts` asks this of a machine
+        that has not chosen yet. See `hosts.status`.
+        """
+        return hosts.status(HOSTS)
 
     # -- one turn -------------------------------------------------------------
 
@@ -438,10 +327,7 @@ class OpenAIRuntime:
                 ev.AgentFailed,
                 message=f"the '{self.host}' endpoint rejected the credentials",
                 kind="auth",
-                remedy=(
-                    f"check {_named(host.key, host)} — we report the name, never "
-                    "the value"
-                ),
+                remedy=hosts.auth_remedy(host),
             )
         except openai.NotFoundError:
             yield emitter.emit(
@@ -469,7 +355,7 @@ class OpenAIRuntime:
                 ev.AgentFailed,
                 message=f"could not reach the '{self.host}' endpoint",
                 kind="connection",
-                remedy=_connection_remedy(host),
+                remedy=hosts.connection_remedy(host),
             )
         except Exception as exc:  # noqa: BLE001 — a failure is an event, not a crash
             # Cancellation derives from BaseException and is deliberately not caught:
@@ -725,17 +611,18 @@ class OpenAIRuntime:
     def _client(self) -> Any:
         """The SDK client, as the async context manager the SDK itself returns.
 
-        The key is read here rather than left to the SDK, because the fallback variable
-        is ours and the SDK has never heard of it. It is passed and never logged —
-        which is also why the test seam replaces the whole client rather than the key.
-        Which kwargs those are is the host's to say: see `construct`.
+        The values are read here rather than left to the SDK, because a fallback or a
+        default the row declares is ours and the SDK has never heard of either. They
+        are passed and never logged — which is also why the test seam replaces the
+        whole client rather than the key. Which kwargs those are is the host's to say:
+        see `construct`.
         """
         if self.client_factory is not None:
             return self.client_factory()
         import openai
 
         host = HOSTS[self.host]
-        return getattr(openai, host.client)(**host.construct(host))
+        return getattr(openai, host.client)(**host.construct(host, hosts.values(host)))
 
 
 async def _invalid_arguments(
@@ -773,7 +660,5 @@ __all__ = [
     "DEFAULT_MAX_TOOL_ROUNDS",
     "ENV_HOST",
     "HOSTS",
-    "Host",
     "OpenAIRuntime",
-    "base_url",
 ]

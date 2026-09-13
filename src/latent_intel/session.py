@@ -53,6 +53,7 @@ from .models import (
     Descriptor,
     Doc,
     Hit,
+    HostReport,
     Message,
     Ref,
     RuntimeUnavailable,
@@ -254,25 +255,105 @@ class Session:
         Names of environment variables, never values: this string is printed by
         `intel doctor`, whose output has to stay safe to paste into a support thread.
         """
-        status: dict[str, str | None] = {}
-        for name, cls in agent.available_kinds().items():
-            try:
-                # Built the way `_resolve_runtime` builds it, or `doctor` diagnoses a
-                # different object than the one that answers: a configured model, host
-                # or key would all be invisible here and the verdict wrong with them.
-                runtime = cls(**Session._runtime_options(name))
-                if runtime.available():
-                    status[name] = None
-                    continue
-                reason = (
-                    runtime.unavailable_reason()
-                    if isinstance(runtime, agent.Diagnosable)
-                    else None
-                )
-                status[name] = reason or "installed, but cannot run here"
-            except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
-                status[name] = str(exc) or "could not be built"
-        return status
+        return {name: Session.runtime_reason(name) for name in agent.available_kinds()}
+
+    @staticmethod
+    def runtime_reason(kind: str) -> str | None:
+        """Why one runtime cannot run here, or None when it can.
+
+        The whole diagnosis for one kind, because almost everything that asks wants one:
+        the shell reports the runtime it just set, and sweeping every installed runtime
+        to print a line about one of them builds the others for nothing. `doctor` is the
+        only caller that wants them all, and gets them through `runtime_status`, which
+        is this function in a loop — so the verdict a frontend prints and the verdict
+        the table prints cannot be arrived at two different ways.
+
+        Built the way `_resolve_runtime` builds it, or this diagnoses a different object
+        than the one that answers: a configured model, host or key would all be
+        invisible and the verdict wrong with them. An unknown kind reads as `build`
+        already phrases it, since that is the failure someone will meet next.
+
+        Names of environment variables, never values: this string is printed by
+        `intel doctor`, whose output has to stay safe to paste into a support thread.
+        """
+        try:
+            runtime = agent.build(kind, **Session._runtime_options(kind))
+        except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
+            return str(exc) or "could not be built"
+        return Session._verdict(runtime)
+
+    @staticmethod
+    def _verdict(runtime: agent.Runtime) -> str | None:
+        """One built runtime's own verdict on itself, or None when it can run.
+
+        Split out so `host_report` reaches the same verdict as `runtime_reason` without
+        building the runtime a second time to get it. Two callers arriving at it two
+        ways is how a table and a line about one of its rows come to disagree.
+        """
+        if runtime.available():
+            return None
+        reason = (
+            runtime.unavailable_reason()
+            if isinstance(runtime, agent.Diagnosable)
+            else None
+        )
+        return reason or "installed, but cannot run here"
+
+    @staticmethod
+    def host_report(kind: str) -> HostReport:
+        """Every endpoint one runtime declares, and what each still needs.
+
+        The question `runtime_reason` cannot answer: it diagnoses the host that is
+        configured, which tells someone why today failed but not which of the others
+        they could reach instead, or what the one they are about to choose would cost
+        them. Both readings come off the same `Host` rows, so a host reported ready
+        here is ready in exactly the sense `doctor` means when it is the configured one.
+
+        One build, three answers. Asking `runtime_reason`, `runtime_setting` and the
+        host table separately would build the runtime three times and let the verdict
+        describe a different object than the host list beside it.
+
+        A runtime that declares no hosts — `claude-cli`, which shells to a binary that
+        has already chosen — reports an empty table rather than an error. It has
+        nothing to say here, which is not the same as something being wrong.
+        """
+        try:
+            runtime = agent.build(kind, **Session._runtime_options(kind))
+        except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
+            return HostReport(runtime=kind, reason=str(exc) or "could not be built")
+        return HostReport(
+            runtime=kind,
+            configured=Session._setting(runtime, "host"),
+            reason=Session._verdict(runtime),
+            hosts=runtime.host_status() if isinstance(runtime, agent.Hosted) else {},
+        )
+
+    @staticmethod
+    def runtime_setting(kind: str, key: str) -> str | None:
+        """One option as the runtime it was built with holds it, or None where it holds
+        nothing.
+
+        What a frontend reports, and deliberately not what the config file says: a
+        runtime resolves its own host across the user's file, the project's `agent:`
+        block and `LATENT_INTEL_<RUNTIME>_HOST`, and only the built object knows which
+        of those won. Reading the file reported a value that is in force as unset, and
+        reported `none` after clearing an override that a project still declares.
+
+        None where the runtime cannot be built at all: the caller is reporting a
+        setting, and the reason it could not be built is `runtime_reason`'s to give.
+        """
+        try:
+            runtime = agent.build(kind, **Session._runtime_options(kind))
+        except Exception:  # noqa: BLE001 — a broken runtime has no setting to report
+            return None
+        return Session._setting(runtime, key)
+
+    @staticmethod
+    def _setting(runtime: agent.Runtime, key: str) -> str | None:
+        """One option off a runtime that is already built. See `runtime_setting` for
+        why it is read off the object and not out of the file."""
+        value = getattr(runtime, key, None)
+        return str(value) if value else None
 
     @staticmethod
     def runtime_kinds() -> dict[str, bool]:

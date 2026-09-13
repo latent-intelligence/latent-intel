@@ -7,6 +7,9 @@ the loop only routes the result.
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import pytest
 
 from latent_intel.commands import Ask, Connect, Disconnect, Fetch, Find, ListSources
@@ -233,9 +236,243 @@ def test_the_agent_commands_parse_bare_and_with_a_name() -> None:
         result = parse(line)
         assert isinstance(result, Local)
         assert result.action == "model" and result.argument == argument
+    for line, argument in (("/host", ""), ("/host openrouter", "openrouter")):
+        result = parse(line)
+        assert isinstance(result, Local)
+        assert result.action == "host" and result.argument == argument
 
 
 def test_too_many_arguments_names_the_usage() -> None:
     result = parse("/runtime a b")
     assert isinstance(result, Invalid)
     assert "/runtime [name]" in result.hint
+
+
+def _shell(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """A recording console in place of the shell's own, returned for its text."""
+    from rich.console import Console
+
+    from latent_intel.frontends.shell import repl
+    from latent_intel.ui.theme import THEME
+
+    console = Console(theme=THEME, width=100, record=True)
+    monkeypatch.setattr(repl, "console", console)
+    return console
+
+
+def test_host_refuses_when_no_runtime_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A host is a row in one runtime's table, so storing one with no runtime would be
+    storing a value with nowhere to live.
+
+    The refusal names what is installed rather than one runtime as an example: the
+    example was advice to install something on a machine that already has the others."""
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "foundry")
+
+    text = console.export_text()
+    assert "no runtime configured" in text
+    for kind in Session.runtime_status():
+        assert kind in text
+
+
+def test_bare_host_reports_the_host_the_environment_put_in_force(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`LATENT_INTEL_ANTHROPIC_HOST` is how one machine runs against Foundry and
+    another against the public API with the same project checked out on both. Reading
+    only the config file reported that machine's host as unset — and a report that
+    contradicts the runtime is worse than no report."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+    monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "")
+
+    text = console.export_text()
+    assert "anthropic" in text
+    assert "its default" not in text
+
+
+def test_bare_model_says_unset_where_the_runtime_holds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`openai` has no default model on purpose — every host names its models
+    differently — so "its default" named a thing that does not exist, next to the
+    runtime's own reason saying no model is set."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "openai"
+    config_module.save(config)
+    # The credential, so the reason left is the model's: the variables are diagnosed
+    # first, and one missing key would answer for both halves of this test.
+    monkeypatch.setenv("OPENAI_API_KEY", "never-printed-key")
+
+    console = _shell(monkeypatch)
+    repl._model(Session(), "")
+
+    text = console.export_text()
+    assert "unset" in text
+    assert "no model is set" in text
+    assert "its default" not in text
+
+
+def test_clearing_a_host_the_project_declares_reports_what_is_still_in_force(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/host none` clears the user's override, not the setting: a deployment declares
+    its host in the project file, and that one is still what every question goes to.
+    Printing the word typed reported `none` while the declared host answered."""
+    from latent_intel import settings as settings_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    directory = tmp_path / "projects"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "deploy.yaml").write_text(
+        "agent:\n"
+        "  runtime: anthropic\n"
+        "  runtimes:\n"
+        "    anthropic: {host: foundry}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "deploy")
+    settings_module.invalidate()
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "none")
+
+    text = console.export_text()
+    assert "foundry" in text
+    assert "none" not in text
+
+
+def test_choosing_a_host_persists_it_under_the_runtime_it_belongs_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nested under the runtime, the way the model is: the same name means different
+    things in two tables, so a flat key would be ambiguous the day a second runtime is
+    configured."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "anthropic")
+
+    assert config_module.load().runtime_options("anthropic")["host"] == "anthropic"
+    text = console.export_text()
+    assert "host" in text and "anthropic" in text
+
+
+def test_a_host_this_runtime_has_no_row_for_prints_the_known_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reason is the runtime's own, which is why nothing here has to know the
+    tables: it names the known hosts for a typo and the missing variables otherwise."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "nonsense")
+
+    text = console.export_text()
+    assert "unknown host" in text and "nonsense" in text
+    assert "foundry" in text
+
+
+def test_a_host_on_a_runtime_that_has_none_is_refused_and_not_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`claude-cli` has no host table, so `host:` is an option it rejects by name. The
+    refusal must also undo the write, or the runtime that answered a moment ago refuses
+    every later `ask` until someone finds the stray key in the config file."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "claude-cli"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "foundry")
+
+    assert "unknown option" in console.export_text()
+    assert "host" not in config_module.load().runtime_options("claude-cli")
+
+
+def test_a_model_the_runtime_accepts_is_persisted_and_nothing_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/model` and `/host` are one handler, so the rollback the host test pins is the
+    model's too. The other half of that handler is this one: an option the runtime
+    accepts is written, kept, and reported without a refusal."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._model(Session(), "claude-sonnet-5")
+
+    assert config_module.load().runtime_options("anthropic")["model"] == (
+        "claude-sonnet-5"
+    )
+    assert "✗" not in console.export_text()
+
+
+def test_hosts_prints_the_whole_table_through_the_shared_printer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/hosts` and `intel hosts` are one function, so the shell cannot phrase an
+    endpoint's needs differently from the CLI. Patched on `_shared`, because that is
+    where the console the printer writes to lives."""
+    from rich.console import Console
+
+    from latent_intel.frontends import _shared
+    from latent_intel.ui.theme import THEME
+
+    console = Console(theme=THEME, width=100, record=True)
+    monkeypatch.setattr(_shared, "console", console)
+    _shared.print_hosts()
+
+    text = console.export_text()
+    for name in ("openrouter", "azure-openai", "local"):
+        assert name in text
+    assert "OPENROUTER_API_KEY" in text
+    assert "claude-cli — no hosts" in text
+
+
+def test_hosts_takes_no_argument() -> None:
+    """A report, not a setting: `/host` chooses one and `/hosts` lists them all."""
+    result = parse("/hosts")
+    assert isinstance(result, Local)
+    assert result.action == "hosts" and result.argument == ""
+
+    assert isinstance(parse("/hosts openrouter"), Invalid)

@@ -18,11 +18,11 @@ import openai
 import pytest
 
 from latent_intel import events as ev
+from latent_intel.agent.hosts import base_url
 from latent_intel.agent.runtimes.openai import (
     ENV_HOST,
     HOSTS,
     OpenAIRuntime,
-    base_url,
 )
 from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
 from tests.fixtures.fake_openai import (
@@ -1125,7 +1125,7 @@ def test_a_local_server_is_given_the_row_s_own_default_key(
     server that never reads one."""
     monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
     seen = built(monkeypatch, host="local", model="qwen3")
-    assert seen["api_key"] == HOSTS["local"].key_default
+    assert seen["api_key"] == HOSTS["local"].defaults["LOCAL_OPENAI_API_KEY"]
     assert seen["base_url"] == "http://localhost:11434/v1"
 
 
@@ -1139,7 +1139,7 @@ def test_the_public_api_key_never_reaches_a_local_server(
     monkeypatch.setenv("OPENAI_API_KEY", "sk-sentinel-value")
     seen = built(monkeypatch, host="local", model="qwen3")
     assert "sk-sentinel-value" not in seen.values()
-    assert seen["api_key"] == HOSTS["local"].key_default
+    assert seen["api_key"] == HOSTS["local"].defaults["LOCAL_OPENAI_API_KEY"]
 
 
 def test_a_local_server_that_does_check_a_key_is_given_the_real_one(
@@ -1222,11 +1222,12 @@ def azure(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_azure_openai_names_all_three_of_its_variables() -> None:
     """Three, not two: this client refuses to be built without a dated API version, and
-    someone who set only the pair every other row wants must be told which is left."""
+    someone who set only the pair every other row wants must be told which is left. The
+    credential is named twice over, because either one of them will do."""
     backend = OpenAIRuntime(host="azure-openai", model="my-deployment")
     reason = backend.unavailable_reason()
     assert reason is not None
-    assert "AZURE_OPENAI_API_KEY" in reason
+    assert "AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN" in reason
     assert "AZURE_OPENAI_ENDPOINT" in reason
     assert "OPENAI_API_VERSION" in reason
 
@@ -1263,6 +1264,83 @@ def test_azure_openai_is_built_with_its_own_client_and_its_own_kwargs(
         "api_version": "2026-01-01",
     }
     assert "base_url" not in seen
+
+
+@pytest.fixture
+def entra(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same resource reached with an Entra ID token and no key at all."""
+    monkeypatch.setenv(
+        "AZURE_OPENAI_ENDPOINT", "https://never-printed.openai.azure.com"
+    )
+    monkeypatch.setenv("OPENAI_API_VERSION", "2026-01-01")
+    monkeypatch.setenv("AZURE_OPENAI_AD_TOKEN", "never-printed-token")
+
+
+def test_an_entra_token_is_a_credential_this_row_accepts(entra: None) -> None:
+    """A resource with key authentication disabled is the common enterprise posture,
+    and until the credential became a group this row demanded a key such a resource
+    cannot issue."""
+    backend = OpenAIRuntime(host="azure-openai", model="my-deployment")
+    assert backend.unavailable_reason() is None
+    assert backend.available()
+
+
+def test_an_entra_token_is_passed_under_its_own_kwarg_and_no_key_is_sent(
+    entra: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SDK refuses a client given both, so the unused one is omitted rather than
+    passed as None — which the SDK would read as a credential it was handed."""
+    seen = built(
+        monkeypatch,
+        client="AsyncAzureOpenAI",
+        host="azure-openai",
+        model="my-deployment",
+    )
+    assert seen == {
+        "azure_ad_token": "never-printed-token",
+        "azure_endpoint": "https://never-printed.openai.azure.com",
+        "api_version": "2026-01-01",
+    }
+    assert "api_key" not in seen
+
+
+def test_the_token_is_taken_where_both_credentials_are_set(
+    azure: None, entra: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One of the two has to win, and it is the token: exporting one is the deliberate
+    act, while a key is what a machine tends to still have from before."""
+    seen = built(
+        monkeypatch,
+        client="AsyncAzureOpenAI",
+        host="azure-openai",
+        model="my-deployment",
+    )
+    assert seen["azure_ad_token"] == "never-printed-token"
+    assert "api_key" not in seen
+
+
+@pytest.mark.anyio
+async def test_a_rejected_azure_credential_names_both_ways_in(azure: None) -> None:
+    """Naming only the key sends someone who authenticates with a token to check a
+    variable they deliberately left unset."""
+    client = FakeClient(
+        Round(
+            raises=openai.AuthenticationError(
+                "unauthorized", response=_response(401), body=None
+            )
+        )
+    )
+    failed = terminal(
+        await collect(
+            OpenAIRuntime(
+                host="azure-openai", model="my-deployment", client_factory=client
+            )
+        )
+    )
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "auth"
+    assert "AZURE_OPENAI_API_KEY" in failed.remedy
+    assert "AZURE_OPENAI_AD_TOKEN" in failed.remedy
 
 
 def test_foundry_is_built_with_the_url_its_resource_name_implies(

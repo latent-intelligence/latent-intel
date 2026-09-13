@@ -196,6 +196,42 @@ class SourceRequest(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class HostStatus(BaseModel):
+    """One endpoint, as a machine finds it: what it still needs, and what it is reading.
+
+    Two halves of one answer. The reason alone says why a row is not ready; the
+    variables alone say nothing about a row that is. Together they let a reader confirm
+    a ✓ rather than take it on trust — which matters most where a fallback answered and
+    the variable in use is not the one the row asks for.
+    """
+
+    #: What this host still needs, or None when it needs nothing.
+    reason: str | None = None
+    #: The variables in the environment this host is reading, in the row's own order.
+    #: Names only, never values.
+    variables: list[str] = Field(default_factory=list)
+
+
+class HostReport(BaseModel):
+    """Every endpoint one runtime declares, and what this machine can reach.
+
+    A value rather than three lookups, because each of them would build the runtime
+    again to answer half a question — and because the three have to describe one
+    object: a reason taken from a runtime built a moment after the host list was read
+    can disagree with it.
+    """
+
+    runtime: str
+    #: The host in force — config, project or environment, as the built runtime holds
+    #: it. None where the runtime could not be built at all.
+    configured: str | None = None
+    #: Why the runtime itself cannot run here, which may be nothing to do with a host:
+    #: an SDK that is not installed, a model nobody set.
+    reason: str | None = None
+    #: Host name → how that endpoint stands on this machine.
+    hosts: dict[str, HostStatus] = Field(default_factory=dict)
+
+
 class Message(BaseModel):
     """One turn of conversation, as a runtime receives it.
 
@@ -242,6 +278,8 @@ __all__ = [
     "Doc",
     "Effect",
     "Hit",
+    "HostReport",
+    "HostStatus",
     "Message",
     "Provenance",
     "Ref",

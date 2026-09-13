@@ -114,6 +114,23 @@ vocabulary free to change without touching a single connector.
 - Tests mirror `src/`. Anything that needs a real store belongs in a manual check, not in
   the suite: `tests/fixtures/streams/*.jsonl` exist so renderers are testable with no
   store, no network and no model.
+- **A paid endpoint is called only when someone asks for that run.** Any request
+  spending a credential — a model turn, a provider's catalogue behind a key, a probe to
+  find out whether something works — happens because the person running the session
+  asked for it, and not otherwise. Never from a test, never from a loop or a background
+  task, never to satisfy curiosity mid-task. `tests/` reaches no network at all, which
+  is why the stream fixtures exist. A captured example in `docs/` comes from a run
+  someone asked for, and says so when it did not. Sweeping a provider's model list to
+  see what answers is a request for permission rather than a default: a rate limit
+  reached by diagnosing is one its owner then has to wait out, and the diagnosis
+  becomes the outage. A credential is read only to report that it is set, by name —
+  the same rule the whole `hosts` module follows, and it does not stop at `src/`.
+- **`README.md` is hand-edited and confirmed before every change.** Re-read it
+  immediately before touching it — it is rewritten between and during sessions, and a
+  patch built against a copy read earlier silently reverts that work. Propose the change
+  and wait for a yes; hold proposed edits rather than applying them mid-run, including
+  under auto mode. This applies to `README.md` alone: everything under `docs/` is edited
+  freely.
 
 ## Acceptance criteria
 

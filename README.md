@@ -3,10 +3,9 @@
 A client over heterogeneous context. Connect an LLM-wiki, a vector index, a directory of
 markdown and a third-party MCP server, and search across them from one place.
 
-## Getting started
+# Getting started 
 
-Install once, then choose **one of two options**. They are alternatives, not steps — Option B
-does not build on Option A, and most deployments only ever use Option B.
+To install the `latent-intel` client, run the following command:
 
 ```bash
 uv tool install git+https://github.com/latent-intelligence/latent-intel
@@ -15,32 +14,46 @@ uv tool install git+https://github.com/latent-intelligence/latent-intel
 That puts `intel` on your PATH and works from any directory. Add `--reinstall` to update,
 or `uv tool install .` from a clone if you are working on the engine itself.
 
-### Option A — attach a source directly
+```bash
+intel doctor                     # what is installed, what is reachable, what is not
+```
 
-The quickest way to see it work. Sources are attached one at a time and recorded in your
-own config, so nothing is shared and nothing needs authoring up front.
+For `intel ask` — an agent answering over your sources — install the `api` extra instead,
+which brings both in-process runtime SDKs:
 
 ```bash
+uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"
+```
+
+## Attach context 
+
+### Option A - attach a source directly 
+
+Sources are attached one at a time and recorded in your own config. The can be local, remote, or both. 
+
+```
 intel connect s3://<bucket>/wikis/design --kind wiki --as design
+  ✓ wiki    design    148 pages    [search fetch tools]
+
+$ intel connect ~/knowledge/raw --kind files --as manuals
+  ✓ files   manuals   170 files    [search fetch]
+
+
 intel search "context collapse"
+    [concept] context-collapse                                          0.94
+      Asking a model to rewrite an accumulated context end to end…
+    [source]  zhang2025-agentic-context-engineering                     0.71
+      Argues that adapting a model through its context rather than…
+
 intel                                    # the interactive shell
 ```
 
-**No extras, no local copy.** A published wiki store is a versioned format —
-`manifest.json` plus `pages/` — and the client reads that format directly from wherever
-the store lives: a path, or `s3://` with your usual credentials. A wiki compiler is what
-you install to *build* a wiki, not to read one.
-
-**A source can be named rather than located.** A registered store resolves to its local
-copy when that path exists and to its `paths.mirror` otherwise, so one registry works on
-a laptop and on a build host. `--remote` forces the mirror, which is also how you check
-that a published store is current.
-
-### Option B — use a project
+### Option B - use a project 
 
 A **project** is one YAML file owned by the deployment rather than the engine, carrying
 several sources at once plus branding and saved commands. This is the shape a real
-engagement takes.
+engagement takes, and standing up the next one is another YAML file — no code change, no
+release.
 
 ```yaml
 # ~/deployments/research/research.yaml
@@ -48,13 +61,10 @@ name: research
 branding:
   name: RESEARCH
   tagline: standing context, with provenance
-
 sources:
   - id: design
     kind: wiki
     target: s3://<bucket>/wikis/design
-    options:
-      context: s3://<bucket>/li/knowledge/context   # the material the wiki summarises
   - id: notes
     kind: files
     target: ~/knowledge/raw
@@ -66,40 +76,15 @@ intel project use research
 intel                                      # branded shell, both sources attached
 ```
 
-### They compose, and the project file stays read-only
-
 With a project active, `intel connect` still works — it records the source in *your*
-overlay on top of the project, never in the project file. So a shared project can be
-committed to a client repo while each person adds their own scratch sources, and
-`intel project show` reports which layer every value came from.
+overlay on top of the project, never in the project file. A shared project can be
+committed to a client repo while each person adds their own scratch sources.
 
-Standing up the next deployment is another YAML file — no code change, no release.
+## Configure a deployment
 
-```
-$ intel connect design-wiki --as design
-  ✓ wiki    design    148 pages    [search fetch tools]
-$ intel connect design-wiki --remote --as design   # the same store from S3, via its manifest
-  ✓ wiki    design    148 pages    [search fetch tools]  built 2026-08-24
-$ intel connect ~/knowledge/raw --kind files --as manuals
-  ✓ files   manuals   170 files    [search fetch]
-$ intel search "context collapse"
-
-  design
-    [concept] context-collapse                                          0.94
-      Asking a model to rewrite an accumulated context end to end…
-    [source]  zhang2025-agentic-context-engineering                      0.71
-      Argues that adapting a model through its context rather than…
-
-$ intel get design:context-collapse
-$ intel                       # the interactive shell
-```
-
-Getting started: [`docs/getting-started.md`](docs/getting-started.md) · full walkthrough: [`docs/user-guide.md`](docs/user-guide.md).
-
-## Customize
-
-Everything a deployment owns lives in one directory, committed to whatever repo you keep
-it in. The engine reads it and never writes to it.
+A project file can grow into a **deployment directory** — one directory, committed to
+whatever repo you keep it in. The engine reads it and never writes to it, so a checked-out
+deployment repo stays clean on first use.
 
 ```
 ~/deployments/research/          anywhere on disk; `project add` copies nothing
@@ -116,66 +101,14 @@ it in. The engine reads it and never writes to it.
 └── persona.md                   PLANNED — voice and standing instructions
 ```
 
-**Every relative path resolves against `research.yaml`**, never your working directory, so
-the same checkout works on any machine and in any cwd. Remote locations go through
-`vars:`, which an environment variable of the same name overrides — a deployment points
-at its own bucket without editing the committed file.
+**Saved commands** are one markdown file each — a frontmatter block naming a `search`,
+`prompt` or `sequence`, and a body. They compose what the engine already does, which is
+why they need no code and no release. `skills/` and `persona.md` are marked PLANNED
+deliberately: the keys parse today but nothing consumes them yet, and a directory that
+looks live and does nothing is worse than one that says so.
 
-`skills/` and `persona.md` are marked PLANNED deliberately: the keys parse today but
-nothing consumes them yet, and a directory that looks live and does nothing is worse than
-one that says so.
-
-### Credentials
-
-**By default there is nothing to set.** Object storage goes through `fsspec` to
-`botocore`, so `aws configure`, `AWS_PROFILE`, SSO and instance roles all work as they
-already do on your machine. This package holds no credential code and stores no secret.
-
-For a machine where none of that is set up — a fresh laptop, a container, a colleague
-opening a deployment for the first time — drop a `.env` beside the project file:
-
-```bash
-# ~/deployments/research/.env
-AWS_ACCESS_KEY_ID=…
-AWS_SECRET_ACCESS_KEY=…
-AWS_DEFAULT_REGION=us-east-1
-```
-
-`~/.config/latent-intel/.env` does the same thing machine-wide, and the project's file
-wins where both name a variable.
-
-Four properties worth knowing, because each is a decision rather than an accident:
-
-- **Those two places, and nowhere else.** The working directory is never read, and
-  neither is the root of a checkout that happens to contain the deployment. A project
-  is named and switched, never inferred from where you stand, and an ambient `.env`
-  would bring back exactly that. `intel doctor` prints which file was loaded — or,
-  when none was, the two paths it looked in.
-- **An exported variable always beats the file.** `.env` fills gaps only, so
-  `AWS_PROFILE=other intel search …` still works as a one-off. It is the same precedence
-  a project's `vars:` follows.
-- **Values never reach a command line.** A served source runs as a subprocess whose
-  config is passed to the agent runtime as an argument — visible in `ps`. The child is
-  handed the *path* and reads the file itself.
-- **`.env` is git-ignored at every depth**, and a deployment directory is git-ignored
-  too. Nothing here is designed to be committed.
-
-A `.env` cannot select the active project; that is `intel project use`, which persists.
-
-A tool installed at your organisation should say *your* name. The wordmark, tagline,
-prompt and palette are all values a project supplies — no code, no plugin, no fork.
-
-```yaml
-# ~/deployments/research/research.yaml
-branding:
-  name: RESEARCH                      # wordmark, and the default prompt
-  tagline: standing context, with provenance
-  logo: ./logo.txt                    # or an inline block scalar
-  prompt: "research › "               # defaults to the lowercased name
-  theme:
-    accent: "#7aa2f7"                 # semantic tokens only
-    border.accent: "#7aa2f7"
-```
+**Add custom branding .** The wordmark, tagline, prompt and palette all come from
+the project:
 
 ```
 $ intel project use research
@@ -197,88 +130,57 @@ $ intel
 research › search context collapse
 ```
 
-On a narrow terminal the same brand degrades to its wordmark rather than wrapping,
-measured per brand — a logo wider or narrower than ours drops at its own threshold:
+The palette is semantic — you set roles, not a stylesheet, so a colour changes everywhere
+it means the same thing and nowhere it does not. On a narrow terminal the brand degrades
+to its wordmark rather than wrapping.
+
+Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
+
+## Configure compute
+
+Sources say where context comes from; a **runtime** says where answers come from. Three
+ship: `claude-cli`, which shells to the `claude` binary, and `anthropic` and `openai`,
+which run the turn in process against a **host** — an endpoint, declared as a row. Seven
+hosts ship between them, including Azure AI Foundry, classic Azure OpenAI, OpenRouter and
+any OpenAI-compatible server on your own machine.
+
+`intel hosts` says what each one would cost you to set up, before you have chosen:
 
 ```
-$ COLUMNS=40 intel
+$ intel hosts
 
-                RESEARCH
-   standing context, with provenance
+openai
+  ! openai        ← configured  set OPENAI_API_KEY for host 'openai'
+  ✓ openrouter
+  ! azure-openai  set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+OPENAI_API_VERSION for host 'azure-openai'
+  ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
 
-**The palette is semantic, not a stylesheet.** You set roles, so a colour changes
-everywhere it means the same thing and nowhere it does not:
+Names of variables, never values — the whole block is safe to paste. Credentials come
+from the environment or a `.env` beside the project, never from a config file. Choose
+with `/runtime`, `/host` and `/model` in the shell, or `runtime:` in config;
+`intel doctor` then diagnoses the one you chose.
 
-| | tokens |
+Walked through end to end in
+[demos/choosing-a-host.md](docs/demos/choosing-a-host.md).
+
+## Documentation
+
+| | |
 |---|---|
-| roles | `accent` · `accent.strong` · `text` · `dim` · `border` · `border.accent` |
-| severity | `ok` · `warn` · `fail` |
-| domain | `source` · `kind` · `score` · `ref` · `tool` · `prompt` |
+| [getting-started.md](docs/getting-started.md) | install, credentials, a first source, a first project |
+| [user-guide.md](docs/user-guide.md) | every command, `--json` scripting, MCP servers, choosing a runtime, what to do when something is wrong |
+| [configuring-a-deployment.md](docs/configuring-a-deployment.md) | the deployment directory, branding, saved commands |
+| [demos/](docs/demos/) | scripted walkthroughs with captured output |
 
-An unrecognized token is **reported, not ignored** — a misspelled `acccent` tells you so
-on stderr instead of silently rendering the default.
 
-**Every field is optional.** A project that declares no `branding:` still runs, with the
-Latent defaults. A logo narrower or wider than ours is measured per brand, so it degrades
-to the plain wordmark on a narrow terminal rather than wrapping.
-
-Saved commands are the same idea — one markdown file per command, in the directory the
-project names:
-
-```markdown
----
-name: brief
-kind: prompt
-argument: topic
----
-Summarize what the corpus says about {{argument}}, citing sources.
-```
-
-```
-research › /brief nitrate levels
-```
-
-`kind` is `search`, `prompt` or `sequence`. They compose what the engine already does,
-which is why they need no code and no release — see [Extending it](#extending-it) for the
-two points where new *capability* plugs in.
-
-**Our own branding takes the client path.** The engine's identity is a project file like
-any other — `src/latent_intel/data/projects/latent.yaml` — so the path you use is the one
-we use, and it cannot rot unnoticed. Copy that file to start: every field is shown in it,
-commented, in the order the loader reads them.
-
-```bash
-intel project validate research   # what is wrong with it, without switching
-intel project show                # every resolved value, and which layer set it
-```
-
-## Extending it
-
-Two extension points, and deliberately only two.
-
-**Connectors** say where context comes from. A minimal `Connector` plus composable
-capabilities — `Searchable`, `Fetchable`, `ToolProvider` — declared in `describe()`, so
-an MCP server offering only tools is not forced to fake a search method.
-
-```toml
-[project.entry-points."latent_intel.connectors"]
-my-source = "my_package:MySourceConnector"
-```
-
-**Tools** say what an agent can do. The router unions connector tools, MCP server tools
-and built-ins into one namespace, so a LanceDB search and a GitHub MCP call look the same
-to the agent. Every tool declares its `effect` — `none`, `external_read`, `local_write`,
-`external_write`, `destructive` — and approval gates on that declaration rather than
-guessing from a name.
-
-Our own adapters register through the same entry points a third party would use, so the
-extension path is the one we take ourselves.
+Two extension points, and deliberately only two. **Connectors** say where context comes
+from; **tools** say what an agent can do. Both are entry points, and our own adapters
+register through the same ones a third party would use — see
+[CLAUDE.md](CLAUDE.md) for where the boundary falls.
 
 ## Contributing
-
-Installing to *use* it is in [Getting started](#getting-started); this is the working
-copy.
 
 ```bash
 uv sync --extra dev              # the venv, with test and lint tooling
@@ -287,29 +189,16 @@ uv tool install . --reinstall    # put your build on PATH
 ```
 
 `just check` is what CI runs, and it passes on a fresh clone with nothing beside it — no
-sibling package is needed to build, test or type-check. If you are also *authoring* a
-wiki, add your wiki compiler alongside the engine:
+sibling package is needed to build, test or type-check. It also runs the import
+contracts, so some architectural rules fail the build rather than review; they are stated
+once, in [CLAUDE.md](CLAUDE.md).
 
-```bash
-uv tool install . --with <wiki-compiler> --reinstall
-```
-
-That is only for reading an **unpublished** store — a working directory with no
-`manifest.json`. Reading a published one never needs it.
-
-`just check` also runs the import contracts, so some architectural rules fail the build
-rather than review. They are stated once, in [`CLAUDE.md`](CLAUDE.md) — read the package
-invariants there before a first change.
+If you are also *authoring* a wiki, add your wiki compiler alongside the engine:
+`uv tool install . --with <wiki-compiler> --reinstall`. That is only for reading an
+**unpublished** store — a working directory with no `manifest.json`.
 
 ## Status
 
 Early, but usable. Both terminal frontends work over the `files`, `wiki` and `mcp`
-connectors, and `intel ask` runs against three runtimes: `claude-cli`, which shells to the
-`claude` binary, and two that run the turn in process against Azure AI Foundry or the
-vendor's own API — `anthropic` over the Anthropic Messages protocol and `openai` over the
-OpenAI-compatible one (the `api` extra installs both SDKs: `uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"`). The vector
-connector, the HTTP transport and the web frontend are declared and unimplemented —
-`intel doctor` lists every installed runtime with the reason it cannot run here, naming
-the environment variables it is missing rather than only saying it cannot run, and flags
-a configured runtime that is not installed at all. OpenRouter, classic Azure OpenAI and a
-local OpenAI-compatible server are host rows on the `openai` runtime, and ship with it.
+connectors, and `intel ask` runs against all three runtimes above — the `api` extra
+installs the two in-process SDKs.

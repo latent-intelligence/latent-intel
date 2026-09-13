@@ -57,8 +57,19 @@ still answer — one unreadable source never fails the whole command:
 
 `--kind vector` is declared but not implemented; `intel doctor` lists it as not installed.
 
-**Working on the package itself?** `uv sync --extra dev` and prefix commands with
-`uv run`. Everything below works either way.
+**Working on the package itself?** A **user build** is copied at install time; a **dev
+build** points at `src/` and tracks the working tree, so an edit is live and a
+half-finished branch is too.
+
+```bash
+uv tool install ".[api]" --reinstall              # user build — a snapshot of the checkout
+uv tool install --editable ".[api]" --reinstall   # dev build  — tracks the working tree
+```
+
+Both want `[api]`: without it the in-process runtimes report themselves as not installed,
+since `uv run` reads the project environment and a tool install does not. Or skip PATH —
+`uv sync --extra dev`, and prefix commands with `uv run`. Everything below works either
+way.
 
 Check what you got:
 
@@ -202,12 +213,41 @@ once it has chosen…
 | `/disconnect <id>` | detach one |
 | `/use [id]` | which source a bare key resolves against |
 | `/tools` | what the router exposes, and each tool's declared effect |
+| `/runtime [name]` `/model [name]` `/host [name]` | which backend answers `ask`, which model it uses, which host it talks to |
+| `/hosts` | every host either runtime can reach, and what each one needs |
 | `/clear` `/exit` | clear the screen · leave (Ctrl-D also leaves) |
 | `search <query>` | every attached source, grouped |
 | `open <source:key>` | one document in full |
 | `ask <question>` | the agent — see [runtimes](#no-agent-runtime-configured) |
 
-Anything that is not a `/`-command and not one of those verbs is treated as a question.
+### Which one do you type?
+
+**Anything that is not a `/`-command and not one of those verbs is a question for the
+agent** — so a bare line *is* `ask`, and the word is only ever needed to force it. The
+difference that matters is who does the looking:
+
+| you type | who acts | costs |
+|---|---|---|
+| `search context collapse` | **you** — over the attached sources, grouped per source | no model |
+| `open design:context-collapse` | **you** — one document, verbatim | no model |
+| `what did we decide about compaction?` | **the agent** — it searches and fetches for you, then writes | a model turn |
+| `ask what did we decide about compaction?` | identical to the line above | a model turn |
+
+`search` hands you hits to read; a bare prompt hands you an answer with the searching done
+on your behalf. Use `search` when you know roughly what you are looking for, and a question
+when you would rather be told.
+
+**The one case that needs `ask`.** A line beginning with `search`, `open`, `get` or `ask`
+is read as that verb, so `search strategies for grounding` searches — it does not ask. A
+near-miss is caught and suggested rather than silently rewritten:
+
+```
+latent › searching for a good name is hard
+✗ did you mean `search for a good name is hard`?
+  or to ask it as a question: ask searching for a good name is hard
+```
+
+Prefix `ask` when your question genuinely starts with one of those four words.
 
 **Editing.** History persists between sessions. Tab completes commands, source ids, and
 the refs from your last search. Ctrl-C abandons the line you are typing; Ctrl-D leaves.
@@ -230,6 +270,9 @@ intel search "disclosure" --kind concept       # by page type, where a source ha
 intel search "disclosure" --limit 3            # hits per source
 intel get design:progressive-disclosure        # one document
 intel get progressive-disclosure               # bare key → the first attached source
+
+intel doctor                                   # what is installed, reachable, undeclared
+intel hosts                                    # every model endpoint, and what each needs
 ```
 
 **Results group by source and are never merged into one ranking.** A wiki's score is a
@@ -416,11 +459,16 @@ latent › /runtime anthropic
 runtime anthropic
 latent › /model claude-sonnet-5
 model claude-sonnet-5 for anthropic
+latent › /host foundry
+host foundry for anthropic
 ```
 
-Both persist immediately, the way `/connect` does. `intel doctor` lists what is installed
-and marks which one is configured. The model is remembered **per runtime**, because a model
-name means nothing without the backend it belongs to:
+All three persist immediately, the way `/connect` does. `intel doctor` lists what is
+installed and marks which one is configured. Bare `/model` and `/host` print the value in
+force — what the runtime actually holds, including one set through the environment. The
+model and the host are remembered **per runtime**, because neither means anything without
+the backend it belongs to, and `/model none` or `/host none` clears your override; a value
+the project declares stays in force, and the command prints what is in force:
 
 ```yaml
 runtime: anthropic
@@ -477,7 +525,7 @@ there.
 | `openai` (default) | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | a published id |
 | `foundry` | `FOUNDRY_API_KEY`, and one of `FOUNDRY_RESOURCE` / `FOUNDRY_BASE_URL` | — | a deployment name |
 | `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` | `<vendor>/<model>` |
-| `azure-openai` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `OPENAI_API_VERSION` | — | a deployment name |
+| `azure-openai` | `AZURE_OPENAI_API_KEY` **or** `AZURE_OPENAI_AD_TOKEN`, plus `AZURE_OPENAI_ENDPOINT` and `OPENAI_API_VERSION` | — | a deployment name |
 | `local` | `LOCAL_OPENAI_BASE_URL` | `LOCAL_OPENAI_API_KEY` | whatever the server serves |
 
 **OpenRouter** is one key for open and low-cost models from every vendor at once; ids are
@@ -492,9 +540,16 @@ servers ignore one (a placeholder is sent, since the SDK refuses to build a clie
 any credential at all).
 
 **`azure-openai` is the classic surface**, and distinct from Foundry's OpenAI-compatible
-one — that is `host: foundry`. It needs the dated `OPENAI_API_VERSION` as well as the key
-and endpoint; there is no default, because a version guessed here goes stale and returns
-a 400 that names neither the variable nor the fix.
+one — that is `host: foundry`. It needs the dated `OPENAI_API_VERSION` as well as a
+credential and the endpoint; there is no default version, because one guessed here goes
+stale and returns a 400 that names neither the variable nor the fix.
+
+The credential is **either** an API key **or** an Entra ID token in
+`AZURE_OPENAI_AD_TOKEN` — a resource with key authentication disabled is the common
+enterprise posture, and it cannot issue the key the other variable asks for. Set both and
+the token is used: exporting one is the deliberate act, and the SDK refuses a client given
+both anyway. A 401 names them both, so neither way in is a variable you have to know about
+in advance.
 
 **One Foundry resource has one key.** A machine already reaching Foundry over the
 Anthropic protocol needs nothing more: `ANTHROPIC_FOUNDRY_API_KEY` and
@@ -502,9 +557,11 @@ Anthropic protocol needs nothing more: `ANTHROPIC_FOUNDRY_API_KEY` and
 the reason names both. `ANTHROPIC_FOUNDRY_BASE_URL` does not stand in — it points at the
 other surface of the same resource.
 
-`LATENT_INTEL_ANTHROPIC_HOST` and `LATENT_INTEL_OPENAI_HOST` select a host when the
-config does not; an explicit `host:` beats them. `intel doctor` names exactly which
-variable is missing:
+A host comes from `/host <name>` in the shell or `host:` in config, then from
+`LATENT_INTEL_ANTHROPIC_HOST` / `LATENT_INTEL_OPENAI_HOST` where neither says anything,
+then from the runtime's own default. `/host` writes the same `host:` key, so the two are
+one setting and the environment is the machine-by-machine fallback beneath both.
+`intel doctor` names exactly which variable is missing, for the host that is configured:
 
 ```
 runtimes
@@ -512,6 +569,29 @@ runtimes
   ✓ claude-cli
   ! openai — set OPENAI_API_KEY for host 'openai'
 ```
+
+**`intel hosts` asks the same question of every host instead**, which is the one a
+machine has before it has chosen one — what each endpoint would cost to set up, not why
+today failed:
+
+```
+openai
+  ! openai        ← configured  set OPENAI_API_KEY for host 'openai'
+  ✓ openrouter
+  ! azure-openai  set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+OPENAI_API_VERSION for host 'azure-openai'
+  ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
+```
+
+Setting one up, host by host, is
+[`configuring-compute.md`](configuring-compute.md) — the practical path, where the tables
+above are the reference.
+
+Both read the same declarations, so a host reported ready by one is ready to the other.
+A runtime-level reason — a missing SDK, an unset model — stops every host at once and is
+printed once above the table rather than against a host. `claude-cli` declares no hosts
+and says so. Walked through end to end in
+[`demos/choosing-a-host.md`](demos/choosing-a-host.md).
 
 **Foundry resolves deployment names, not dated model ids.** `claude-sonnet-5` works;
 `claude-sonnet-5-20260101` returns a 404, and the failure says so.

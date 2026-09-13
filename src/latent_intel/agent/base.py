@@ -27,7 +27,7 @@ from importlib.metadata import entry_points
 from typing import Any, Protocol, cast, runtime_checkable
 
 from .. import events as ev
-from ..models import Message, RuntimeUnavailable, ToolSpec
+from ..models import HostStatus, Message, RuntimeUnavailable, ToolSpec
 
 #: The entry-point group a third party publishes into. Our own runtimes use it too, so
 #: the extension path is the one we take ourselves and cannot rot unnoticed.
@@ -81,6 +81,27 @@ class Diagnosable(Protocol):
         ...
 
 
+@runtime_checkable
+class Hosted(Protocol):
+    """A runtime that reaches its model through one of several declared endpoints.
+
+    Optional, and composed the way `Diagnosable` is: `claude-cli` shells to a binary
+    that has already chosen its endpoint, and has nothing to declare. A runtime that
+    does have a table can be asked about all of it at once rather than only about the
+    row that happens to be configured, which is the difference between diagnosing a
+    failure and planning a deployment.
+    """
+
+    def host_status(self) -> dict[str, HostStatus]:
+        """Every host this runtime declares, each with what it still needs and the
+        variables it is reading.
+
+        Names of environment variables, never their values, for the same reason
+        `unavailable_reason` gives: this is printed and pasted into support threads.
+        """
+        ...
+
+
 def available_kinds() -> dict[str, type]:
     """Every runtime class registered under the entry-point group.
 
@@ -110,4 +131,11 @@ def build(kind: str, **options: Any) -> Runtime:
     return cast(Runtime, kinds[kind](**options))
 
 
-__all__ = ["ENTRY_POINT_GROUP", "Diagnosable", "Runtime", "available_kinds", "build"]
+__all__ = [
+    "ENTRY_POINT_GROUP",
+    "Diagnosable",
+    "Hosted",
+    "Runtime",
+    "available_kinds",
+    "build",
+]

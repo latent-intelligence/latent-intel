@@ -764,3 +764,74 @@ def test_runtime_status_names_the_reason_rather_than_only_the_verdict() -> None:
     assert "claude-cli" in status
     kinds = Session.runtime_kinds()
     assert kinds == {name: reason is None for name, reason in status.items()}
+
+
+def test_one_runtime_s_reason_is_the_reason_the_table_reports_for_it() -> None:
+    """The table is this function in a loop, so a frontend asking about the runtime it
+    just set cannot be told something `doctor` would not say — and does not build every
+    other installed runtime to find out. An unknown kind reads the way `build` already
+    phrases it, because that is the failure someone meets next."""
+    status = Session.runtime_status()
+    assert {name: Session.runtime_reason(name) for name in status} == status
+
+    unknown = Session.runtime_reason("nonsense")
+    assert unknown is not None and "no runtime of kind 'nonsense'" in unknown
+
+
+def test_a_setting_is_reported_as_the_runtime_holds_it_not_as_the_file_spells_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A runtime resolves its host across the user's file, the project's `agent:` block
+    and `LATENT_INTEL_<RUNTIME>_HOST`, and only the built object knows which won. A
+    frontend reading the file called a host set by the environment unset.
+
+    None where the runtime holds nothing: `openai` has no default model on purpose, and
+    an empty string reported as a setting is a setting nobody made."""
+    monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
+    assert Session.runtime_setting("anthropic", "host") == "anthropic"
+    assert Session.runtime_setting("openai", "model") is None
+
+
+def test_the_host_report_covers_every_host_not_only_the_configured_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`runtime_reason` diagnoses the row that is configured, which says why today
+    failed but not which other host this machine could reach instead."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    report = Session.host_report("openai")
+
+    assert report.runtime == "openai"
+    assert report.configured == "openai"
+    assert report.hosts["openrouter"].reason is None
+    assert report.hosts["openrouter"].variables == ["OPENROUTER_API_KEY"]
+    missing = report.hosts["azure-openai"].reason
+    assert missing is not None and "AZURE_OPENAI_ENDPOINT" in missing
+
+
+def test_the_host_report_agrees_with_the_reason_doctor_prints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One build, and the verdict is the one `runtime_reason` reaches — a table whose
+    rows were diagnosed a moment before or after the runtime that answers is a table
+    that can contradict the line above it."""
+    monkeypatch.setenv("LATENT_INTEL_OPENAI_HOST", "openrouter")
+    report = Session.host_report("openai")
+
+    assert report.configured == "openrouter"
+    assert report.reason == Session.runtime_reason("openai")
+    assert report.hosts["openrouter"].reason == report.reason
+
+
+def test_a_runtime_with_no_hosts_reports_an_empty_table_not_a_failure() -> None:
+    """`claude-cli` shells to a binary that has already chosen its endpoint. Having
+    nothing to declare is not the same as something being wrong."""
+    report = Session.host_report("claude-cli")
+    assert report.hosts == {}
+    assert report.runtime == "claude-cli"
+
+
+def test_an_uninstalled_runtime_reports_the_reason_it_could_not_be_built() -> None:
+    report = Session.host_report("nonsense")
+    assert report.hosts == {}
+    assert report.reason is not None
+    assert "no runtime of kind 'nonsense'" in report.reason

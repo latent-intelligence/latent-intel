@@ -160,6 +160,22 @@ def test_both_endpoint_variables_at_once_are_refused_before_the_sdk_refuses_them
     assert "only one" in reason
 
 
+def test_an_empty_resource_is_named_rather_than_read_as_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pair a machine actually arrives in: a resource variable left exported with
+    nothing in it, then a base URL set beside it. We read the empty one as unset and
+    reported ✓; the SDK read it as set and raised `base_url and resource are mutually
+    exclusive` at the first question, naming neither this file nor the fix."""
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "")
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://private.example/anthropic")
+    reason = AnthropicRuntime().unavailable_reason()
+    assert reason is not None
+    assert "ANTHROPIC_FOUNDRY_RESOURCE" in reason
+    assert "empty" in reason
+
+
 @pytest.mark.anyio
 async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
     monkeypatch: pytest.MonkeyPatch, credentials: None
@@ -669,6 +685,30 @@ async def test_an_unreachable_endpoint_names_where_it_is_configured(
 
 
 @pytest.mark.anyio
+async def test_an_unreachable_default_endpoint_names_no_variable_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `anthropic` row with nothing but a key: the SDK's own default was dialled,
+    there is no URL to quote and no variable anyone set, and naming `ANTHROPIC_BASE_URL`
+    would send someone to check a setting that does not exist for an outage."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    client = FakeClient(
+        Round(
+            raises=anthropic.APIConnectionError(
+                request=httpx.Request("POST", "https://example")
+            )
+        )
+    )
+    failed = terminal(
+        await collect(AnthropicRuntime(host="anthropic", client_factory=client))
+    )
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "connection"
+    assert "ANTHROPIC_BASE_URL" not in failed.remedy
+    assert "default endpoint" in failed.remedy and "network" in failed.remedy
+
+
+@pytest.mark.anyio
 async def test_an_error_the_sdk_does_not_own_is_still_one_event(
     credentials: None,
 ) -> None:
@@ -718,3 +758,63 @@ async def test_text_after_a_tool_round_starts_a_new_paragraph(
     assert done.text == "let me check.\n\nthe wiki says yes"
     streamed = "".join(e.text for e in events if isinstance(e, ev.AssistantToken))
     assert streamed == done.text
+
+
+# -- the host rows ----------------------------------------------------------
+
+
+def built(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    client: str = "AsyncAnthropicFoundry",
+    **options: Any,
+) -> dict[str, Any]:
+    """The kwargs one row's client is actually constructed with.
+
+    These rows now resolve their own values rather than leaving the SDK to read the
+    environment, and the failure that change can have is a value that is right and
+    never sent. `client` is the class the row names, because the two rows do not share
+    one.
+    """
+    seen: dict[str, Any] = {}
+
+    def factory(**kwargs: Any) -> FakeClient:
+        seen.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(anthropic, client, factory)
+    AnthropicRuntime(**options)._client()
+    return seen
+
+
+def test_foundry_is_built_with_a_credential_and_an_address_and_nothing_else(
+    credentials: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row takes the shared constructor, like every other row that spells its
+    endpoint as a base URL. A resource name reaches the client by being left alone —
+    `base_url` is None and the SDK reads the variable it already knows — while a
+    sovereign cloud or a private endpoint is a full address and is passed.
+
+    Passing `resource=` ourselves was the bug: an empty variable resolved to None, and
+    a None resource handed to the SDK alongside a base URL is the pair it refuses as
+    mutually exclusive."""
+    assert built(monkeypatch) == {"api_key": "never-printed-key", "base_url": None}
+
+    monkeypatch.delenv("ANTHROPIC_FOUNDRY_RESOURCE")
+    monkeypatch.setenv(
+        "ANTHROPIC_FOUNDRY_BASE_URL", "https://private.example/anthropic"
+    )
+    assert built(monkeypatch) == {
+        "api_key": "never-printed-key",
+        "base_url": "https://private.example/anthropic",
+    }
+
+
+def test_the_anthropic_row_is_built_with_no_base_url_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """None, not an empty string: the SDK has its own default and must be left to use
+    it, which is a thing only the constructed client can show."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    seen = built(monkeypatch, client="AsyncAnthropic", host="anthropic")
+    assert seen == {"api_key": "k", "base_url": None}

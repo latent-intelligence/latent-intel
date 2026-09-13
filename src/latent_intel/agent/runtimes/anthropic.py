@@ -9,9 +9,11 @@ not only the ones that can be served as an MCP subprocess. A `files` directory a
 **A host is a row, not a module.** A host serves this protocol, and the rows are
 Foundry and the Anthropic API: they differ in which client class the SDK builds and
 which environment variables name the endpoint, and in nothing else about a turn.
-Bedrock and Vertex are future rows. A second *protocol* — OpenAI's — is a new runtime
-module instead, reusing `agent/turn.py`, which is where the vendor-neutral half of this
-loop already lives.
+Bedrock and Vertex are future rows. The row *type* is `agent/hosts.py`, shared with the
+OpenAI runtime — every rule about variables, reasons and construction lived here and
+there at once, and had already drifted. A second *protocol* is a new runtime module
+instead, reusing `agent/turn.py`, which is where the vendor-neutral half of this loop
+already lives.
 
 **The SDK is imported inside the turn, never at module scope.** `available_kinds()`
 loads every registered runtime, so an import here would make a base install without the
@@ -35,56 +37,40 @@ import importlib.util
 import os
 import time
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
 from typing import Any
 
 from ... import events as ev
-from ...models import Message, RuntimeUnavailable, ToolSpec
-from .. import turn
-
-
-@dataclass(frozen=True)
-class Host:
-    """One endpoint the Anthropic SDK can reach.
-
-    Everything host-specific about a turn is in these five fields, which is the
-    claim the design rests on: adding Bedrock is a row here, not a module.
-    """
-
-    #: The client class on the `anthropic` module. Resolved by name so the SDK stays
-    #: unimported until a turn actually starts.
-    client: str
-    #: The credential variable. Its *name* is reported when authentication fails.
-    key: str
-    #: Where the endpoint lives. Any one of these is enough, and where there is more
-    #: than one, exactly one: the SDK refuses a client given both.
-    endpoint: tuple[str, ...]
-    #: Whether one of `endpoint` must be set for the client to be constructible at all,
-    #: or whether the SDK has a default and these are only overrides.
-    endpoint_required: bool
-    #: What a 404 most likely means here. The two hosts fail differently enough
-    #: that one shared sentence would be wrong for both.
-    remedy_404: str
-
+from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
+from .. import hosts, turn
 
 #: Every host reachable through the Anthropic SDK. A new one is a row.
-HOSTS: dict[str, Host] = {
-    "foundry": Host(
+HOSTS: dict[str, hosts.Host] = {
+    "foundry": hosts.Host(
         client="AsyncAnthropicFoundry",
         key="ANTHROPIC_FOUNDRY_API_KEY",
+        # Both at once is refused: the SDK raises `base_url and resource are mutually
+        # exclusive`, and reporting ✓ here would move that failure to the first
+        # question and strip the variable names off it on the way.
         endpoint=("ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_FOUNDRY_BASE_URL"),
-        endpoint_required=True,
+        required=(
+            "ANTHROPIC_FOUNDRY_API_KEY",
+            ("ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_FOUNDRY_BASE_URL"),
+        ),
         remedy_404=(
             "Foundry resolves deployment names, not dated model ids — try "
             "`claude-sonnet-5` rather than a name with a date on the end, and check "
             "the deployment exists on this resource"
         ),
+        # No `url`, and no constructor of its own: a resource name is passed to this
+        # client by leaving `base_url` alone and letting the SDK read the variable it
+        # already knows. Passing the pair ourselves meant handing it an empty resource
+        # it then refused as mutually exclusive with the base URL beside it.
     ),
-    "anthropic": Host(
+    "anthropic": hosts.Host(
         client="AsyncAnthropic",
         key="ANTHROPIC_API_KEY",
         endpoint=("ANTHROPIC_BASE_URL",),
-        endpoint_required=False,
+        required=("ANTHROPIC_API_KEY",),
         remedy_404="check the model id against the ones the API publishes",
     ),
 }
@@ -176,29 +162,18 @@ class AnthropicRuntime:
         """
         host = HOSTS.get(self.host)
         if host is None:
-            known = ", ".join(sorted(HOSTS))
-            return f"unknown host '{self.host}' — known hosts: {known}"
+            return hosts.unknown(self.host, HOSTS)
         if importlib.util.find_spec("anthropic") is None:
             return "the anthropic SDK is not installed — install `latent-intel[api]`"
-        missing: list[str] = []
-        if not os.environ.get(host.key):
-            missing.append(host.key)
-        if host.endpoint_required and not any(
-            os.environ.get(name) for name in host.endpoint
-        ):
-            missing.append(" or ".join(host.endpoint))
-        if missing:
-            return f"set {', '.join(missing)} for host '{self.host}'"
-        # The SDK raises `base_url and resource are mutually exclusive` when a host
-        # takes both, so reporting ✓ here would move the failure to the first question
-        # and strip the variable names off it on the way.
-        conflicting = [name for name in host.endpoint if os.environ.get(name)]
-        if len(host.endpoint) > 1 and len(conflicting) > 1:
-            return (
-                f"set only one of {', '.join(conflicting)} for host "
-                f"'{self.host}' — both are set"
-            )
-        return None
+        return hosts.diagnose(host, name=self.host)
+
+    def host_status(self) -> dict[str, HostStatus]:
+        """Every host this runtime declares, and what each still needs.
+
+        The whole table, not the configured row: `intel hosts` asks this of a machine
+        that has not chosen yet. See `hosts.status`.
+        """
+        return hosts.status(HOSTS)
 
     # -- one turn -------------------------------------------------------------
 
@@ -244,7 +219,7 @@ class AnthropicRuntime:
                 ev.AgentFailed,
                 message=f"the '{self.host}' endpoint rejected the credentials",
                 kind="auth",
-                remedy=f"check {host.key} — we report its name, never its value",
+                remedy=hosts.auth_remedy(host),
             )
         except anthropic.NotFoundError:
             yield emitter.emit(
@@ -275,7 +250,7 @@ class AnthropicRuntime:
                 ev.AgentFailed,
                 message=f"could not reach the '{self.host}' endpoint",
                 kind="connection",
-                remedy=f"check {' or '.join(host.endpoint)} and the network",
+                remedy=hosts.connection_remedy(host),
             )
         except Exception as exc:  # noqa: BLE001 — a failure is an event, not a crash
             # Cancellation derives from BaseException and is deliberately not caught:
@@ -440,15 +415,20 @@ class AnthropicRuntime:
     def _client(self) -> Any:
         """The SDK client, as the async context manager the SDK itself returns.
 
-        Credentials are read by the SDK from the environment and never passed through
-        here — which is also why the test seam replaces the whole client rather than
-        the key.
+        The values are resolved here rather than left to the SDK to read, so a fallback
+        or a default the row declares is honoured by the client and not only by the
+        reason. They are passed and never logged — which is also why the test seam
+        replaces the whole client rather than the key. Which kwargs those are is the
+        host's to say: see `construct`.
         """
         if self.client_factory is not None:
             return self.client_factory()
         import anthropic
 
-        return getattr(anthropic, HOSTS[self.host].client)()
+        host = HOSTS[self.host]
+        return getattr(anthropic, host.client)(
+            **host.construct(host, hosts.values(host))
+        )
 
 
 __all__ = [
@@ -459,5 +439,4 @@ __all__ = [
     "ENV_HOST",
     "HOSTS",
     "AnthropicRuntime",
-    "Host",
 ]
