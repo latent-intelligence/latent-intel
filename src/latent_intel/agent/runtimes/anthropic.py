@@ -43,24 +43,6 @@ from ... import events as ev
 from ...models import Message, RuntimeUnavailable, ToolSpec
 from .. import hosts, turn
 
-
-def _construct_foundry(host: hosts.Host, values: hosts.Values) -> dict[str, Any]:
-    """The kwargs `AsyncAnthropicFoundry` takes: a key and then either a resource name
-    or a full base URL — never both, which `conflict` has already refused.
-
-    Behaviour-neutral today, because the SDK reads the same three variables for itself.
-    It exists because every row builds its client from its own resolved values through
-    the same `construct` slot on the shared `Host`, and the next rows on this runtime —
-    Bedrock with `aws_region`, Vertex with `project_id` — need constructors of their
-    own. One slot on the base type is where they land.
-    """
-    return {
-        "api_key": values["ANTHROPIC_FOUNDRY_API_KEY"],
-        "resource": values["ANTHROPIC_FOUNDRY_RESOURCE"],
-        "base_url": values["ANTHROPIC_FOUNDRY_BASE_URL"],
-    }
-
-
 #: Every host reachable through the Anthropic SDK. A new one is a row.
 HOSTS: dict[str, hosts.Host] = {
     "foundry": hosts.Host(
@@ -79,7 +61,10 @@ HOSTS: dict[str, hosts.Host] = {
             "`claude-sonnet-5` rather than a name with a date on the end, and check "
             "the deployment exists on this resource"
         ),
-        construct=_construct_foundry,
+        # No `url`, and no constructor of its own: a resource name is passed to this
+        # client by leaving `base_url` alone and letting the SDK read the variable it
+        # already knows. Passing the pair ourselves meant handing it an empty resource
+        # it then refused as mutually exclusive with the base URL beside it.
     ),
     "anthropic": hosts.Host(
         client="AsyncAnthropic",

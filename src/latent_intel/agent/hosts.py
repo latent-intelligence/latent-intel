@@ -49,8 +49,12 @@ def construct_base_url(host: Host, values: Values) -> dict[str, Any]:
 
     The credential is read here rather than left to the SDK, because a fallback variable
     is ours and the SDK has never heard of it.
+
+    The resolution is passed on rather than taken again: this function was handed one
+    reading and everything it builds has to come from it, or the key and the address
+    can be read a moment apart and disagree.
     """
-    return {"api_key": values[host.key], "base_url": base_url(host)}
+    return {"api_key": values[host.key], "base_url": base_url(host, values)}
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,9 @@ class Host:
     #: This row's values, as the kwargs its client class is constructed with. A row
     #: whose client takes `base_url` needs nothing here; one that spells its endpoint
     #: some other way supplies its own rather than making `_client` grow a branch.
+    #: Classic Azure OpenAI needs it today — `azure_endpoint` and a dated
+    #: `api_version` — and Bedrock (`aws_region`) and Vertex (`project_id`) are why it
+    #: is a slot on the base type rather than one runtime's special case.
     construct: Callable[[Host, Values], dict[str, Any]] = field(
         default=construct_base_url
     )
@@ -148,7 +155,7 @@ def values(host: Host) -> dict[str, str | None]:
     return {name: value(host, name) for name in names(host)}
 
 
-def base_url(host: Host) -> str | None:
+def base_url(host: Host, resolved: Values | None = None) -> str | None:
     """Where the client points, or None to let the SDK use its own default.
 
     In order: the last `endpoint` variable, which is the full address and says exactly
@@ -157,8 +164,13 @@ def base_url(host: Host) -> str | None:
     nothing. A resource name and a full base URL are two ways of saying the same thing,
     so the second is built from the first rather than asked for twice. Nothing here is
     logged: a base URL is not a credential, but it is read from the same place one is.
+
+    `resolved` is a reading a caller already has — a constructor's, which must not be
+    joined to a second one taken here. Everything that only reports omits it and gets
+    the reading of the moment, which is the convention for every other function here.
     """
-    resolved = values(host)
+    if resolved is None:
+        resolved = values(host)
     address = resolved[host.endpoint[-1]]
     if address:
         return address
@@ -189,6 +201,26 @@ def missing(host: Host, *, name: str) -> str | None:
     return f"set {', '.join(absent)} for host '{name}'"
 
 
+def empty(host: Host, *, name: str) -> str | None:
+    """One of this row's own variables exported with nothing in it, named, or None.
+
+    Set-but-empty is not unset, and only this program treats it as one: `value()` skips
+    an empty string and a constructor is then handed None, while the SDK re-reads the
+    same variable for itself and finds it set. That pair has already produced
+    `base_url and resource are mutually exclusive` from a client built with one of
+    them, and a client dialling nowhere from a base URL nobody meant to clear. One
+    variable per message, in the row's own order: the first one is the one to fix, and
+    a list of four is a list nobody reads.
+    """
+    for variable in names(host):
+        if os.environ.get(variable) == "":
+            return (
+                f"{variable} is set but empty for host '{name}' — unset it or give "
+                f"it a value"
+            )
+    return None
+
+
 def conflict(host: Host, *, name: str) -> str | None:
     """Both ways of naming one endpoint set at once, named, or None.
 
@@ -213,10 +245,17 @@ def conflict(host: Host, *, name: str) -> str | None:
 def diagnose(host: Host, *, name: str) -> str | None:
     """Why this host cannot be reached from here, or None.
 
-    What is missing before what contradicts: a machine with nothing set has no
+    What is empty first, because an empty variable makes the other two lie: it is read
+    as unset here and as set by the SDK, so the reason would either name a variable
+    that is exported or report nothing at all while the client refuses to be built.
+    Then what is missing before what contradicts: a machine with nothing set has no
     contradiction to report, and naming one would bury the four variables it wants.
     """
-    return missing(host, name=name) or conflict(host, name=name)
+    return (
+        empty(host, name=name)
+        or missing(host, name=name)
+        or conflict(host, name=name)
+    )
 
 
 def unknown(name: str, known: Iterable[str]) -> str:
@@ -268,6 +307,7 @@ __all__ = [
     "connection_remedy",
     "construct_base_url",
     "diagnose",
+    "empty",
     "missing",
     "named",
     "names",

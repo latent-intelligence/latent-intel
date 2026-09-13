@@ -764,3 +764,29 @@ def test_runtime_status_names_the_reason_rather_than_only_the_verdict() -> None:
     assert "claude-cli" in status
     kinds = Session.runtime_kinds()
     assert kinds == {name: reason is None for name, reason in status.items()}
+
+
+def test_one_runtime_s_reason_is_the_reason_the_table_reports_for_it() -> None:
+    """The table is this function in a loop, so a frontend asking about the runtime it
+    just set cannot be told something `doctor` would not say — and does not build every
+    other installed runtime to find out. An unknown kind reads the way `build` already
+    phrases it, because that is the failure someone meets next."""
+    status = Session.runtime_status()
+    assert {name: Session.runtime_reason(name) for name in status} == status
+
+    unknown = Session.runtime_reason("nonsense")
+    assert unknown is not None and "no runtime of kind 'nonsense'" in unknown
+
+
+def test_a_setting_is_reported_as_the_runtime_holds_it_not_as_the_file_spells_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A runtime resolves its host across the user's file, the project's `agent:` block
+    and `LATENT_INTEL_<RUNTIME>_HOST`, and only the built object knows which won. A
+    frontend reading the file called a host set by the environment unset.
+
+    None where the runtime holds nothing: `openai` has no default model on purpose, and
+    an empty string reported as a setting is a setting nobody made."""
+    monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
+    assert Session.runtime_setting("anthropic", "host") == "anthropic"
+    assert Session.runtime_setting("openai", "model") is None

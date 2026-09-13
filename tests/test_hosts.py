@@ -139,6 +139,55 @@ def test_both_ways_of_naming_one_endpoint_are_read_under_this_row_s_own_names(
     )
 
 
+def test_a_variable_exported_with_nothing_in_it_is_named_before_anything_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Set-but-empty is not unset, and only this program reads it as one: the row skips
+    it and hands a constructor None, while the SDK re-reads the same variable and finds
+    it set. Nothing else here would say a word — the group is satisfied by the address,
+    and the empty one is not truthy enough to be a conflict — so the first thing wrong
+    would be reported by the SDK, in its own words, about a variable nobody named.
+
+    One name per message, the first in the row's own order: an empty credential is the
+    thing to fix whatever else is also empty."""
+    host = row(
+        endpoint=("AZURE_T_RESOURCE", "AZURE_T_BASE_URL"),
+        required=("AZURE_T_KEY", ("AZURE_T_RESOURCE", "AZURE_T_BASE_URL")),
+    )
+    monkeypatch.setenv("AZURE_T_KEY", "k")
+    monkeypatch.setenv("AZURE_T_RESOURCE", "")
+    monkeypatch.setenv("AZURE_T_BASE_URL", "https://written.example/v1")
+    assert hosts.diagnose(host, name="t") == (
+        "AZURE_T_RESOURCE is set but empty for host 't' — unset it or give it a value"
+    )
+
+    monkeypatch.setenv("AZURE_T_KEY", "")
+    assert hosts.diagnose(host, name="t") == (
+        "AZURE_T_KEY is set but empty for host 't' — unset it or give it a value"
+    )
+
+
+def test_a_constructor_builds_from_the_reading_it_was_handed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole point of passing a resolution in: a constructor that reads the
+    environment again for half its kwargs can build a client from two readings taken a
+    moment apart, and `.env` loading and a live export both happen mid-process."""
+    host = row(
+        endpoint=("AZURE_T_RESOURCE", "AZURE_T_BASE_URL"),
+        url="https://{resource}.example/v1",
+    )
+    monkeypatch.setenv("AZURE_T_KEY", "k")
+    monkeypatch.setenv("AZURE_T_RESOURCE", "demo")
+    reading = hosts.values(host)
+
+    monkeypatch.setenv("AZURE_T_BASE_URL", "https://later.example/v1")
+    assert hosts.construct_base_url(host, reading) == {
+        "api_key": "k",
+        "base_url": "https://demo.example/v1",
+    }
+
+
 def test_an_unknown_host_lists_the_known_ones_in_order() -> None:
     """Sorted, because the order a table happens to be written in is not an order
     anyone can scan."""

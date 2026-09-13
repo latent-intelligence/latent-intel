@@ -422,9 +422,11 @@ host foundry for anthropic
 ```
 
 All three persist immediately, the way `/connect` does. `intel doctor` lists what is
-installed and marks which one is configured. The model and the host are remembered **per
-runtime**, because neither means anything without the backend it belongs to — `/model none`
-or `/host none` clears one back to that runtime's own default:
+installed and marks which one is configured. Bare `/model` and `/host` print the value in
+force — what the runtime actually holds, including one set through the environment. The
+model and the host are remembered **per runtime**, because neither means anything without
+the backend it belongs to, and `/model none` or `/host none` clears your override; a value
+the project declares stays in force, and the command prints what is in force:
 
 ```yaml
 runtime: anthropic

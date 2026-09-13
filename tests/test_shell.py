@@ -7,6 +7,7 @@ the loop only routes the result.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -263,20 +264,29 @@ def test_host_refuses_when_no_runtime_is_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A host is a row in one runtime's table, so storing one with no runtime would be
-    storing a value with nowhere to live."""
+    storing a value with nowhere to live.
+
+    The refusal names what is installed rather than one runtime as an example: the
+    example was advice to install something on a machine that already has the others."""
     from latent_intel.frontends.shell import repl
     from latent_intel.session import Session
 
     console = _shell(monkeypatch)
     repl._host(Session(), "foundry")
-    assert "no runtime configured" in console.export_text()
+
+    text = console.export_text()
+    assert "no runtime configured" in text
+    for kind in Session.runtime_status():
+        assert kind in text
 
 
-def test_bare_host_reports_the_default_until_one_is_chosen(
+def test_bare_host_reports_the_host_the_environment_put_in_force(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A runtime with no `host:` is on its own default, and saying so is the difference
-    between a setting nobody made and a setting nobody can see."""
+    """`LATENT_INTEL_ANTHROPIC_HOST` is how one machine runs against Foundry and
+    another against the public API with the same project checked out on both. Reading
+    only the config file reported that machine's host as unset — and a report that
+    contradicts the runtime is worse than no report."""
     from latent_intel import config as config_module
     from latent_intel.frontends.shell import repl
     from latent_intel.session import Session
@@ -284,10 +294,70 @@ def test_bare_host_reports_the_default_until_one_is_chosen(
     config = config_module.load()
     config.runtime = "anthropic"
     config_module.save(config)
+    monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
 
     console = _shell(monkeypatch)
     repl._host(Session(), "")
-    assert "its default" in console.export_text()
+
+    text = console.export_text()
+    assert "anthropic" in text
+    assert "its default" not in text
+
+
+def test_bare_model_says_unset_where_the_runtime_holds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`openai` has no default model on purpose — every host names its models
+    differently — so "its default" named a thing that does not exist, next to the
+    runtime's own reason saying no model is set."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "openai"
+    config_module.save(config)
+    # The credential, so the reason left is the model's: the variables are diagnosed
+    # first, and one missing key would answer for both halves of this test.
+    monkeypatch.setenv("OPENAI_API_KEY", "never-printed-key")
+
+    console = _shell(monkeypatch)
+    repl._model(Session(), "")
+
+    text = console.export_text()
+    assert "unset" in text
+    assert "no model is set" in text
+    assert "its default" not in text
+
+
+def test_clearing_a_host_the_project_declares_reports_what_is_still_in_force(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/host none` clears the user's override, not the setting: a deployment declares
+    its host in the project file, and that one is still what every question goes to.
+    Printing the word typed reported `none` while the declared host answered."""
+    from latent_intel import settings as settings_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    directory = tmp_path / "projects"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "deploy.yaml").write_text(
+        "agent:\n"
+        "  runtime: anthropic\n"
+        "  runtimes:\n"
+        "    anthropic: {host: foundry}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "deploy")
+    settings_module.invalidate()
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "none")
+
+    text = console.export_text()
+    assert "foundry" in text
+    assert "none" not in text
 
 
 def test_choosing_a_host_persists_it_under_the_runtime_it_belongs_to(

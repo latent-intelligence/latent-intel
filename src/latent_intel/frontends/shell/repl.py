@@ -357,7 +357,7 @@ def _runtime(session: Session, name: str) -> None:
             console.print("[dim]no runtime configured[/]")
             console.print(f"[dim]installed:[/] {escape(installed)}")
             return
-        model = resolved.model_for(current) or "its own default"
+        model = Session.runtime_setting(current, "model") or "unset"
         console.print(
             f"[dim]runtime[/] [source]{escape(current)}[/] [dim]({escape(model)})[/]"
         )
@@ -393,25 +393,27 @@ def _runtime(session: Session, name: str) -> None:
     console.print(f"[dim]runtime[/] [source]{escape(name)}[/]")
     # Set anyway: a machine can be configured before the binary is installed, and the
     # honest failure still arrives when someone asks. The reason comes with it, because
-    # "cannot run here" does not say which variable to export.
-    _report_reason(name)
+    # "cannot run here" does not say which variable to export — and it is the one this
+    # handler already read, since choosing a runtime changes no runtime's own options.
+    _report_reason(kinds[name])
 
 
 def _model(session: Session, name: str) -> None:
     """Report or choose the model the configured runtime asks for."""
-    _runtime_option(session, "model", name, label="claude-cli")
+    _runtime_option(session, "model", name)
 
 
 def _host(session: Session, name: str) -> None:
     """Report or choose which endpoint the configured runtime talks to.
 
     A host is a row in one runtime's table, so it means nothing without the runtime it
-    belongs to. `/host none` clears it back to that runtime's own default.
+    belongs to. `/host none` clears your override rather than the setting: a host the
+    project declares stays in force, and what is in force is what is printed.
     """
-    _runtime_option(session, "host", name, label="anthropic")
+    _runtime_option(session, "host", name)
 
 
-def _runtime_option(session: Session, key: str, name: str, *, label: str) -> None:
+def _runtime_option(session: Session, key: str, name: str) -> None:
     """Report or set one option on the configured runtime, and remember it.
 
     `/model` and `/host` are one command with a different key: both name something that
@@ -422,27 +424,32 @@ def _runtime_option(session: Session, key: str, name: str, *, label: str) -> Non
     refuse every later `ask` on a runtime that answered a moment ago. `/model` wrote
     without the rollback, which is the divergence one handler ends.
 
-    `label` is the runtime the refusal names as an example, so each command points at
-    one that has the kind of setting being asked for.
+    What is reported is the built runtime's own setting, never the file's and never the
+    word that was typed. A runtime resolves its host across the user's file, the
+    project's `agent:` block and `LATENT_INTEL_<RUNTIME>_HOST`; reading the file called
+    a host set by the environment "its default", and `/host none` under a project that
+    declares one reported `none` while every question still went to the declared host.
     """
     settings = config_module.load()
-    current = session.runtime_kind or settings_module.load().runtime
+    resolved = settings_module.load()
+    current = session.runtime_kind or resolved.runtime
     if not current:
+        # The kinds installed, not one named as an example: `/runtime claude-cli` was
+        # advice to install something on a machine that has the other two.
+        installed = ", ".join(sorted(Session.runtime_status())) or "none"
         console.print(
-            f"[fail]✗[/] no runtime configured [dim]— /runtime {label} first[/]"
+            f"[fail]✗[/] no runtime configured "
+            f"[dim]— /runtime <kind> first (installed: {escape(installed)})[/]"
         )
         return
 
     if not name:
-        # The resolved view, not the user's file: a project may set either of these,
-        # and reading only config.yaml reports a value that is in force as unset.
-        chosen = settings_module.load().runtime_options(current).get(key)
-        shown = str(chosen) if chosen else "its default"
+        shown = Session.runtime_setting(current, key) or "unset"
         console.print(
             f"[dim]{key}[/] [source]{escape(shown)}[/] "
             f"[dim]for {escape(current)}[/]"
         )
-        _report_reason(current)
+        _report_reason(Session.runtime_reason(current))
         return
 
     before = settings.runtime_options(current).get(key)
@@ -458,13 +465,14 @@ def _runtime_option(session: Session, key: str, name: str, *, label: str) -> Non
         config_module.save(settings)
         console.print(f"[fail]✗[/] {escape(str(exc))}")
         return
+    shown = Session.runtime_setting(current, key) or "unset"
     console.print(
-        f"[dim]{key}[/] [source]{escape(name)}[/] [dim]for {escape(current)}[/]"
+        f"[dim]{key}[/] [source]{escape(shown)}[/] [dim]for {escape(current)}[/]"
     )
-    _report_reason(current)
+    _report_reason(Session.runtime_reason(current))
 
 
-def _report_reason(kind: str) -> None:
+def _report_reason(reason: str | None) -> None:
     """The runtime's own reason, where it has one.
 
     Set anyway and report: the reason already names the known hosts when the name is a
@@ -472,8 +480,12 @@ def _report_reason(kind: str) -> None:
     runtime, a model or a host before it is given the credentials for it. One printer
     for all three commands, because a reason phrased differently per command reads as a
     different kind of failure.
+
+    The reason arrives rather than being fetched: `/runtime` has just read the whole
+    status table and building every installed runtime a second time to print one line
+    of it is work nobody asked for.
     """
-    if (reason := Session.runtime_status().get(kind)) is not None:
+    if reason is not None:
         console.print(f"[warn]![/] [dim]{escape(reason)}[/]")
 
 

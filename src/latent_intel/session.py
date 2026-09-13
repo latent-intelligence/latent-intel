@@ -254,25 +254,60 @@ class Session:
         Names of environment variables, never values: this string is printed by
         `intel doctor`, whose output has to stay safe to paste into a support thread.
         """
-        status: dict[str, str | None] = {}
-        for name, cls in agent.available_kinds().items():
-            try:
-                # Built the way `_resolve_runtime` builds it, or `doctor` diagnoses a
-                # different object than the one that answers: a configured model, host
-                # or key would all be invisible here and the verdict wrong with them.
-                runtime = cls(**Session._runtime_options(name))
-                if runtime.available():
-                    status[name] = None
-                    continue
-                reason = (
-                    runtime.unavailable_reason()
-                    if isinstance(runtime, agent.Diagnosable)
-                    else None
-                )
-                status[name] = reason or "installed, but cannot run here"
-            except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
-                status[name] = str(exc) or "could not be built"
-        return status
+        return {name: Session.runtime_reason(name) for name in agent.available_kinds()}
+
+    @staticmethod
+    def runtime_reason(kind: str) -> str | None:
+        """Why one runtime cannot run here, or None when it can.
+
+        The whole diagnosis for one kind, because almost everything that asks wants one:
+        the shell reports the runtime it just set, and sweeping every installed runtime
+        to print a line about one of them builds the others for nothing. `doctor` is the
+        only caller that wants them all, and gets them through `runtime_status`, which
+        is this function in a loop — so the verdict a frontend prints and the verdict
+        the table prints cannot be arrived at two different ways.
+
+        Built the way `_resolve_runtime` builds it, or this diagnoses a different object
+        than the one that answers: a configured model, host or key would all be
+        invisible and the verdict wrong with them. An unknown kind reads as `build`
+        already phrases it, since that is the failure someone will meet next.
+
+        Names of environment variables, never values: this string is printed by
+        `intel doctor`, whose output has to stay safe to paste into a support thread.
+        """
+        try:
+            runtime = agent.build(kind, **Session._runtime_options(kind))
+            if runtime.available():
+                return None
+            reason = (
+                runtime.unavailable_reason()
+                if isinstance(runtime, agent.Diagnosable)
+                else None
+            )
+            return reason or "installed, but cannot run here"
+        except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
+            return str(exc) or "could not be built"
+
+    @staticmethod
+    def runtime_setting(kind: str, key: str) -> str | None:
+        """One option as the runtime it was built with holds it, or None where it holds
+        nothing.
+
+        What a frontend reports, and deliberately not what the config file says: a
+        runtime resolves its own host across the user's file, the project's `agent:`
+        block and `LATENT_INTEL_<RUNTIME>_HOST`, and only the built object knows which
+        of those won. Reading the file reported a value that is in force as unset, and
+        reported `none` after clearing an override that a project still declares.
+
+        None where the runtime cannot be built at all: the caller is reporting a
+        setting, and the reason it could not be built is `runtime_reason`'s to give.
+        """
+        try:
+            runtime = agent.build(kind, **Session._runtime_options(kind))
+        except Exception:  # noqa: BLE001 — a broken runtime has no setting to report
+            return None
+        value = getattr(runtime, key, None)
+        return str(value) if value else None
 
     @staticmethod
     def runtime_kinds() -> dict[str, bool]:

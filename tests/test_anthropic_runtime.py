@@ -160,6 +160,22 @@ def test_both_endpoint_variables_at_once_are_refused_before_the_sdk_refuses_them
     assert "only one" in reason
 
 
+def test_an_empty_resource_is_named_rather_than_read_as_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pair a machine actually arrives in: a resource variable left exported with
+    nothing in it, then a base URL set beside it. We read the empty one as unset and
+    reported ✓; the SDK read it as set and raised `base_url and resource are mutually
+    exclusive` at the first question, naming neither this file nor the fix."""
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "")
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://private.example/anthropic")
+    reason = AnthropicRuntime().unavailable_reason()
+    assert reason is not None
+    assert "ANTHROPIC_FOUNDRY_RESOURCE" in reason
+    assert "empty" in reason
+
+
 @pytest.mark.anyio
 async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
     monkeypatch: pytest.MonkeyPatch, credentials: None
@@ -771,31 +787,27 @@ def built(
     return seen
 
 
-def test_foundry_is_built_with_the_resource_and_no_base_url(
+def test_foundry_is_built_with_a_credential_and_an_address_and_nothing_else(
     credentials: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Both are passed and one is None, which is what the SDK's own two overloads
-    accept — `conflict` has already refused the pair that would raise."""
-    seen = built(monkeypatch)
-    assert seen == {
-        "api_key": "never-printed-key",
-        "resource": "never-printed-resource",
-        "base_url": None,
-    }
+    """The row takes the shared constructor, like every other row that spells its
+    endpoint as a base URL. A resource name reaches the client by being left alone —
+    `base_url` is None and the SDK reads the variable it already knows — while a
+    sovereign cloud or a private endpoint is a full address and is passed.
 
+    Passing `resource=` ourselves was the bug: an empty variable resolved to None, and
+    a None resource handed to the SDK alongside a base URL is the pair it refuses as
+    mutually exclusive."""
+    assert built(monkeypatch) == {"api_key": "never-printed-key", "base_url": None}
 
-def test_foundry_is_built_with_the_base_url_where_that_is_what_was_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A sovereign cloud or a private endpoint is a full address rather than a resource
-    name, and the row carries both ways of saying it."""
-    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_FOUNDRY_RESOURCE")
     monkeypatch.setenv(
         "ANTHROPIC_FOUNDRY_BASE_URL", "https://private.example/anthropic"
     )
-    seen = built(monkeypatch)
-    assert seen["resource"] is None
-    assert seen["base_url"] == "https://private.example/anthropic"
+    assert built(monkeypatch) == {
+        "api_key": "never-printed-key",
+        "base_url": "https://private.example/anthropic",
+    }
 
 
 def test_the_anthropic_row_is_built_with_no_base_url_at_all(
