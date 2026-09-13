@@ -35,6 +35,8 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..models import HostStatus
+
 #: Every variable a row mentions, resolved. What a constructor is handed, so the kwargs
 #: it builds all come from one reading; nothing else passes these around.
 Values = Mapping[str, str | None]
@@ -258,7 +260,39 @@ def diagnose(host: Host, *, name: str) -> str | None:
     )
 
 
-def status(table: Mapping[str, Host]) -> dict[str, str | None]:
+def answering(host: Host, name: str) -> str | None:
+    """Which variable in the environment is supplying this one's value — itself, or the
+    fallback standing in for it — or None when nothing is.
+
+    The distinction a reader needs to confirm a ✓: a row satisfied through
+    `ANTHROPIC_FOUNDRY_API_KEY` is being read from a variable whose name is not the one
+    the row asks for, and saying only "satisfied" leaves them looking at the wrong
+    export. A default supplies no name, because nobody set anything.
+    """
+    if os.environ.get(name):
+        return name
+    other = host.fallback.get(name)
+    return other if other and os.environ.get(other) else None
+
+
+def supplied(host: Host) -> tuple[str, ...]:
+    """Every variable this row is reading from the environment, in the row's own order.
+
+    What a ✓ is standing on. Reported for the same reason the failure names variables:
+    "it works" is not an answer to "which of these two keys is it using", and on a
+    machine with several endpoints exported that is exactly the question.
+    """
+    found: list[str] = []
+    for requirement in host.required:
+        members = (requirement,) if isinstance(requirement, str) else requirement
+        for member in members:
+            if (name := answering(host, member)) is not None:
+                found.append(name)
+                break
+    return tuple(dict.fromkeys(found))
+
+
+def status(table: Mapping[str, Host]) -> dict[str, HostStatus]:
     """Every row in one runtime's table, each mapped to None when this machine can
     reach it or to what it still needs.
 
@@ -269,7 +303,12 @@ def status(table: Mapping[str, Host]) -> dict[str, str | None]:
     gives here is the same string `doctor` prints when that row is the configured one,
     since it comes from the same function.
     """
-    return {name: diagnose(host, name=name) for name, host in table.items()}
+    return {
+        name: HostStatus(
+            reason=diagnose(host, name=name), variables=list(supplied(host))
+        )
+        for name, host in table.items()
+    }
 
 
 def unknown(name: str, known: Iterable[str]) -> str:
@@ -323,9 +362,11 @@ __all__ = [
     "diagnose",
     "empty",
     "missing",
+    "answering",
     "named",
     "names",
     "status",
+    "supplied",
     "unknown",
     "value",
     "values",

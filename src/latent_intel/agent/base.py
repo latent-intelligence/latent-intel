@@ -27,7 +27,7 @@ from importlib.metadata import entry_points
 from typing import Any, Protocol, cast, runtime_checkable
 
 from .. import events as ev
-from ..models import Message, RuntimeUnavailable, ToolSpec
+from ..models import HostStatus, Message, RuntimeUnavailable, ToolSpec
 
 #: The entry-point group a third party publishes into. Our own runtimes use it too, so
 #: the extension path is the one we take ourselves and cannot rot unnoticed.
@@ -92,9 +92,9 @@ class Hosted(Protocol):
     failure and planning a deployment.
     """
 
-    def host_status(self) -> dict[str, str | None]:
-        """Every host this runtime declares, each mapped to None when it can be reached
-        or to what it still needs.
+    def host_status(self) -> dict[str, HostStatus]:
+        """Every host this runtime declares, each with what it still needs and the
+        variables it is reading.
 
         Names of environment variables, never their values, for the same reason
         `unavailable_reason` gives: this is printed and pasted into support threads.

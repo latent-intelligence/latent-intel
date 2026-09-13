@@ -284,7 +284,17 @@ async def _doctor() -> None:
     resolved = settings_module.load()
     configured = resolved.runtime
     for name, reason in sorted(runtimes.items()):
-        mark = "[ok]✓[/]" if reason is None else "[warn]![/]"
+        # `!` only where it is in the way. A runtime nobody chose and nobody set up is
+        # not a fault, and flagging it made a healthy machine print warnings about
+        # backends its owner had deliberately ignored — with the one that mattered
+        # indistinguishable among them. `·` is the mark the connector block above
+        # already uses for "present, not set up".
+        if reason is None:
+            mark = "[ok]✓[/]"
+        elif name == configured:
+            mark = "[warn]![/]"
+        else:
+            mark = "[dim]·[/]"
         # The reason, not "cannot run here": four environment variables could each be
         # the missing one, and the difference is the whole value of running doctor.
         note = "" if reason is None else f" [dim]— {escape(reason)}[/]"

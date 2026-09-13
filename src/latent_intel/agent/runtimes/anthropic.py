@@ -40,7 +40,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from ... import events as ev
-from ...models import Message, RuntimeUnavailable, ToolSpec
+from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
 from .. import hosts, turn
 
 #: Every host reachable through the Anthropic SDK. A new one is a row.
@@ -167,7 +167,7 @@ class AnthropicRuntime:
             return "the anthropic SDK is not installed — install `latent-intel[api]`"
         return hosts.diagnose(host, name=self.host)
 
-    def host_status(self) -> dict[str, str | None]:
+    def host_status(self) -> dict[str, HostStatus]:
         """Every host this runtime declares, and what each still needs.
 
         The whole table, not the configured row: `intel hosts` asks this of a machine

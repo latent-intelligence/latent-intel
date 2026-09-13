@@ -802,8 +802,9 @@ def test_the_host_report_covers_every_host_not_only_the_configured_one(
 
     assert report.runtime == "openai"
     assert report.configured == "openai"
-    assert report.hosts["openrouter"] is None
-    missing = report.hosts["azure-openai"]
+    assert report.hosts["openrouter"].reason is None
+    assert report.hosts["openrouter"].variables == ["OPENROUTER_API_KEY"]
+    missing = report.hosts["azure-openai"].reason
     assert missing is not None and "AZURE_OPENAI_ENDPOINT" in missing
 
 
@@ -818,7 +819,7 @@ def test_the_host_report_agrees_with_the_reason_doctor_prints(
 
     assert report.configured == "openrouter"
     assert report.reason == Session.runtime_reason("openai")
-    assert report.hosts["openrouter"] == report.reason
+    assert report.hosts["openrouter"].reason == report.reason
 
 
 def test_a_runtime_with_no_hosts_reports_an_empty_table_not_a_failure() -> None:

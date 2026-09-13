@@ -56,7 +56,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from ... import events as ev
-from ...models import Message, RuntimeUnavailable, ToolSpec
+from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
 from .. import hosts, turn
 
 # Construction, above the table because one of these is a row's field and a module body
@@ -275,7 +275,7 @@ class OpenAIRuntime:
             )
         return None
 
-    def host_status(self) -> dict[str, str | None]:
+    def host_status(self) -> dict[str, HostStatus]:
         """Every host this runtime declares, and what each still needs.
 
         The whole table, not the configured row: `intel hosts` asks this of a machine

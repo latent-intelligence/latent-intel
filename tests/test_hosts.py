@@ -310,10 +310,9 @@ def test_status_diagnoses_every_row_not_only_the_configured_one(
     }
     monkeypatch.setenv("AZURE_T_READY_KEY", "k")
 
-    assert hosts.status(table) == {
-        "ready": None,
-        "wanting": "set AZURE_T_OTHER_KEY for host 'wanting'",
-    }
+    reported = hosts.status(table)
+    assert reported["ready"].reason is None
+    assert reported["wanting"].reason == "set AZURE_T_OTHER_KEY for host 'wanting'"
 
 
 def test_status_reports_a_row_exactly_as_diagnose_does() -> None:
@@ -321,4 +320,30 @@ def test_status_reports_a_row_exactly_as_diagnose_does() -> None:
     phrased a row's needs differently from the line `doctor` prints about that row
     would be a second diagnosis to keep in step with the first."""
     table = {"t": row()}
-    assert hosts.status(table)["t"] == hosts.diagnose(table["t"], name="t")
+    assert hosts.status(table)["t"].reason == hosts.diagnose(table["t"], name="t")
+
+
+def test_a_satisfied_row_names_the_variable_it_is_actually_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ✓ on its own does not answer "which of these two keys is it using", and where
+    a fallback answered, the variable in use is not the one the row asks for."""
+    host = row(fallback={"AZURE_T_KEY": "AZURE_T_OTHER_KEY"})
+
+    monkeypatch.setenv("AZURE_T_KEY", "k")
+    assert hosts.supplied(host) == ("AZURE_T_KEY",)
+
+    monkeypatch.delenv("AZURE_T_KEY")
+    monkeypatch.setenv("AZURE_T_OTHER_KEY", "k")
+    assert hosts.supplied(host) == ("AZURE_T_OTHER_KEY",)
+
+
+def test_a_row_reading_nothing_from_the_environment_names_nothing() -> None:
+    """A requirement met by the row's own default was set by nobody, so naming a
+    variable for it would send someone looking for an export that does not exist."""
+    host = row(
+        key="AZURE_T_KEY",
+        required=("AZURE_T_BASE_URL",),
+        defaults={"AZURE_T_KEY": "local"},
+    )
+    assert hosts.supplied(host) == ()

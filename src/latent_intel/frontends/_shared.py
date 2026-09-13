@@ -74,30 +74,59 @@ def print_hosts() -> None:
     and sessionless: it reads declarations and the environment, and attaching sources
     to answer a question about endpoints would make diagnosis slower than the thing
     being diagnosed.
+
+    **`!` is reserved for what is actually in your way.** Every unconfigured endpoint
+    carried one before, so a machine that had finished setting up one host still showed
+    six warnings and a reader had no way to tell which mattered. An endpoint nobody
+    chose is not a fault, and now reads `·` — the mark `doctor` already uses for a
+    connector that is not installed.
+
+    **Only the runtime that answers is marked configured.** A runtime resolves a host
+    whether or not it is the one in use, so marking each runtime's resolved host said
+    "configured" about endpoints the reader had never chosen — beside the one they
+    actually had. The heading carries the marker now, and the host marker is `in use`,
+    which is true only under the heading that says so.
     """
+    active = settings_module.load().runtime
+
     for kind in sorted(Session.runtime_status()):
         report = Session.host_report(kind)
+        chosen = kind == active
+        heading = f"[accent.strong]{escape(kind)}[/]"
+        if chosen:
+            heading += " [dim]← configured[/]"
         if not report.hosts:
             # `claude-cli` has no table. Saying so beats omitting the runtime, which
             # reads as "not installed" next to two that are listed.
-            console.print(f"[accent.strong]{escape(kind)}[/] [dim]— no hosts[/]\n")
+            console.print(f"{heading} [dim]— no hosts[/]\n")
             continue
-        console.print(f"[accent.strong]{escape(kind)}[/]")
+        console.print(heading)
         # The runtime's own reason belongs here only when it is not one of the rows
         # below: a missing SDK or an unset model stops every host at once, while a
         # configured host's missing variables are already printed against that host.
         # Derived rather than flagged, so the two can never both claim the same line.
-        if report.reason and report.hosts.get(report.configured or "") is None:
+        in_force = report.hosts.get(report.configured or "")
+        if report.reason and (in_force is None or in_force.reason is None):
             console.print(f"  [warn]![/] [dim]{escape(report.reason)}[/]")
         width = max(len(name) for name in report.hosts)
-        for name, reason in report.hosts.items():
-            mark = "[ok]✓[/]" if reason is None else "[warn]![/]"
-            chosen = "[dim]← configured[/]  " if name == report.configured else ""
-            note = "" if reason is None else f"[dim]{escape(reason)}[/]"
-            # The padding sits outside the markup, so a ready row with nothing to
-            # report ends at its name rather than in a run of styled spaces.
+        for name, status in report.hosts.items():
+            in_use = chosen and name == report.configured
+            if status.reason is None:
+                mark = "[ok]✓[/]"
+            elif in_use:
+                mark = "[warn]![/]"
+            else:
+                mark = "[dim]·[/]"
+            marker = "[dim]← in use[/]  " if in_use else ""
+            # What a ✓ stands on, for the same reason a failure names variables: a row
+            # answered through a fallback is being read from a name it never asked for.
+            detail = (
+                f"[dim]{escape(', '.join(status.variables))}[/]"
+                if status.reason is None
+                else f"[dim]{escape(status.reason)}[/]"
+            )
             pad = " " * (width - len(name))
-            row = f"  {mark} [source]{escape(name)}[/]{pad}  {chosen}{note}"
+            row = f"  {mark} [source]{escape(name)}[/]{pad}  {marker}{detail}"
             console.print(row.rstrip())
         console.print()
 

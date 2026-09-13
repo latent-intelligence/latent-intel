@@ -196,6 +196,22 @@ class SourceRequest(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class HostStatus(BaseModel):
+    """One endpoint, as a machine finds it: what it still needs, and what it is reading.
+
+    Two halves of one answer. The reason alone says why a row is not ready; the
+    variables alone say nothing about a row that is. Together they let a reader confirm
+    a ✓ rather than take it on trust — which matters most where a fallback answered and
+    the variable in use is not the one the row asks for.
+    """
+
+    #: What this host still needs, or None when it needs nothing.
+    reason: str | None = None
+    #: The variables in the environment this host is reading, in the row's own order.
+    #: Names only, never values.
+    variables: list[str] = Field(default_factory=list)
+
+
 class HostReport(BaseModel):
     """Every endpoint one runtime declares, and what this machine can reach.
 
@@ -212,8 +228,8 @@ class HostReport(BaseModel):
     #: Why the runtime itself cannot run here, which may be nothing to do with a host:
     #: an SDK that is not installed, a model nobody set.
     reason: str | None = None
-    #: Host name → what it still needs, or None where it needs nothing.
-    hosts: dict[str, str | None] = Field(default_factory=dict)
+    #: Host name → how that endpoint stands on this machine.
+    hosts: dict[str, HostStatus] = Field(default_factory=dict)
 
 
 class Message(BaseModel):
@@ -263,6 +279,7 @@ __all__ = [
     "Effect",
     "Hit",
     "HostReport",
+    "HostStatus",
     "Message",
     "Provenance",
     "Ref",

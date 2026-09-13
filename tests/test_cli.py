@@ -234,12 +234,16 @@ def test_hosts_marks_the_configured_row_and_never_prints_a_value(
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret-value")
     config = config_module.load()
+    config.runtime = "openai"
     config.runtimes = {"openai": {"host": "openrouter", "model": "vendor/model"}}
     config_module.save(config)
 
     result = runner.invoke(app, ["hosts"])
     assert result.exit_code == 0
-    assert "← configured" in result.stdout
+    assert "openai ← configured" in result.stdout
+    assert "← in use" in result.stdout
+    # The variable is named so a ✓ can be confirmed; its value never appears.
+    assert "OPENROUTER_API_KEY" in result.stdout
     assert "sk-secret-value" not in result.stdout
 
 
@@ -250,12 +254,55 @@ def test_hosts_reports_a_runtime_level_reason_once_not_against_a_host(
     configured host's missing variables are already printed against that host."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     config = config_module.load()
+    config.runtime = "openai"
     config.runtimes = {"openai": {"host": "openrouter"}}
     config_module.save(config)
 
     result = runner.invoke(app, ["hosts"])
     assert result.exit_code == 0
     assert result.stdout.count("no model is set") == 1
+
+
+def test_an_unconfigured_runtime_is_not_flagged_as_a_fault() -> None:
+    """`!` is for what is in your way. A machine that has finished setting up one
+    backend printed warnings about the two it had deliberately ignored, with the one
+    that mattered indistinguishable among them."""
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "· anthropic" in result.stdout
+    assert "! anthropic" not in result.stdout
+
+
+def test_the_configured_runtime_is_flagged_when_it_cannot_run() -> None:
+    """The other half of the same rule: the backend that was chosen and cannot run is
+    the one thing worth a warning."""
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "! anthropic" in result.stdout
+
+
+def test_hosts_marks_only_the_answering_runtime_s_host_as_in_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every runtime resolves a host whether or not it is the one answering, so marking
+    each of them `configured` said it about endpoints nobody had chosen — beside the one
+    they had."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    config = config_module.load()
+    config.runtime = "openai"
+    config.runtimes = {"openai": {"host": "openrouter", "model": "vendor/model"}}
+    config_module.save(config)
+
+    result = runner.invoke(app, ["hosts"])
+    assert result.exit_code == 0
+    assert result.stdout.count("← in use") == 1
+    assert result.stdout.count("← configured") == 1
+    # anthropic resolves `foundry` too, and it is nobody's choice here.
+    assert "· foundry" in result.stdout
 
 
 def test_hosts_says_so_for_a_runtime_that_declares_none() -> None:
