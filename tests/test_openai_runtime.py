@@ -206,9 +206,9 @@ def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
 def test_both_endpoint_variables_at_once_are_reported_rather_than_silently_ranked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`base_url` prefers the resource, so the other one is doing nothing while the
-    file says it is the endpoint. The Anthropic SDK refuses the same pair outright, and
-    a runtime that disagreed with its sibling about this would be the worse answer."""
+    """`base_url` prefers the address, so the resource is doing nothing while the file
+    says it is the endpoint. The Anthropic SDK refuses the same pair outright, and a
+    runtime that disagreed with its sibling about this would be the worse answer."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://example/openai/v1")
@@ -216,6 +216,20 @@ def test_both_endpoint_variables_at_once_are_reported_rather_than_silently_ranke
     assert reason is not None
     assert "FOUNDRY_RESOURCE" in reason and "FOUNDRY_BASE_URL" in reason
     assert "only one" in reason
+
+
+def test_an_address_for_this_surface_beats_a_resource_it_inherited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Not the same pair as the one above: the resource here was set for the Anthropic
+    surface and arrives through the fallback, while the address was set for this one.
+    That is a machine already configured for the sibling runtime plus one deliberate
+    override, so the override wins and nothing is reported."""
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "prod")
+    monkeypatch.setenv("FOUNDRY_BASE_URL", "https://staging.example/openai/v1")
+    monkeypatch.setenv("FOUNDRY_API_KEY", "k")
+    assert OpenAIRuntime(host="foundry", model="m").available()
+    assert base_url(HOSTS["foundry"]) == "https://staging.example/openai/v1"
 
 
 # -- the ordinary turn ------------------------------------------------------
@@ -806,14 +820,21 @@ async def test_a_status_error_carries_the_endpoint_s_own_explanation(
     credentials: None,
 ) -> None:
     """The status alone sends someone to a network tab to find out which parameter the
-    endpoint disliked; the body already names it."""
+    endpoint disliked; the body already names it.
+
+    The body is the shape this SDK hands over, not the shape the wire carried:
+    `_make_status_error` unwraps the `error` envelope before constructing the
+    exception, so what arrives here is the error object itself. The sibling test in
+    `test_anthropic_runtime.py` keeps the enveloped shape, which is why reading one
+    fixed layout reported a 400 as a bare status on one of the two runtimes.
+    """
     detail = "Unrecognized request argument supplied: max_completion_tokens"
     client = FakeClient(
         Round(
             raises=openai.BadRequestError(
                 "bad request",
                 response=_response(400),
-                body={"error": {"message": detail}},
+                body={"message": detail, "type": "invalid_request_error"},
             )
         )
     )
@@ -821,6 +842,27 @@ async def test_a_status_error_carries_the_endpoint_s_own_explanation(
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "api_error"
     assert "400" in failed.message and detail in failed.message
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body", [None, "<html>502 Bad Gateway</html>"], ids=["none", "text"]
+)
+async def test_a_body_that_is_not_an_error_object_leaves_the_status_alone(
+    credentials: None, body: Any
+) -> None:
+    """Both shapes the SDK really produces when nothing parsed: a proxy answering with
+    HTML, and a response closed before it could be read. Neither is a mapping, and
+    reaching into one would raise inside the handler that exists to report it."""
+    client = FakeClient(
+        Round(
+            raises=openai.APIStatusError("boom", response=_response(502), body=body)
+        )
+    )
+    failed = terminal(await collect(runtime(client_factory=client)))
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "api_error"
+    assert failed.message == "the endpoint returned 502"
 
 
 @pytest.mark.anyio
@@ -893,6 +935,32 @@ async def test_cancellation_closes_the_stream_rather_than_reporting_itself(
         await collect(runtime(client_factory=client))
 
 
+@pytest.mark.anyio
+async def test_an_unreachable_sdk_default_names_no_variable_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `openai` row with nothing but a key: the SDK's own default was dialled,
+    there is no URL to quote and no variable anyone set, and naming `OPENAI_BASE_URL`
+    would send someone to check a setting that does not exist for an outage."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    client = FakeClient(
+        Round(
+            raises=openai.APIConnectionError(
+                request=httpx.Request("POST", "https://example")
+            )
+        )
+    )
+    failed = terminal(
+        await collect(
+            OpenAIRuntime(host="openai", model="gpt-5", client_factory=client)
+        )
+    )
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "connection"
+    assert "OPENAI_BASE_URL" not in failed.remedy
+    assert "default endpoint" in failed.remedy and "network" in failed.remedy
+
+
 # -- where the client points ------------------------------------------------
 
 
@@ -922,6 +990,27 @@ def test_the_openai_host_points_nowhere_in_particular() -> None:
 
 
 # -- the host rows ----------------------------------------------------------
+
+
+def built(
+    monkeypatch: pytest.MonkeyPatch, *, client: str = "AsyncOpenAI", **options: Any
+) -> dict[str, Any]:
+    """The kwargs one row's client is actually constructed with.
+
+    `base_url(host)` alone would not catch a row whose URL never reaches the client,
+    which is the failure these rows can have: the value is right and nothing sends it.
+    `client` is the class the row names, because the one row that constructs itself
+    differently is the row most worth checking this way.
+    """
+    seen: dict[str, Any] = {}
+
+    def factory(**kwargs: Any) -> FakeClient:
+        seen.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(openai, client, factory)
+    OpenAIRuntime(**options)._client()
+    return seen
 
 
 def test_openrouter_wants_one_variable_and_names_it(
@@ -1035,14 +1124,7 @@ def test_a_local_server_is_given_the_row_s_own_default_key(
     """The SDK refuses to construct a client with no credential at all, even against a
     server that never reads one."""
     monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
-    seen: dict[str, Any] = {}
-
-    def factory(**kwargs: Any) -> FakeClient:
-        seen.update(kwargs)
-        return FakeClient()
-
-    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
-    OpenAIRuntime(host="local", model="qwen3")._client()
+    seen = built(monkeypatch, host="local", model="qwen3")
     assert seen["api_key"] == HOSTS["local"].key_default
     assert seen["base_url"] == "http://localhost:11434/v1"
 
@@ -1055,14 +1137,7 @@ def test_the_public_api_key_never_reaches_a_local_server(
     sends it somewhere it was never meant to go."""
     monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-sentinel-value")
-    seen: dict[str, Any] = {}
-
-    def factory(**kwargs: Any) -> FakeClient:
-        seen.update(kwargs)
-        return FakeClient()
-
-    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
-    OpenAIRuntime(host="local", model="qwen3")._client()
+    seen = built(monkeypatch, host="local", model="qwen3")
     assert "sk-sentinel-value" not in seen.values()
     assert seen["api_key"] == HOSTS["local"].key_default
 
@@ -1073,14 +1148,7 @@ def test_a_local_server_that_does_check_a_key_is_given_the_real_one(
     """vLLM behind an `--api-key` is the case: optional is not the same as ignored."""
     monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:8000/v1")
     monkeypatch.setenv("LOCAL_OPENAI_API_KEY", "sk-sentinel-value")
-    seen: dict[str, Any] = {}
-
-    def factory(**kwargs: Any) -> FakeClient:
-        seen.update(kwargs)
-        return FakeClient()
-
-    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
-    OpenAIRuntime(host="local", model="qwen3")._client()
+    seen = built(monkeypatch, host="local", model="qwen3")
     assert seen["api_key"] == "sk-sentinel-value"
 
 
@@ -1183,37 +1251,18 @@ def test_azure_openai_is_built_with_its_own_client_and_its_own_kwargs(
 ) -> None:
     """The row this hook exists for: a different class, `azure_endpoint` instead of
     `base_url`, and a version the other rows have never heard of."""
-    seen: dict[str, Any] = {}
-
-    def factory(**kwargs: Any) -> FakeClient:
-        seen.update(kwargs)
-        return FakeClient()
-
-    monkeypatch.setattr(openai, "AsyncAzureOpenAI", factory)
-    OpenAIRuntime(host="azure-openai", model="my-deployment")._client()
+    seen = built(
+        monkeypatch,
+        client="AsyncAzureOpenAI",
+        host="azure-openai",
+        model="my-deployment",
+    )
     assert seen == {
         "api_key": "never-printed-key",
         "azure_endpoint": "https://never-printed.openai.azure.com",
         "api_version": "2026-01-01",
     }
     assert "base_url" not in seen
-
-
-def built(monkeypatch: pytest.MonkeyPatch, **options: Any) -> dict[str, Any]:
-    """The kwargs one row's client is actually constructed with.
-
-    `base_url(host)` alone would not catch a row whose URL never reaches the client,
-    which is the failure these rows can have: the value is right and nothing sends it.
-    """
-    seen: dict[str, Any] = {}
-
-    def factory(**kwargs: Any) -> FakeClient:
-        seen.update(kwargs)
-        return FakeClient()
-
-    monkeypatch.setattr(openai, "AsyncOpenAI", factory)
-    OpenAIRuntime(**options)._client()
-    return seen
 
 
 def test_foundry_is_built_with_the_url_its_resource_name_implies(
@@ -1272,11 +1321,13 @@ def test_the_openai_row_is_built_with_no_base_url_at_all(
 
 @pytest.mark.anyio
 async def test_azure_openai_answers_an_ordinary_question(azure: None) -> None:
-    """Nothing about the turn differs — which is the claim the row is making.
+    """Nothing about the turn differs — which is the claim the row is making, and the
+    token parameter is part of it.
 
-    Rewritten from the version asserting `max_completion_tokens`: that parameter is
-    gated on the dated API version here, so an older `OPENAI_API_VERSION` rejects the
-    request outright. `max_tokens` is accepted by every version.
+    Back to the row's default from a `max_tokens` override: a reasoning deployment here
+    rejects `max_tokens` on every API version, and a version old enough to reject
+    `max_completion_tokens` also rejects the `stream_options` every turn sends — so the
+    override refused the newer deployments and rescued none of the older ones.
     """
     client = FakeClient(Round(text=("hi",)))
     events = await collect(
@@ -1286,7 +1337,30 @@ async def test_azure_openai_answers_an_ordinary_question(azure: None) -> None:
     )
     assert isinstance(terminal(events), ev.AgentCompleted)
     assert client.requests[0]["model"] == "my-deployment"
-    assert "max_tokens" in client.requests[0]
+    assert "max_completion_tokens" in client.requests[0]
+    assert "max_tokens" not in client.requests[0]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("host", ["foundry", "azure-openai"])
+async def test_the_runtime_option_overrides_whatever_the_row_asks_for(
+    credentials: None, azure: None, host: str
+) -> None:
+    """The honest lever for a resource that accepts only the older name, and the
+    reason no row has to guess on everyone's behalf: it is configured per install, as
+    `runtimes: openai: {tokens_param: max_tokens}`, and no row gets a say in it."""
+    client = FakeClient(Round(text=("hi",)))
+    events = await collect(
+        OpenAIRuntime(
+            host=host,
+            model="my-deployment",
+            client_factory=client,
+            tokens_param="max_tokens",
+            max_tokens=4096,
+        )
+    )
+    assert isinstance(terminal(events), ev.AgentCompleted)
+    assert client.requests[0]["max_tokens"] == 4096
     assert "max_completion_tokens" not in client.requests[0]
 
 

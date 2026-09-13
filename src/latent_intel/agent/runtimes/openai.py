@@ -105,8 +105,10 @@ class Host:
     #: The credential variable. Its *name* is reported when authentication fails.
     key: str
     #: Where the endpoint lives, resource first and full base URL last. Any one of
-    #: these is enough, and `url` says how the first becomes the second.
-    #: Setting two is reported rather than ranked silently — see `unavailable_reason`.
+    #: these is enough, and `url` says how the first becomes the second. Two of this
+    #: row's own set at once is reported rather than ranked silently; an address set
+    #: for this surface beats a resource inherited from the other surface's fallback,
+    #: deliberately — see `unavailable_reason` and `base_url`.
     endpoint: tuple[str, ...]
     #: Whether one of `endpoint` must be set for the client to be constructible at all,
     #: or whether the SDK has a default and these are only overrides.
@@ -191,9 +193,11 @@ HOSTS: dict[str, Host] = {
         # No default version. One guessed here goes stale and returns a 400 that names
         # neither this file nor the variable that would fix it.
         extra_required=("OPENAI_API_VERSION",),
-        # `max_completion_tokens` is gated on the API version here: an older one
-        # rejects the request outright, and every version accepts `max_tokens`.
-        tokens_param="max_tokens",
+        # The row's default, not `max_tokens`: a reasoning deployment here rejects
+        # `max_tokens` on every API version, and a version old enough to reject
+        # `max_completion_tokens` also rejects the `stream_options` every turn sends —
+        # so the override bought nothing and cost the newer deployments. A resource
+        # that really does want the older name has `tokens_param:` on the runtime.
         construct=_construct_azure,
     ),
     "local": Host(
@@ -259,13 +263,17 @@ def _named(name: str, host: Host) -> str:
 def _connection_remedy(host: Host) -> str:
     """What to check when the endpoint did not answer.
 
-    A row reached at its own default has no variable to check, and naming one nobody
-    set reads as a misconfiguration rather than an outage — so the URL that was
-    actually dialled is named instead. It is not a credential, and it is the only thing
-    that distinguishes a gateway being down from a proxy variable pointing nowhere.
+    A row reached at a default has no variable to check, and naming one nobody set
+    reads as a misconfiguration rather than an outage — so what was dialled is named
+    instead: the row's own URL where it implies one, and the SDK's default where
+    neither the row nor the environment says anything. A base URL is not a credential,
+    and it is the only thing that distinguishes a gateway being down from a proxy
+    variable pointing nowhere.
     """
-    url = base_url(host)
-    if url is not None and not any(_value(name, host) for name in host.endpoint):
+    if not any(_value(name, host) for name in host.endpoint):
+        url = base_url(host)
+        if url is None:
+            return "could not reach the SDK's default endpoint — check the network"
         return f"could not reach {url} — check the network"
     names = " or ".join(_named(name, host) for name in host.endpoint)
     return f"check {names} and the network"
@@ -306,6 +314,7 @@ class OpenAIRuntime:
         approval: str = "ask",
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
+        tokens_param: str | None = None,
         client_factory: Callable[[], Any] | None = None,
         **unknown: Any,
     ) -> None:
@@ -325,6 +334,10 @@ class OpenAIRuntime:
         self.approval = approval
         self.max_tokens = int(max_tokens)
         self.max_tool_rounds = int(max_tool_rounds)
+        #: The output-token parameter, overriding the host row's. The honest lever for
+        #: a resource whose API version accepts only the older name: the alternative is
+        #: a row guessing on everyone's behalf, which is what it used to do.
+        self.tokens_param = tokens_param
         #: The test seam, and the only one. Returns the SDK client as an async context
         #: manager, exactly as the real constructor does.
         self.client_factory = client_factory
@@ -361,9 +374,13 @@ class OpenAIRuntime:
         ]
         if missing:
             return f"set {', '.join(missing)} for host '{self.host}'"
-        # `base_url` takes the address and would quietly ignore the resource, which is
-        # the same ambiguity the Anthropic SDK refuses outright. Reported for the same
-        # reason it is there: one of the two is not doing what whoever set it thinks.
+        # Two of this row's own endpoint variables set at once: `base_url` takes the
+        # address and would quietly ignore the resource, which is the same ambiguity
+        # the Anthropic SDK refuses outright, and one of the two is not doing what
+        # whoever set it thinks. Read from `os.environ` under this row's own names, so
+        # an address set for this surface beats a resource inherited from the other
+        # surface's fallback rather than being reported as a conflict — that pair is
+        # one deployment's setup plus one deliberate override, not a contradiction.
         conflicting = [name for name in host.endpoint if os.environ.get(name)]
         if len(host.endpoint) > 1 and len(conflicting) > 1:
             return (
@@ -527,7 +544,7 @@ class OpenAIRuntime:
                     # Without this the final chunk carries no usage at all, and a
                     # tool-heavy turn would report nothing about what it cost.
                     "stream_options": {"include_usage": True},
-                    host.tokens_param: self.max_tokens,
+                    self.tokens_param or host.tokens_param: self.max_tokens,
                 }
                 # Omitted rather than sent empty: the API rejects an empty tool list.
                 if definitions:

@@ -631,9 +631,10 @@ async def test_any_other_status_reports_the_status(credentials: None) -> None:
 async def test_a_status_error_carries_the_endpoint_s_own_explanation(
     credentials: None,
 ) -> None:
-    """Both runtimes report a status error the same way, because both SDKs shape the
-    exception the same way — and a 400 that names the offending parameter is the whole
-    diagnosis."""
+    """Both runtimes report a status error the same way, and a 400 that names the
+    offending parameter is the whole diagnosis. The body is this SDK's shape: the
+    `error` envelope reaches the exception intact here, where the openai SDK strips it
+    first — see the sibling test for the other half of the pair."""
     detail = "max_tokens: must be greater than 0"
     client = FakeClient(
         Round(

@@ -435,6 +435,7 @@ runtimes:
   openai:
     host: foundry            # or `openai`, `openrouter`, `azure-openai`, `local`
     model: my-gpt-deployment # required, and a deployment name, not a catalogue id
+    tokens_param: max_completion_tokens  # or max_tokens for a host that only accepts it
 ```
 
 The same block may be written by a project, under `agent:` — which is how a deployment
