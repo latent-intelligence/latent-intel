@@ -7,6 +7,8 @@ the loop only routes the result.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from latent_intel.commands import Ask, Connect, Disconnect, Fetch, Find, ListSources
@@ -233,9 +235,120 @@ def test_the_agent_commands_parse_bare_and_with_a_name() -> None:
         result = parse(line)
         assert isinstance(result, Local)
         assert result.action == "model" and result.argument == argument
+    for line, argument in (("/host", ""), ("/host openrouter", "openrouter")):
+        result = parse(line)
+        assert isinstance(result, Local)
+        assert result.action == "host" and result.argument == argument
 
 
 def test_too_many_arguments_names_the_usage() -> None:
     result = parse("/runtime a b")
     assert isinstance(result, Invalid)
     assert "/runtime [name]" in result.hint
+
+
+def _shell(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """A recording console in place of the shell's own, returned for its text."""
+    from rich.console import Console
+
+    from latent_intel.frontends.shell import repl
+    from latent_intel.ui.theme import THEME
+
+    console = Console(theme=THEME, width=100, record=True)
+    monkeypatch.setattr(repl, "console", console)
+    return console
+
+
+def test_host_refuses_when_no_runtime_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A host is a row in one runtime's table, so storing one with no runtime would be
+    storing a value with nowhere to live."""
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "foundry")
+    assert "no runtime configured" in console.export_text()
+
+
+def test_bare_host_reports_the_default_until_one_is_chosen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A runtime with no `host:` is on its own default, and saying so is the difference
+    between a setting nobody made and a setting nobody can see."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "")
+    assert "its default" in console.export_text()
+
+
+def test_choosing_a_host_persists_it_under_the_runtime_it_belongs_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nested under the runtime, the way the model is: the same name means different
+    things in two tables, so a flat key would be ambiguous the day a second runtime is
+    configured."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "anthropic")
+
+    assert config_module.load().runtime_options("anthropic")["host"] == "anthropic"
+    text = console.export_text()
+    assert "host" in text and "anthropic" in text
+
+
+def test_a_host_this_runtime_has_no_row_for_prints_the_known_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reason is the runtime's own, which is why nothing here has to know the
+    tables: it names the known hosts for a typo and the missing variables otherwise."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "nonsense")
+
+    text = console.export_text()
+    assert "unknown host" in text and "nonsense" in text
+    assert "foundry" in text
+
+
+def test_a_host_on_a_runtime_that_has_none_is_refused_and_not_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`claude-cli` has no host table, so `host:` is an option it rejects by name. The
+    refusal must also undo the write, or the runtime that answered a moment ago refuses
+    every later `ask` until someone finds the stray key in the config file."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "claude-cli"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "foundry")
+
+    assert "unknown option" in console.export_text()
+    assert "host" not in config_module.load().runtime_options("claude-cli")

@@ -299,6 +299,8 @@ def _local(
             _runtime(session, local.argument)
         case "model":
             _model(session, local.argument)
+        case "host":
+            _host(session, local.argument)
         case "project":
             _project(session, local.argument)
     return False
@@ -436,6 +438,68 @@ def _model(session: Session, name: str) -> None:
     console.print(
         "[dim]an unknown name fails when you ask, with the runtime's own message[/]"
     )
+
+
+def _host(session: Session, name: str) -> None:
+    """Choose which endpoint the configured runtime talks to, and remember it.
+
+    A host is a row in one runtime's table, so it means nothing without the runtime it
+    belongs to — the same reason `/model` refuses when nothing is configured rather
+    than storing a value with nowhere to live. `/host none` clears it back to whatever
+    that runtime's own default is.
+
+    The host was the one setting of the three that could only be reached by editing
+    config, on an argument — a machine-specific choice that belongs in a file — which
+    applies just as much to the model, and the model has had a command all along.
+    """
+    settings = config_module.load()
+    current = session.runtime_kind or settings_module.load().runtime
+    if not current:
+        console.print(
+            "[fail]✗[/] no runtime configured [dim]— /runtime anthropic first[/]"
+        )
+        return
+
+    if not name:
+        host = settings_module.load().runtime_options(current).get("host")
+        console.print(
+            f"[dim]host[/] [source]{escape(str(host) if host else 'its default')}[/] "
+            f"[dim]for {escape(current)}[/]"
+        )
+        _host_reason(current)
+        return
+
+    before = settings.runtime_options(current).get("host")
+    settings.set_runtime_option(
+        current, "host", None if name in {"none", "off"} else name
+    )
+    config_module.save(settings)
+    try:
+        session.set_runtime(current)  # rebuild with the new option
+    except RuntimeUnavailable as exc:
+        # Building a runtime can refuse — an option it does not know is rejected rather
+        # than ignored — and a traceback in a REPL is not a diagnosis. The option is
+        # put back as it was: `claude-cli` has no hosts, and leaving `host:` under it
+        # would refuse every later `ask` on a runtime that worked a moment ago.
+        settings.set_runtime_option(current, "host", before)
+        config_module.save(settings)
+        console.print(f"[fail]✗[/] {escape(str(exc))}")
+        return
+    console.print(
+        f"[dim]host[/] [source]{escape(name)}[/] [dim]for {escape(current)}[/]"
+    )
+    _host_reason(current)
+
+
+def _host_reason(kind: str) -> None:
+    """The runtime's own reason, where it has one.
+
+    Set anyway and report, the way `/runtime` does: the reason already names the known
+    hosts when the name is a typo and the missing variables when it is not, and a
+    machine is often pointed at a host before it is given the credentials for it.
+    """
+    if (reason := Session.runtime_status().get(kind)) is not None:
+        console.print(f"[warn]![/] [dim]{escape(reason)}[/]")
 
 
 def _history_path() -> Path:

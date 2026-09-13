@@ -669,6 +669,30 @@ async def test_an_unreachable_endpoint_names_where_it_is_configured(
 
 
 @pytest.mark.anyio
+async def test_an_unreachable_default_endpoint_names_no_variable_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `anthropic` row with nothing but a key: the SDK's own default was dialled,
+    there is no URL to quote and no variable anyone set, and naming `ANTHROPIC_BASE_URL`
+    would send someone to check a setting that does not exist for an outage."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    client = FakeClient(
+        Round(
+            raises=anthropic.APIConnectionError(
+                request=httpx.Request("POST", "https://example")
+            )
+        )
+    )
+    failed = terminal(
+        await collect(AnthropicRuntime(host="anthropic", client_factory=client))
+    )
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "connection"
+    assert "ANTHROPIC_BASE_URL" not in failed.remedy
+    assert "default endpoint" in failed.remedy and "network" in failed.remedy
+
+
+@pytest.mark.anyio
 async def test_an_error_the_sdk_does_not_own_is_still_one_event(
     credentials: None,
 ) -> None:
@@ -718,3 +742,67 @@ async def test_text_after_a_tool_round_starts_a_new_paragraph(
     assert done.text == "let me check.\n\nthe wiki says yes"
     streamed = "".join(e.text for e in events if isinstance(e, ev.AssistantToken))
     assert streamed == done.text
+
+
+# -- the host rows ----------------------------------------------------------
+
+
+def built(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    client: str = "AsyncAnthropicFoundry",
+    **options: Any,
+) -> dict[str, Any]:
+    """The kwargs one row's client is actually constructed with.
+
+    These rows now resolve their own values rather than leaving the SDK to read the
+    environment, and the failure that change can have is a value that is right and
+    never sent. `client` is the class the row names, because the two rows do not share
+    one.
+    """
+    seen: dict[str, Any] = {}
+
+    def factory(**kwargs: Any) -> FakeClient:
+        seen.update(kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(anthropic, client, factory)
+    AnthropicRuntime(**options)._client()
+    return seen
+
+
+def test_foundry_is_built_with_the_resource_and_no_base_url(
+    credentials: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both are passed and one is None, which is what the SDK's own two overloads
+    accept — `exclusive` has already refused the pair that would raise."""
+    seen = built(monkeypatch)
+    assert seen == {
+        "api_key": "never-printed-key",
+        "resource": "never-printed-resource",
+        "base_url": None,
+    }
+
+
+def test_foundry_is_built_with_the_base_url_where_that_is_what_was_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sovereign cloud or a private endpoint is a full address rather than a resource
+    name, and the row carries both ways of saying it."""
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
+    monkeypatch.setenv(
+        "ANTHROPIC_FOUNDRY_BASE_URL", "https://private.example/anthropic"
+    )
+    seen = built(monkeypatch)
+    assert seen["resource"] is None
+    assert seen["base_url"] == "https://private.example/anthropic"
+
+
+def test_the_anthropic_row_is_built_with_no_base_url_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """None, not an empty string: the SDK has its own default and must be left to use
+    it, which is a thing only the constructed client can show."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    seen = built(monkeypatch, client="AsyncAnthropic", host="anthropic")
+    assert seen == {"api_key": "k", "base_url": None}
