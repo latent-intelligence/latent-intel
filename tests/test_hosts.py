@@ -114,16 +114,18 @@ def test_a_default_is_never_missing_and_reaches_the_constructor(
     }
 
 
-def test_an_exclusive_pair_is_read_under_this_row_s_own_names(
+def test_both_ways_of_naming_one_endpoint_are_read_under_this_row_s_own_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An address set here plus a resource inherited through a fallback is one
+    """A row that names two endpoint variables names a resource and a full address,
+    which is the pair worth refusing — no row has to declare that twice.
+
+    An address set here plus a resource inherited through a fallback is one
     deployment's setup and one deliberate override, not a contradiction. Two of this
-    row's own names is the contradiction, and the one worth refusing."""
+    row's own names is the contradiction."""
     host = row(
         endpoint=("AZURE_T_RESOURCE", "AZURE_T_BASE_URL"),
         required=("AZURE_T_KEY", ("AZURE_T_RESOURCE", "AZURE_T_BASE_URL")),
-        exclusive=(("AZURE_T_RESOURCE", "AZURE_T_BASE_URL"),),
         fallback={"AZURE_T_RESOURCE": "AZURE_T_OTHER_RESOURCE"},
     )
     monkeypatch.setenv("AZURE_T_KEY", "k")
@@ -151,7 +153,11 @@ def test_an_unknown_host_lists_the_known_ones_in_order() -> None:
 def test_values_carries_every_name_the_row_mentions_and_no_fallback_target() -> None:
     """A constructor reads `values["OUR_NAME"]` and never the variable that stood in
     for it, so precedence lives in one place. A name the row never mentions is a
-    `KeyError` in that row's own test rather than a silent None at construction."""
+    `KeyError` in that row's own test rather than a silent None at construction.
+
+    The names are the ones the row asks for — its credential, its endpoint, its
+    requirements. A default is a value `value()` looks up for one of those, so a
+    default-only name is a name nothing declared and is absent here too."""
     host = row(
         endpoint=("AZURE_T_RESOURCE", "AZURE_T_BASE_URL"),
         required=(
@@ -160,7 +166,6 @@ def test_values_carries_every_name_the_row_mentions_and_no_fallback_target() -> 
             "AZURE_T_VERSION",
         ),
         fallback={"AZURE_T_KEY": "AZURE_T_OTHER_KEY"},
-        defaults={"AZURE_T_EXTRA": "x"},
     )
     resolved = hosts.values(host)
     assert set(resolved) == {
@@ -168,7 +173,6 @@ def test_values_carries_every_name_the_row_mentions_and_no_fallback_target() -> 
         "AZURE_T_RESOURCE",
         "AZURE_T_BASE_URL",
         "AZURE_T_VERSION",
-        "AZURE_T_EXTRA",
     }
     with pytest.raises(KeyError):
         resolved["AZURE_T_OTHER_KEY"]
@@ -227,16 +231,16 @@ def test_the_connection_remedy_names_a_variable_a_url_or_neither(
         endpoint=("AZURE_T_RESOURCE", "AZURE_T_BASE_URL"),
         url="https://{resource}.example/v1",
     )
-    assert hosts.connection_remedy(host, hosts.values(host)) == (
+    assert hosts.connection_remedy(host) == (
         "could not reach the SDK's default endpoint — check the network"
     )
 
     constant = row(url="https://gateway.example/v1")
-    assert hosts.connection_remedy(constant, hosts.values(constant)) == (
+    assert hosts.connection_remedy(constant) == (
         "could not reach https://gateway.example/v1 — check the network"
     )
 
     monkeypatch.setenv("AZURE_T_BASE_URL", "https://written.example/v1")
-    assert hosts.connection_remedy(host, hosts.values(host)) == (
+    assert hosts.connection_remedy(host) == (
         "check AZURE_T_RESOURCE or AZURE_T_BASE_URL and the network"
     )

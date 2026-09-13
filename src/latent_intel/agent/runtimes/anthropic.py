@@ -46,11 +46,13 @@ from .. import hosts, turn
 
 def _construct_foundry(host: hosts.Host, values: hosts.Values) -> dict[str, Any]:
     """The kwargs `AsyncAnthropicFoundry` takes: a key and then either a resource name
-    or a full base URL — never both, which `exclusive` has already refused.
+    or a full base URL — never both, which `conflict` has already refused.
 
-    Passed rather than left to the SDK to read for itself, which is behaviour-neutral
-    today because it reads the same three variables. What it buys is the fallback: a
-    stand-in variable is ours, and the SDK has never heard of one.
+    Behaviour-neutral today, because the SDK reads the same three variables for itself.
+    It exists because every row builds its client from its own resolved values through
+    the same `construct` slot on the shared `Host`, and the next rows on this runtime —
+    Bedrock with `aws_region`, Vertex with `project_id` — need constructors of their
+    own. One slot on the base type is where they land.
     """
     return {
         "api_key": values["ANTHROPIC_FOUNDRY_API_KEY"],
@@ -64,6 +66,9 @@ HOSTS: dict[str, hosts.Host] = {
     "foundry": hosts.Host(
         client="AsyncAnthropicFoundry",
         key="ANTHROPIC_FOUNDRY_API_KEY",
+        # Both at once is refused: the SDK raises `base_url and resource are mutually
+        # exclusive`, and reporting ✓ here would move that failure to the first
+        # question and strip the variable names off it on the way.
         endpoint=("ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_FOUNDRY_BASE_URL"),
         required=(
             "ANTHROPIC_FOUNDRY_API_KEY",
@@ -74,10 +79,6 @@ HOSTS: dict[str, hosts.Host] = {
             "`claude-sonnet-5` rather than a name with a date on the end, and check "
             "the deployment exists on this resource"
         ),
-        # The SDK raises `base_url and resource are mutually exclusive`, so reporting ✓
-        # here would move that failure to the first question and strip the variable
-        # names off it on the way.
-        exclusive=(("ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_FOUNDRY_BASE_URL"),),
         construct=_construct_foundry,
     ),
     "anthropic": hosts.Host(
@@ -256,7 +257,7 @@ class AnthropicRuntime:
                 ev.AgentFailed,
                 message=f"could not reach the '{self.host}' endpoint",
                 kind="connection",
-                remedy=hosts.connection_remedy(host, hosts.values(host)),
+                remedy=hosts.connection_remedy(host),
             )
         except Exception as exc:  # noqa: BLE001 — a failure is an event, not a crash
             # Cancellation derives from BaseException and is deliberately not caught:

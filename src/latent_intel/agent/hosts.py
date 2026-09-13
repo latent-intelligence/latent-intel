@@ -18,10 +18,14 @@ a name cannot be reported missing under one spelling and read under another.
 by `doctor`, pasted into support threads and read aloud in screen shares. A value
 reaches the client and nothing else.
 
-**A constructor reads the row's own names.** `values(host)` resolves every name the row
-mentions — environment, then fallback, then default — and a constructor indexes it by
-name. Precedence therefore lives in exactly one place, and a name the row never declared
-raises a `KeyError` in that row's own test rather than passing None to an SDK.
+**A constructor is handed one resolution; everything else resolves for itself.**
+`values(host)` resolves every name the row mentions — environment, then fallback, then
+default — and a constructor indexes it by name, so what a client is built from is the
+one reading that was checked rather than a second one taken a moment later. Everything
+that reports takes the row alone and resolves on demand: one convention, and no caller
+holding values it has to decide are still current. Precedence lives in exactly one place
+either way, and a name the row never declared raises a `KeyError` in that row's own test
+rather than passing None to an SDK.
 """
 
 from __future__ import annotations
@@ -31,9 +35,8 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-#: Every variable a row mentions, resolved once and passed along. Resolved rather than
-#: re-read so the reason someone is shown and the client built afterwards can never
-#: disagree about what was set.
+#: Every variable a row mentions, resolved. What a constructor is handed, so the kwargs
+#: it builds all come from one reading; nothing else passes these around.
 Values = Mapping[str, str | None]
 
 #: One thing a host needs: a variable by name, or a group of which any one will do.
@@ -47,7 +50,7 @@ def construct_base_url(host: Host, values: Values) -> dict[str, Any]:
     The credential is read here rather than left to the SDK, because a fallback variable
     is ours and the SDK has never heard of it.
     """
-    return {"api_key": values[host.key], "base_url": base_url(host, values)}
+    return {"api_key": values[host.key], "base_url": base_url(host)}
 
 
 @dataclass(frozen=True)
@@ -64,9 +67,10 @@ class Host:
     #: The credential variable. A role, not a requirement: `required` says whether it
     #: is needed, and `auth_remedy` names it when an endpoint rejects it.
     key: str
-    #: Where the endpoint lives, resource first and full address last. A role too: the
-    #: only positional read left in this file is `base_url`, which asks the last for an
-    #: address and the first for a resource name.
+    #: Where the endpoint lives, resource first and full address last. A role too:
+    #: `base_url` asks the last for an address and the first for a resource name, and
+    #: where a row names two, `conflict` refuses having both set at once — they are two
+    #: ways of saying one thing, so one of them is not doing what whoever set it thinks.
     endpoint: tuple[str, ...]
     #: What this host needs, in the order a reason should report it. A plain name is
     #: required; a nested tuple is a group of which any one member will do.
@@ -74,10 +78,6 @@ class Host:
     #: What a 404 most likely means here. The rows fail differently enough that one
     #: shared sentence would be wrong for most of them.
     remedy_404: str
-    #: Groups of this row's own names of which at most one may be set. Two at once is
-    #: reported rather than ranked silently — one of them is not doing what whoever set
-    #: it thinks, and one SDK refuses the pair outright.
-    exclusive: tuple[tuple[str, ...], ...] = ()
     #: Our variable name → a variable already set for another surface of the same
     #: platform that carries the same value. Read when ours is unset, and named in the
     #: reason so nobody has to know the mapping to fix it.
@@ -117,14 +117,12 @@ def names(host: Host) -> tuple[str, ...]:
 
     The row's own names only. What stands in for one of them is a fallback target and
     is deliberately absent: a caller asks for the name it declared and gets whatever
-    answered for it.
+    answered for it. A default is absent for the same reason from the other side — it
+    is a value `value()` looks up for a name declared above, never a name of its own.
     """
     found: list[str] = [host.key, *host.endpoint]
     for requirement in host.required:
         found.extend([requirement] if isinstance(requirement, str) else requirement)
-    for group in host.exclusive:
-        found.extend(group)
-    found.extend(host.defaults)
     return tuple(dict.fromkeys(found))
 
 
@@ -150,12 +148,7 @@ def values(host: Host) -> dict[str, str | None]:
     return {name: value(host, name) for name in names(host)}
 
 
-def _resolved(host: Host, given: Values | None) -> Values:
-    """The values a caller passed, or a fresh resolution when it passed none."""
-    return values(host) if given is None else given
-
-
-def base_url(host: Host, values: Values | None = None) -> str | None:
+def base_url(host: Host) -> str | None:
     """Where the client points, or None to let the SDK use its own default.
 
     In order: the last `endpoint` variable, which is the full address and says exactly
@@ -165,7 +158,7 @@ def base_url(host: Host, values: Values | None = None) -> str | None:
     so the second is built from the first rather than asked for twice. Nothing here is
     logged: a base URL is not a credential, but it is read from the same place one is.
     """
-    resolved = _resolved(host, values)
+    resolved = values(host)
     address = resolved[host.endpoint[-1]]
     if address:
         return address
@@ -177,18 +170,19 @@ def base_url(host: Host, values: Values | None = None) -> str | None:
     return host.url.format(resource=resource) if resource else None
 
 
-def missing(host: Host, values: Values, *, name: str) -> str | None:
+def missing(host: Host, *, name: str) -> str | None:
     """What this host still needs, named, or None when it needs nothing.
 
     Reported in the row's own order and joined with `or` inside a group, because the
     reason is read top to bottom by someone exporting variables.
     """
+    resolved = values(host)
     absent: list[str] = []
     for requirement in host.required:
         if isinstance(requirement, str):
-            if not values[requirement]:
+            if not resolved[requirement]:
                 absent.append(named(host, requirement))
-        elif not any(values[member] for member in requirement):
+        elif not any(resolved[member] for member in requirement):
             absent.append(" or ".join(named(host, member) for member in requirement))
     if not absent:
         return None
@@ -196,17 +190,23 @@ def missing(host: Host, values: Values, *, name: str) -> str | None:
 
 
 def conflict(host: Host, *, name: str) -> str | None:
-    """Two of one exclusive group set at once, named, or None.
+    """Both ways of naming one endpoint set at once, named, or None.
+
+    A row that names two endpoint variables names a resource and a full address, which
+    are two ways of saying the same thing: setting both is reported rather than ranked
+    silently, because one of them is not doing what whoever set it thinks and one SDK
+    refuses the pair outright. There is nothing to refuse where a row names one.
 
     Read from `os.environ` under this row's own names rather than from resolved values,
     so an address set for this surface beats a resource inherited through a fallback
     rather than being reported as a contradiction — that pair is one deployment's setup
     plus one deliberate override.
     """
-    for group in host.exclusive:
-        both = [member for member in group if os.environ.get(member)]
-        if len(both) > 1:
-            return f"set only one of {', '.join(both)} for host '{name}' — both are set"
+    if len(host.endpoint) < 2:
+        return None
+    both = [member for member in host.endpoint if os.environ.get(member)]
+    if len(both) > 1:
+        return f"set only one of {', '.join(both)} for host '{name}' — both are set"
     return None
 
 
@@ -216,7 +216,7 @@ def diagnose(host: Host, *, name: str) -> str | None:
     What is missing before what contradicts: a machine with nothing set has no
     contradiction to report, and naming one would bury the four variables it wants.
     """
-    return missing(host, values(host), name=name) or conflict(host, name=name)
+    return missing(host, name=name) or conflict(host, name=name)
 
 
 def unknown(name: str, known: Iterable[str]) -> str:
@@ -239,7 +239,7 @@ def auth_remedy(host: Host) -> str:
     return f"check {group} — we report the name, never the value"
 
 
-def connection_remedy(host: Host, values: Values) -> str:
+def connection_remedy(host: Host) -> str:
     """What to check when the endpoint did not answer.
 
     A row reached at a default has no variable to check, and naming one nobody set
@@ -247,8 +247,9 @@ def connection_remedy(host: Host, values: Values) -> str:
     instead: the row's own URL where it implies one, and the SDK's default where
     neither the row nor the environment says anything.
     """
-    if not any(values[name] for name in host.endpoint):
-        url = base_url(host, values)
+    resolved = values(host)
+    if not any(resolved[name] for name in host.endpoint):
+        url = base_url(host)
         if url is None:
             return "could not reach the SDK's default endpoint — check the network"
         return f"could not reach {url} — check the network"

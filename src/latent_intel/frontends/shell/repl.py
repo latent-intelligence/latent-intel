@@ -391,112 +391,87 @@ def _runtime(session: Session, name: str) -> None:
     settings.runtime = name
     config_module.save(settings)
     console.print(f"[dim]runtime[/] [source]{escape(name)}[/]")
-    if (reason := kinds[name]) is not None:
-        # Set anyway: a machine can be configured before the binary is installed, and
-        # the honest failure still arrives when someone asks. The reason comes with it,
-        # because "cannot run here yet" does not say which variable to export.
-        console.print(
-            f"[warn]![/] [dim]{escape(name)} cannot run here yet — "
-            f"{escape(reason)}[/]"
-        )
+    # Set anyway: a machine can be configured before the binary is installed, and the
+    # honest failure still arrives when someone asks. The reason comes with it, because
+    # "cannot run here" does not say which variable to export.
+    _report_reason(name)
 
 
 def _model(session: Session, name: str) -> None:
-    """Choose the model for the configured runtime.
-
-    A model name is meaningless without the runtime it belongs to, which is why config
-    nests it under one — so this refuses when nothing is configured rather than storing
-    a value with nowhere to live.
-    """
-    settings = config_module.load()
-    current = session.runtime_kind or settings_module.load().runtime
-    if not current:
-        console.print(
-            "[fail]✗[/] no runtime configured [dim]— /runtime claude-cli first[/]"
-        )
-        return
-
-    if not name:
-        model = settings_module.load().model_for(current)
-        if model:
-            console.print(
-                f"[dim]model[/] [source]{escape(model)}[/] "
-                f"[dim]for {escape(current)}[/]"
-            )
-        else:
-            console.print(
-                f"[dim]no model set — {escape(current)} uses its own default[/]"
-            )
-        return
-
-    settings.set_runtime_option(current, "model", name)
-    config_module.save(settings)
-    session.set_runtime(current)  # rebuild with the new option
-    console.print(
-        f"[dim]model[/] [source]{escape(name)}[/] [dim]for {escape(current)}[/]"
-    )
-    console.print(
-        "[dim]an unknown name fails when you ask, with the runtime's own message[/]"
-    )
+    """Report or choose the model the configured runtime asks for."""
+    _runtime_option(session, "model", name, label="claude-cli")
 
 
 def _host(session: Session, name: str) -> None:
-    """Choose which endpoint the configured runtime talks to, and remember it.
+    """Report or choose which endpoint the configured runtime talks to.
 
     A host is a row in one runtime's table, so it means nothing without the runtime it
-    belongs to — the same reason `/model` refuses when nothing is configured rather
-    than storing a value with nowhere to live. `/host none` clears it back to whatever
-    that runtime's own default is.
+    belongs to. `/host none` clears it back to that runtime's own default.
+    """
+    _runtime_option(session, "host", name, label="anthropic")
 
-    The host was the one setting of the three that could only be reached by editing
-    config, on an argument — a machine-specific choice that belongs in a file — which
-    applies just as much to the model, and the model has had a command all along.
+
+def _runtime_option(session: Session, key: str, name: str, *, label: str) -> None:
+    """Report or set one option on the configured runtime, and remember it.
+
+    `/model` and `/host` are one command with a different key: both name something that
+    is meaningless without the runtime it belongs to, which is why config nests them
+    under one and why both refuse when nothing is configured rather than storing a value
+    with nowhere to live. Both have to put the option back when the rebuilt runtime
+    refuses it, too — `claude-cli` has no hosts, and leaving `host:` under it would
+    refuse every later `ask` on a runtime that answered a moment ago. `/model` wrote
+    without the rollback, which is the divergence one handler ends.
+
+    `label` is the runtime the refusal names as an example, so each command points at
+    one that has the kind of setting being asked for.
     """
     settings = config_module.load()
     current = session.runtime_kind or settings_module.load().runtime
     if not current:
         console.print(
-            "[fail]✗[/] no runtime configured [dim]— /runtime anthropic first[/]"
+            f"[fail]✗[/] no runtime configured [dim]— /runtime {label} first[/]"
         )
         return
 
     if not name:
-        host = settings_module.load().runtime_options(current).get("host")
+        # The resolved view, not the user's file: a project may set either of these,
+        # and reading only config.yaml reports a value that is in force as unset.
+        chosen = settings_module.load().runtime_options(current).get(key)
+        shown = str(chosen) if chosen else "its default"
         console.print(
-            f"[dim]host[/] [source]{escape(str(host) if host else 'its default')}[/] "
+            f"[dim]{key}[/] [source]{escape(shown)}[/] "
             f"[dim]for {escape(current)}[/]"
         )
-        _host_reason(current)
+        _report_reason(current)
         return
 
-    before = settings.runtime_options(current).get("host")
-    settings.set_runtime_option(
-        current, "host", None if name in {"none", "off"} else name
-    )
+    before = settings.runtime_options(current).get(key)
+    settings.set_runtime_option(current, key, None if name in {"none", "off"} else name)
     config_module.save(settings)
     try:
         session.set_runtime(current)  # rebuild with the new option
     except RuntimeUnavailable as exc:
         # Building a runtime can refuse — an option it does not know is rejected rather
-        # than ignored — and a traceback in a REPL is not a diagnosis. The option is
-        # put back as it was: `claude-cli` has no hosts, and leaving `host:` under it
-        # would refuse every later `ask` on a runtime that worked a moment ago.
-        settings.set_runtime_option(current, "host", before)
+        # than ignored — and a traceback in a REPL is not a diagnosis. The option goes
+        # back as it was, so the refusal leaves nothing behind to be found later.
+        settings.set_runtime_option(current, key, before)
         config_module.save(settings)
         console.print(f"[fail]✗[/] {escape(str(exc))}")
         return
     console.print(
-        f"[dim]host[/] [source]{escape(name)}[/] [dim]for {escape(current)}[/]"
+        f"[dim]{key}[/] [source]{escape(name)}[/] [dim]for {escape(current)}[/]"
     )
-    _host_reason(current)
+    _report_reason(current)
 
 
-def _host_reason(kind: str) -> None:
+def _report_reason(kind: str) -> None:
     """The runtime's own reason, where it has one.
 
-    Set anyway and report, the way `/runtime` does: the reason already names the known
-    hosts when the name is a typo and the missing variables when it is not, and a
-    machine is often pointed at a host before it is given the credentials for it.
+    Set anyway and report: the reason already names the known hosts when the name is a
+    typo and the missing variables when it is not, and a machine is often pointed at a
+    runtime, a model or a host before it is given the credentials for it. One printer
+    for all three commands, because a reason phrased differently per command reads as a
+    different kind of failure.
     """
     if (reason := Session.runtime_status().get(kind)) is not None:
         console.print(f"[warn]![/] [dim]{escape(reason)}[/]")

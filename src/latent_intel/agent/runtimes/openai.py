@@ -101,16 +101,15 @@ HOSTS: dict[str, hosts.OpenAIHost] = {
     "foundry": hosts.OpenAIHost(
         client="AsyncOpenAI",
         key="FOUNDRY_API_KEY",
+        # Both at once is refused: `base_url` takes the address and would quietly
+        # ignore the resource, which is the same ambiguity the Anthropic SDK refuses
+        # outright — and one of the two is not doing what whoever set it thinks.
         endpoint=("FOUNDRY_RESOURCE", "FOUNDRY_BASE_URL"),
         required=("FOUNDRY_API_KEY", ("FOUNDRY_RESOURCE", "FOUNDRY_BASE_URL")),
         remedy_404=(
             "Foundry resolves deployment names — check the deployment exists on this "
             "resource and is served on its OpenAI-compatible surface"
         ),
-        # `base_url` takes the address and would quietly ignore the resource, which is
-        # the same ambiguity the Anthropic SDK refuses outright — and one of the two is
-        # not doing what whoever set it thinks.
-        exclusive=(("FOUNDRY_RESOURCE", "FOUNDRY_BASE_URL"),),
         url="https://{resource}.services.ai.azure.com/openai/v1",
         fallback={
             "FOUNDRY_API_KEY": "ANTHROPIC_FOUNDRY_API_KEY",
@@ -348,7 +347,7 @@ class OpenAIRuntime:
                 ev.AgentFailed,
                 message=f"could not reach the '{self.host}' endpoint",
                 kind="connection",
-                remedy=hosts.connection_remedy(host, hosts.values(host)),
+                remedy=hosts.connection_remedy(host),
             )
         except Exception as exc:  # noqa: BLE001 — a failure is an event, not a crash
             # Cancellation derives from BaseException and is deliberately not caught:

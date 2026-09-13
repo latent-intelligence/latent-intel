@@ -352,3 +352,26 @@ def test_a_host_on_a_runtime_that_has_none_is_refused_and_not_kept(
 
     assert "unknown option" in console.export_text()
     assert "host" not in config_module.load().runtime_options("claude-cli")
+
+
+def test_a_model_the_runtime_accepts_is_persisted_and_nothing_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/model` and `/host` are one handler, so the rollback the host test pins is the
+    model's too. The other half of that handler is this one: an option the runtime
+    accepts is written, kept, and reported without a refusal."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._model(Session(), "claude-sonnet-5")
+
+    assert config_module.load().runtime_options("anthropic")["model"] == (
+        "claude-sonnet-5"
+    )
+    assert "✗" not in console.export_text()

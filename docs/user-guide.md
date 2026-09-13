@@ -423,8 +423,8 @@ host foundry for anthropic
 
 All three persist immediately, the way `/connect` does. `intel doctor` lists what is
 installed and marks which one is configured. The model and the host are remembered **per
-runtime**, because neither means anything without the backend it belongs to — `/host none`
-clears one back to that runtime's own default:
+runtime**, because neither means anything without the backend it belongs to — `/model none`
+or `/host none` clears one back to that runtime's own default:
 
 ```yaml
 runtime: anthropic

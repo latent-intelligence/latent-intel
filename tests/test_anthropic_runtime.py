@@ -775,7 +775,7 @@ def test_foundry_is_built_with_the_resource_and_no_base_url(
     credentials: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Both are passed and one is None, which is what the SDK's own two overloads
-    accept — `exclusive` has already refused the pair that would raise."""
+    accept — `conflict` has already refused the pair that would raise."""
     seen = built(monkeypatch)
     assert seen == {
         "api_key": "never-printed-key",
