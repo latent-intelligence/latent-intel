@@ -155,7 +155,40 @@ def test_a_relative_cwd_resolves_against_the_project_file(
     )
 
     monkeypatch.chdir(tmp_path)
-    assert project.load(path).sources[0].options["cwd"] == str(home / "server")
+    source = project.load(path).sources[0]
+
+    assert source.options["cwd"] == str(home / "server")
+    # This row always had the shape that broke; only `cwd` was ever asserted on.
+    assert source.target == "records-mcp"
+
+
+def test_an_mcp_target_is_a_command_line_and_is_never_path_joined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Joining a command to the project directory produced a path nothing could start.
+
+    A console script became `<project dir>/georecords-mcp`, and a multi-word command
+    became one Path with spaces in it — on every platform, not just the Windows one
+    where it was reported. Variables still substitute, because a project that names its
+    server through `vars:` is the same portability argument as everywhere else.
+    """
+    home = tmp_path / "elsewhere"
+    path = write(
+        home,
+        "served",
+        "vars: {SERVER: georecords-mcp}\n"
+        "sources:\n"
+        "  - {id: bare, kind: mcp, target: georecords-mcp}\n"
+        '  - {id: words, kind: mcp, target: "npx -y @example/mcp"}\n'
+        '  - {id: var, kind: mcp, target: "${SERVER} --stdio"}\n',
+    )
+
+    monkeypatch.chdir(tmp_path)
+    bare, words, var = project.load(path).sources
+
+    assert bare.target == "georecords-mcp"
+    assert words.target == "npx -y @example/mcp"
+    assert var.target == "georecords-mcp --stdio"
 
 
 # -- discovery --------------------------------------------------------------

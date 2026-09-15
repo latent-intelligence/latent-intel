@@ -95,6 +95,20 @@ def _resolve(value: str, base: Path, variables: dict[str, str]) -> str:
     return str(path if path.is_absolute() else (base / path).resolve())
 
 
+def _target(kind: str, value: str, base: Path, variables: dict[str, str]) -> str:
+    """A source's `target:`, resolved — unless it is a command line rather than a place.
+
+    An `mcp` target is argv. Joining it to the project directory turned a console script
+    into `<project dir>/georecords-mcp`, which nothing can start, and `npx -y @x/mcp`
+    into a single Path with spaces in it. Resolution and a shlex split are incompatible
+    operations on one string; a relative executable is what `cwd` is for, and that still
+    resolves.
+    """
+    if kind == "mcp":
+        return _substituted(value, variables)
+    return _resolve(value, base, variables)
+
+
 def _option(key: str, value: Any, base: Path, variables: dict[str, str]) -> Any:
     """One source option, substituted — and resolved when it names a location.
 
@@ -162,13 +176,14 @@ def load(path: Path | str) -> Project:
             problems.append(f"source '{row['id']}' names neither `from` nor `target`")
             continue
         target = row.get("target")
+        kind = str(row.get("kind") or "")
         try:
             # Resolved here rather than at attach time: the base directory is this
             # file's, and by attach time nobody remembers where the file was. Options
             # carry locations too (`context:` beside a wiki), so they get the same
             # substitution — a variable honoured in `target:` and ignored one line
             # below it is the quiet kind of wrong.
-            resolved = _resolve(str(target), base, variables) if target else None
+            resolved = _target(kind, str(target), base, variables) if target else None
             options = {
                 str(k): _option(str(k), v, base, variables)
                 for k, v in (row.get("options") or {}).items()
@@ -179,7 +194,7 @@ def load(path: Path | str) -> Project:
         sources.append(
             SourceSpec(
                 id=str(row["id"]),
-                kind=str(row.get("kind") or ""),
+                kind=kind,
                 from_registry=str(row["from"]) if row.get("from") else None,
                 target=resolved,
                 remote=bool(row.get("remote")),
