@@ -95,6 +95,20 @@ def _resolve(value: str, base: Path, variables: dict[str, str]) -> str:
     return str(path if path.is_absolute() else (base / path).resolve())
 
 
+def _option(key: str, value: Any, base: Path, variables: dict[str, str]) -> Any:
+    """One source option, substituted — and resolved when it names a location.
+
+    `cwd` is a directory a server is started in, so it gets `target`'s rule rather than
+    the working directory's: a project cloned anywhere must start its server in the
+    directory the file meant, not in the one the operator happened to be standing in.
+    """
+    if not isinstance(value, str):
+        return value
+    if key == "cwd":
+        return _resolve(value, base, variables)
+    return _substituted(value, variables)
+
+
 @dataclass
 class Project:
     """One deployment, as loaded. Never written by the engine."""
@@ -156,7 +170,7 @@ def load(path: Path | str) -> Project:
             # below it is the quiet kind of wrong.
             resolved = _resolve(str(target), base, variables) if target else None
             options = {
-                str(k): _substituted(v, variables) if isinstance(v, str) else v
+                str(k): _option(str(k), v, base, variables)
                 for k, v in (row.get("options") or {}).items()
             }
         except UnsetVariable as exc:

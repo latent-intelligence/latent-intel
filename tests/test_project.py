@@ -140,6 +140,24 @@ def test_options_are_substituted_like_targets(tmp_path: Path) -> None:
     assert source.options == {"context": "s3://bucket/li/context/w", "limit": 8}
 
 
+def test_a_relative_cwd_resolves_against_the_project_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A working directory is a location, so it gets `target:`'s rule — a project
+    cloned anywhere must start its server in the directory the file meant."""
+    home = tmp_path / "elsewhere"
+    (home / "server").mkdir(parents=True)
+    path = write(
+        home,
+        "served",
+        "sources:\n"
+        "  - {id: records, kind: mcp, target: records-mcp, options: {cwd: ./server}}\n",
+    )
+
+    monkeypatch.chdir(tmp_path)
+    assert project.load(path).sources[0].options["cwd"] == str(home / "server")
+
+
 # -- discovery --------------------------------------------------------------
 
 

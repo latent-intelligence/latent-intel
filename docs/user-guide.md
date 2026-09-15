@@ -360,6 +360,55 @@ client kills `uv`, leaving the real server orphaned. Give it the executable —
 one GET for the manifest, page bodies only when asked: no subprocess, no tool-schema
 round trip, and typed results instead of text. MCP is for servers you do not own.
 
+### Bringing a server's own registration across
+
+A server registration has four keys, and all four are honoured. Import one you already
+have rather than retyping it:
+
+```bash
+intel connect --from ./.mcp.json            # one server in the file
+intel connect records --from ./.mcp.json    # name one of several
+intel connect records --from ./.vscode/mcp.json
+```
+
+The file is read once. What is recorded is an ordinary source row — the command, and the
+options below — so nothing re-reads another host's config later.
+
+`command` and `args` become the command line. `env` is a list, and **names travel where
+values do not**:
+
+```yaml
+sources:
+  - id: records
+    kind: mcp
+    target: records-mcp
+    options:
+      env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY]
+      cwd: ./server
+```
+
+A bare `NAME` forwards your current value, which a `.env` beside the project file can
+set; `NAME=value` writes a literal, for what is not a secret — a region, a data path.
+A bare name that is unset is refused, rather than starting a server that fails later for
+a reason nobody can see. In a `.mcp.json`, `"NAME": "${NAME}"` means the same thing and
+imports as a bare name.
+
+Credentials a server finds for itself need nothing forwarded: a server reading `~/.aws`
+works with no `env` at all, because `HOME` is inherited.
+
+`cwd` is for a server that looks for its own `.env` in the working directory, and for
+`python -m`. A relative `cwd` in a project file resolves against the project file, never
+against where you happened to be standing.
+
+**On Windows**, two things differ and neither is a bug you can fix from here: the
+inherited variable is `USERPROFILE` rather than `HOME`, which is what the AWS libraries
+read there; and the command line is split POSIX-style, which eats backslashes — so name
+a bare script on `PATH` rather than a full path.
+
+**A server that will not start shows its own stderr.** `Connection closed` is the
+account of a pipe; the sentence the server printed on its way out is the one that says
+which credential was missing.
+
 ---
 
 ## Where your state lives

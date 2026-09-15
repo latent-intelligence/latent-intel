@@ -8,6 +8,8 @@ web client exists.
 from __future__ import annotations
 
 import json
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
@@ -339,6 +341,49 @@ def test_connect_records_the_source_and_search_finds_it(tmp_path: Path) -> None:
     found = runner.invoke(app, ["search", "retrieval"])
     assert found.exit_code == 0, found.stdout
     assert "c:note.md" in found.stdout
+
+
+def test_connect_from_an_mcp_config_records_the_command_and_its_options(
+    tmp_path: Path,
+) -> None:
+    """The JSON file is read once, at connect: what is recorded is an ordinary source
+    row, so the config stays self-contained and nothing re-reads another host's file.
+    Options had to survive `record()` for that — before this they were dropped."""
+    probe = Path(__file__).parent / "fixtures" / "mcp_probe_server.py"
+    config = tmp_path / ".mcp.json"
+    config.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "records": {
+                        "command": sys.executable,
+                        "args": [str(probe)],
+                        "env": {"PROBE_LITERAL": "fixed"},
+                        "cwd": ".",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["connect", "--from", str(config)])
+    assert result.exit_code == 0, result.stdout
+
+    recorded = config_module.load().find("records")
+    assert recorded is not None
+    assert recorded.kind == "mcp"
+    assert recorded.target == shlex.join([sys.executable, str(probe)])
+    assert recorded.options == {
+        "env": ["PROBE_LITERAL=fixed"],
+        "cwd": str(tmp_path.resolve()),
+    }
+
+
+def test_connect_with_neither_a_source_nor_a_file_says_so() -> None:
+    result = runner.invoke(app, ["connect"])
+    assert result.exit_code == 1
+    assert "--from" in result.stderr
 
 
 def test_search_json_emits_parseable_events(tmp_path: Path) -> None:
