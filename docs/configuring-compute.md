@@ -110,6 +110,152 @@ another by changing two lines of config.
 
 ---
 
+## Azure AI Foundry
+
+**What it is for.** Claude models served from your own Azure resource — inside your
+subscription, inside your network boundary, billed through Azure. This is the enterprise
+path, and the reason the `anthropic` runtime defaults to it rather than to the vendor's
+own API.
+
+**One resource, two surfaces.** A Foundry resource answers both the Anthropic Messages
+protocol and an OpenAI-compatible one, so Foundry appears as a host row under **both**
+runtimes. Which you choose decides the variable names and nothing else — the resource,
+the deployments and the key are the same either way.
+
+### 1. Set two variables
+
+Over the Anthropic protocol, which is the `anthropic` runtime's default host:
+
+```bash
+# ~/.config/latent-intel/.env
+ANTHROPIC_FOUNDRY_API_KEY=…
+ANTHROPIC_FOUNDRY_RESOURCE=<your-resource-name>
+```
+
+Over the OpenAI-compatible surface, on the `openai` runtime:
+
+```bash
+FOUNDRY_API_KEY=…
+FOUNDRY_RESOURCE=<your-resource-name>
+```
+
+**One resource has one key**, so the second pair is usually unnecessary. A machine
+already reaching Foundry over the Anthropic protocol reaches the OpenAI one with nothing
+added: `ANTHROPIC_FOUNDRY_API_KEY` and `ANTHROPIC_FOUNDRY_RESOURCE` stand in wherever the
+`FOUNDRY_*` pair is unset, and the reason names both, so nobody has to know the mapping
+to act on it.
+
+`ANTHROPIC_FOUNDRY_BASE_URL` does **not** stand in for `FOUNDRY_BASE_URL`. It addresses
+the other surface of the same resource, and borrowing it would point a request at the
+wrong protocol.
+
+**A resource name or a full address, never both.** `…_RESOURCE` is the short way and
+`…_BASE_URL` the explicit one; each implies the other. Setting both is reported rather
+than ranked silently — they are two ways of saying one thing, so one of them is not doing
+what whoever set it thinks, and the Anthropic SDK refuses the pair outright.
+
+The two surfaces have different addresses, which is what a base URL has to get right:
+
+```
+https://<resource-name>.services.ai.azure.com/anthropic      the Messages protocol
+https://<resource-name>.services.ai.azure.com/openai/v1      the OpenAI-compatible one
+```
+
+Azure's portal shows a target URI of `…/anthropic/v1/messages` on the deployment's
+**Details** tab; the base URL is that without `/v1/messages`. A wrong address here reads
+as a 404, not as an authentication failure.
+
+### 2. Check it
+
+Before anything is set, both rows say what they want — and the second row shows the
+fallback in the same breath:
+
+```
+$ intel hosts
+
+anthropic ← configured
+  · foundry    set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
+  ✓ anthropic  ← in use  ANTHROPIC_API_KEY
+
+openai
+  · foundry       set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
+ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
+```
+
+> The blocks from here down are written from the host declarations rather than captured
+> from a live run — this deployment has no Foundry credentials yet. Everything above is
+> captured.
+
+### 3. Choose it
+
+The Anthropic protocol, where `foundry` is already the default host:
+
+```yaml
+runtime: anthropic
+runtimes:
+  anthropic:
+    host: foundry
+    model: claude-sonnet-5
+```
+
+The OpenAI-compatible surface, for the same resource:
+
+```yaml
+runtime: openai
+runtimes:
+  openai:
+    host: foundry
+    model: claude-sonnet-5
+```
+
+**A model id here is a deployment name.** Azure's own wording: the deployment defaults to
+the model's name, you may change it before deploying, and *"during inference, use the
+deployment name in the `model` parameter"* — so it can differ from the model id. In
+practice it is usually the model family, such as `claude-sonnet-5` or `claude-haiku-4-5`.
+
+A dated string like `claude-sonnet-5-20260101` therefore only works if a deployment is
+actually called that, which is why an id that succeeds against the vendor's own API can
+404 here. The host matters as much as the key.
+
+**Some models are Entra ID only.** Azure documents Claude Mythos 5-1, Mythos 5 and Mythos
+Preview as supporting Microsoft Entra ID authentication and not API keys. This host reads
+an API key, so those deployments are not reachable through it today.
+
+### 4. Ask something
+
+Nothing above the runtime changes: the same sources, the same tools, the same citations.
+Moving a deployment from the vendor's API to your own Azure resource is two lines of
+config and a different pair of variables.
+
+```
+$ intel doctor
+
+runtimes
+  ✓ anthropic ← configured
+  ✓ claude-cli
+  · openai — set OPENAI_API_KEY for host 'openai'
+  model: claude-sonnet-5
+```
+
+### If it goes wrong
+
+The first three come from this program; the rest are Azure's, and the causes below are
+the ones Microsoft documents for Claude on Foundry.
+
+| what you see | what it means |
+|---|---|
+| `set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or …` | nothing is set yet. The key, then either the resource name or the full address |
+| `set only one of … — both are set` | a resource name and a base URL are both exported. Unset whichever you did not mean |
+| `… is set but empty` | a variable exported with nothing in it. This program reads that as unset and the SDK reads it as set, so it is named before anything else |
+| 401 Unauthorized | the key is wrong or expired. The remedy names the variable, never the value |
+| 403 Forbidden | permissions, not credentials — the identity needs **Contributor** or **Owner** on the resource group |
+| 404 Not Found | the endpoint URL **or** the deployment name. Check the base URL shape first, then that a deployment by that name exists on the resource |
+| 429 Too Many Requests | the rate limit for your **subscription tier**, not one deployment. Back off and retry; a persistent ceiling needs a quota increase request |
+| 400 `invalid_request_error` naming data retention | the model is a Covered Model that requires data retention and the subscription has zero data retention enabled. Not fixable from here — it is settled with Anthropic, or on a different subscription |
+
+---
+
 
 ## OpenRouter
 
