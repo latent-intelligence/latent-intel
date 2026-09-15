@@ -23,6 +23,15 @@ orphan holding whatever file descriptors it inherited — measured, and it survi
 client exiting. Give it the executable itself (`/path/.venv/bin/lw serve --store …`) and
 cleanup is exact. `lw serve --print-config` emits the direct form for this reason.
 
+**The four keys a server registration carries, and what each becomes here.** `command`
+and `args` are the target, one string split with `shlex`. `env` is a list, each item a
+bare `NAME` that forwards this process's value or a `NAME=value` literal — the SDK's
+stdio transport starts a child with six variables and nothing else, so a server that
+runs under another host does not start here without it. `cwd` is for a server that
+looks for its own `.env` in the working directory, and for `python -m`. Both go
+straight to `StdioServerParameters`; the SDK merges `env` over its own whitelist, so
+merging again here would only disagree with it.
+
 **Transport is the SDK's problem.** `Client` accepts a command string, a URL, or a
 server object, and selects stdio or Streamable HTTP accordingly. Legacy SSE exists in
 the SDK and is not offered here — it is compatibility, not a default worth choosing.
@@ -30,11 +39,17 @@ the SDK and is not offered here — it is compatibility, not a default worth cho
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import shlex
+import sys
+import tempfile
 from contextlib import AsyncExitStack
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, TextIO
 
+from .. import registry
 from ..models import (
     Capability,
     ConnectError,
@@ -48,6 +63,13 @@ from ..models import (
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcp import Client
+
+#: How much of a failed server's stderr to quote back. Enough for a traceback and its
+#: message, short enough that a wall of warnings does not bury the command that failed.
+_STDERR_TAIL = 2000
+
+#: The `${NAME}` another host writes in its own config to mean "forward mine".
+_ENV_REF = re.compile(r"\$\{(\w+)\}")
 
 #: A resource listing is one round trip; caching it makes `search` local after the first
 #: call. Servers that change their resource set mid-session are rare, and `/disconnect`
@@ -66,6 +88,10 @@ class McpConnector:
         #: server's own diagnostics and it interleaves unreadably with rendered output.
         #: Pass `server_stderr=True` to watch it while debugging a server.
         self.show_server_stderr = bool(options.pop("server_stderr", False))
+        #: What the child gets beyond the SDK's whitelist, and the subset of it that may
+        #: be written down: a forwarded name's value belongs to this process only.
+        self._env, self._env_literals = _env_of(source_id, options.pop("env", None))
+        self._cwd = _cwd_of(source_id, options.pop("cwd", None))
         #: A command line or a URL from the CLI. A Python caller may also pass an MCP
         #: server object, which `Client` accepts directly — that runs it in-process with
         #: no subprocess, which is how the tests here work and how an embedded server
@@ -77,6 +103,7 @@ class McpConnector:
         self._tools: list[ToolSpec] = []
         self._resources: list[tuple[str, str, str]] = []
         self._capabilities: list[Capability] = []
+        self._errlog: TextIO | None = None
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -93,10 +120,22 @@ class McpConnector:
             raise ConnectError("the mcp package is not installed") from exc
 
         self._stack = AsyncExitStack()
+        # A temp file rather than devnull, so a server that dies on startup can be
+        # quoted back instead of discarded. On the stack, so it closes with everything
+        # else — the devnull it replaces was opened and never closed at all.
+        if not self.show_server_stderr:
+            self._errlog = self._stack.enter_context(
+                tempfile.TemporaryFile("w+")  # noqa: SIM115 — the stack is the manager
+            )
         try:
             self._client = await self._stack.enter_async_context(
                 Client(
-                    _transport(self.target, self.show_server_stderr),
+                    _transport(
+                        self.target,
+                        env=self._env,
+                        cwd=self._cwd,
+                        errlog=self._errlog or sys.stderr,
+                    ),
                     raise_exceptions=True,
                 )
             )
@@ -105,10 +144,21 @@ class McpConnector:
             await self.aclose()
             raise
         except Exception as exc:  # noqa: BLE001 — every transport failure lands here
+            stderr = self._server_stderr()
             await self.aclose()
-            raise ConnectError(
-                f"{self.id}: could not start '{self.target}' — {exc}"
-            ) from exc
+            message = f"{self.id}: could not start '{self.target}' — {_innermost(exc)}"
+            raise ConnectError(f"{message}\n{stderr}" if stderr else message) from exc
+
+    def _server_stderr(self) -> str:
+        """What the server printed before it died, or nothing.
+
+        Without it the whole report of a server that exits on a missing credential is
+        `Connection closed` — the SDK's account of the pipe, not the server's own.
+        """
+        if self._errlog is None:
+            return ""
+        self._errlog.seek(0)
+        return self._errlog.read()[-_STDERR_TAIL:].strip()
 
     async def _discover(self) -> None:
         """One round trip per capability, at connect time rather than per query."""
@@ -137,6 +187,7 @@ class McpConnector:
             await self._stack.aclose()
         self._stack = None
         self._client = None
+        self._errlog = None
 
     # -- the contract ---------------------------------------------------------
 
@@ -226,7 +277,17 @@ class McpConnector:
         if self.target.startswith(("http://", "https://")):
             return {"type": "http", "url": self.target}
         parts = shlex.split(self.target)
-        return {"command": parts[0], "args": parts[1:]} if parts else None
+        if not parts:
+            return None
+        spec: dict[str, Any] = {"command": parts[0], "args": parts[1:]}
+        if self._cwd:
+            spec["cwd"] = self._cwd
+        # Literals only. This block reaches a subprocess agent on its command line, so a
+        # forwarded value would show in `ps` — and that agent spawns its stdio servers
+        # with its own environment, where a name forwarded from here already is.
+        if self._env_literals:
+            spec["env"] = dict(self._env_literals)
+        return spec
 
     def tools(self) -> list[ToolSpec]:
         return list(self._tools)
@@ -248,13 +309,23 @@ class McpConnector:
         return _text_of(result.content)
 
 
-def _transport(target: Any, show_stderr: bool = False) -> Any:
+def _transport(
+    target: Any,
+    *,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+    errlog: TextIO | None = None,
+) -> Any:
     """What to hand the SDK: a URL as-is, a command as a stdio transport.
 
     A URL goes straight through — `Client` picks Streamable HTTP for it. A command needs
     splitting into argv, and `stdio_client` satisfies the SDK's `Transport` protocol, so
     the two shapes meet at the same argument and no branch reaches further than this.
     Anything that is not a string is already something `Client` understands.
+
+    `env` and `cwd` are passed through untouched: the SDK merges `env` over its own
+    whitelist, and a second merge here could only disagree with it. The errlog belongs
+    to `aopen`, which owns the file so it can read the server's stderr back afterwards.
     """
     if not isinstance(target, str):
         return target
@@ -264,14 +335,148 @@ def _transport(target: Any, show_stderr: bool = False) -> Any:
     if not parts:
         raise ConnectError("no server command given")
 
-    import sys
-
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
-    errlog = sys.stderr if show_stderr else open(os.devnull, "w")  # noqa: SIM115
     return stdio_client(
-        StdioServerParameters(command=parts[0], args=parts[1:]), errlog=errlog
+        StdioServerParameters(
+            command=parts[0], args=parts[1:], env=env or None, cwd=cwd
+        ),
+        errlog=errlog or sys.stderr,
     )
+
+
+def _innermost(exc: BaseException) -> BaseException:
+    """The leaf of a nested ExceptionGroup, where the reason actually is.
+
+    A stdio server that starts and exits immediately arrives as `Connection closed`
+    wrapped in two groups, whose `str` is a count of sub-exceptions.
+    """
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return exc
+
+
+def _env_of(source_id: str, value: Any) -> tuple[dict[str, str], dict[str, str]]:
+    """Read `env` into what the child gets, and the part of it that may be written down.
+
+    A bare `NAME` forwards this process's value — names travel between machines and
+    values do not, and `.env` is already applied by the time a source is attached. A
+    `NAME=value` item is a literal, for the things that are not secrets: a region, a
+    data path. A bare name that is unset is refused rather than dropped, because the
+    server would otherwise start without it and fail somewhere far less readable.
+    """
+    if value is None:
+        return {}, {}
+    items = value.split(",") if isinstance(value, str) else list(value)
+    env: dict[str, str] = {}
+    literals: dict[str, str] = {}
+    for item in items:
+        name, assigned, literal = str(item).strip().partition("=")
+        name = name.strip()
+        if not name:
+            continue
+        if assigned:
+            env[name] = literals[name] = literal
+        elif name in os.environ:
+            env[name] = os.environ[name]
+        else:
+            raise ConnectError(
+                f"{source_id}: env {name} is not set — export it or put it in .env"
+            )
+    return env, literals
+
+
+def _cwd_of(source_id: str, value: Any) -> str | None:
+    """The directory a stdio server is started in, checked before it is used.
+
+    Expanded like any other location (`~`, `${VAR}`), and a directory that does not
+    exist is named here rather than arriving as a failed start with no reason.
+    """
+    if value is None:
+        return None
+    path = registry.expand(str(value))
+    if not os.path.isdir(path):
+        raise ConnectError(f"{source_id}: cwd {path} is not a directory")
+    return path
+
+
+def read_mcp_config(
+    path: str | Path, name: str | None = None
+) -> tuple[str, str, dict[str, Any]]:
+    """One server out of a `.mcp.json` or `.vscode/mcp.json`.
+
+    Returns `(name, target, options)`. A server already registered with another host is
+    attached without retyping it, and is recorded as an ordinary source row — so the
+    JSON file is read once, at `connect`, and never depended on again.
+    """
+    file = Path(path).expanduser()
+    try:
+        raw = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ConnectError(f"could not read {file} — {exc}") from exc
+
+    # VS Code's key is `servers`; Claude Code's is `mcpServers`. Both are read because
+    # both files are things a teammate already has.
+    entries = raw if isinstance(raw, dict) else {}
+    servers = entries.get("mcpServers") or entries.get("servers")
+    if not isinstance(servers, dict) or not servers:
+        raise ConnectError(f"{file}: no `mcpServers` and no `servers` mapping")
+
+    known = ", ".join(sorted(servers))
+    if name is None and len(servers) > 1:
+        raise ConnectError(f"{file} holds several servers — name one of: {known}")
+    chosen = name or next(iter(servers))
+    entry = servers.get(chosen)
+    if not isinstance(entry, dict):
+        raise ConnectError(f"{file} has no server '{chosen}' — it holds: {known}")
+    if "headers" in entry:
+        raise ConnectError(f"{chosen}: headers are not supported")
+
+    if url := entry.get("url"):
+        target = str(url)
+    elif command := entry.get("command"):
+        target = shlex.join([str(command), *(str(a) for a in entry.get("args") or [])])
+    else:
+        raise ConnectError(f"{chosen}: names neither `command` nor `url`")
+
+    options: dict[str, Any] = {}
+    if env := _env_rows(chosen, entry.get("env")):
+        options["env"] = env
+    if cwd := entry.get("cwd"):
+        # Resolved against the JSON file, which is the only base there is: by the time
+        # the recorded row is read, nobody remembers where the file was. `~` is kept as
+        # typed, for the same reason a source records what it was named.
+        text = str(cwd)
+        relative = not text.startswith("~") and not Path(text).is_absolute()
+        options["cwd"] = str((file.parent / text).resolve()) if relative else text
+    return chosen, target, options
+
+
+def _env_rows(source_id: str, env: Any) -> list[str]:
+    """Another host's `env` mapping as our list of names and literals.
+
+    `${NAME}` is that host's own expansion syntax and means "forward mine", which is
+    exactly what a bare name is here. A plain value is already written down in the file
+    the user wrote, so keeping it verbatim exposes nothing new.
+    """
+    rows: list[str] = []
+    for key, value in (env or {}).items():
+        text = str(value)
+        reference = _ENV_REF.fullmatch(text)
+        if reference is not None and reference.group(1) == str(key):
+            rows.append(str(key))
+        elif "${" in text:
+            # Anything else in that syntax belongs to the host that wrote the file: a
+            # `${OTHER}` would have to be forwarded under a name it does not have, and
+            # a `${input:…}` is a prompt we never saw. Passing the text through would
+            # hand the server a literal `${…}` and call it configured.
+            raise ConnectError(
+                f"{source_id}: env {key} is set from {text}, which only the host that "
+                "wrote this file can expand — give it here as NAME or NAME=value"
+            )
+        else:
+            rows.append(f"{key}={text}")
+    return rows
 
 
 def _tool_spec(source_id: str, tool: Any) -> ToolSpec:

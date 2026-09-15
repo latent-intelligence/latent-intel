@@ -263,6 +263,7 @@ def _persist(descriptor: Descriptor, command: Connect) -> None:
         descriptor,
         remote=command.remote,
         by_name=command.kind is None,
+        options=command.options,
     )
 
 

@@ -11,6 +11,7 @@ scripting path, and it is also how a web client will eventually be fed.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import anyio
 import typer
@@ -105,7 +106,9 @@ async def _stores() -> None:
 
 @app.command()
 def connect(
-    spec: str = typer.Argument(..., help="A registered store id, or a path/URI."),
+    spec: str = typer.Argument(
+        None, help="A registered store id, or a path/URI. With --from, a server name."
+    ),
     kind: str = typer.Option(
         None, "--kind", help="wiki | files | mcp | vector. Required for a raw path."
     ),
@@ -113,24 +116,45 @@ def connect(
     remote: bool = typer.Option(
         False, "--remote", help="Use the registry's mirror rather than the local copy."
     ),
+    from_file: str = typer.Option(
+        None, "--from", help="An MCP server out of a .mcp.json or .vscode/mcp.json."
+    ),
 ) -> None:
     """Attach a source, and remember it for later commands."""
-    anyio.run(lambda: _connect(spec, kind, name, remote))
+    if spec is None and from_file is None:
+        err_console.print("[fail]✗[/] name a source, or pass --from <file>")
+        raise typer.Exit(1)
+    anyio.run(lambda: _connect(spec, kind, name, remote, from_file))
 
 
 async def _connect(
-    spec: str, kind: str | None, name: str | None, remote: bool = False
+    spec: str | None,
+    kind: str | None,
+    name: str | None,
+    remote: bool = False,
+    from_file: str | None = None,
 ) -> None:
+    from ...session import Session
+
+    options: dict[str, Any] = {}
     async with session_scope() as (session, _):
         try:
+            if from_file is not None:
+                # Read once, here, and recorded as an ordinary source row: the config
+                # stays self-contained and the JSON file is never read again.
+                server, spec, options = Session.mcp_server_from(from_file, spec)
+                kind, name = "mcp", name or server
+            assert spec is not None
             descriptor = await session.connect(
-                spec, kind=kind, source_id=name, remote=remote
+                spec, kind=kind, source_id=name, remote=remote, **options
             )
         except SessionError as exc:
             err_console.print(f"[fail]✗[/] {escape(str(exc))}")
             raise typer.Exit(1) from exc
 
-        path = record(spec, descriptor, remote=remote, by_name=kind is None)
+        path = record(
+            spec, descriptor, remote=remote, by_name=kind is None, options=options
+        )
 
         size = f"{descriptor.count} {descriptor.unit}" if descriptor.count else ""
         caps = " ".join(str(c) for c in descriptor.capabilities)

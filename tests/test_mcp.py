@@ -1,13 +1,17 @@
-"""The MCP connector, against a real server running in-process.
+"""The MCP connector, against real servers: one in-process, one spawned.
 
-No subprocess, no network, no fixture files. `Client` accepts a server object directly,
-so these exercise the actual protocol — initialize, list, call, read — rather than a
-mock of it. The one thing they do not cover is transport selection, which is the SDK's
-job and tested there.
+`Client` accepts a server object directly, so most of these exercise the actual protocol
+— initialize, list, call, read — rather than a mock of it. `env` and `cwd` only mean
+anything across a spawn, so those run `fixtures/mcp_probe_server.py` as a subprocess and
+ask it what it received. No network, no store, no model.
 """
 
 from __future__ import annotations
 
+import json
+import shlex
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,9 +19,16 @@ from mcp import types
 from mcp.server import MCPServer
 
 from latent_intel.connectors import base as connectors
-from latent_intel.connectors.mcp import McpConnector, _effect_of, _transport
+from latent_intel.connectors.mcp import (
+    McpConnector,
+    _effect_of,
+    _transport,
+    read_mcp_config,
+)
 from latent_intel.models import Capability, ConnectError, Effect
 from latent_intel.session import Session
+
+PROBE = Path(__file__).parent / "fixtures" / "mcp_probe_server.py"
 
 pytestmark = pytest.mark.anyio
 
@@ -68,6 +79,22 @@ async def connect(server: Any, source_id: str = "probe") -> McpConnector:
     connector = McpConnector(source_id, server)
     await connector.aopen()
     return connector
+
+
+def probe_command() -> str:
+    """The probe server as a command line, which is the only way to test a spawn."""
+    return shlex.join([sys.executable, str(PROBE)])
+
+
+async def probe(**options: Any) -> dict[str, Any]:
+    """Start the probe server in a subprocess and ask it what it got."""
+    connector = McpConnector("probe", probe_command(), **options)
+    await connector.aopen()
+    try:
+        reported: dict[str, Any] = json.loads(await connector.call("whoami", {}))
+        return reported
+    finally:
+        await connector.aclose()
 
 
 # -- capabilities -----------------------------------------------------------
@@ -207,7 +234,167 @@ async def test_fetching_something_absent_says_so() -> None:
     await connector.aclose()
 
 
+# -- env and cwd ------------------------------------------------------------
+
+
+async def test_a_named_variable_is_forwarded_and_an_unnamed_one_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SDK starts a child with six variables and nothing else, so forwarding by
+    name is what makes a server that runs under another host run here — and naming one
+    must not smuggle in the rest of the parent's environment."""
+    monkeypatch.setenv("PROBE_FORWARDED", "yes")
+    monkeypatch.setenv("PROBE_UNNAMED", "no")
+    assert (await probe(env=["PROBE_FORWARDED"]))["env"] == {"PROBE_FORWARDED": "yes"}
+
+
+async def test_a_literal_reaches_the_child_verbatim() -> None:
+    """`NAME=value` is for what is not a secret — a region, a data path."""
+    reported = await probe(env="PROBE_LITERAL=fixed")
+    assert reported["env"] == {"PROBE_LITERAL": "fixed"}
+
+
+def test_an_unset_name_is_refused_rather_than_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject what you cannot honour: the server would otherwise start without it and
+    fail somewhere far less readable."""
+    monkeypatch.delenv("PROBE_MISSING", raising=False)
+    with pytest.raises(ConnectError, match="env PROBE_MISSING is not set"):
+        McpConnector("probe", "some-server", env=["PROBE_MISSING"])
+
+
+async def test_cwd_is_where_the_server_starts(tmp_path: Path) -> None:
+    reported = await probe(cwd=str(tmp_path))
+    assert Path(reported["cwd"]).resolve() == tmp_path.resolve()
+
+
+def test_a_cwd_that_does_not_exist_is_named(tmp_path: Path) -> None:
+    with pytest.raises(ConnectError, match="is not a directory"):
+        McpConnector("probe", "some-server", cwd=str(tmp_path / "nowhere"))
+
+
+def test_server_spec_carries_cwd_and_literals_but_never_a_forwarded_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The block reaches a subprocess agent on its command line, where a forwarded
+    value would show in `ps` — and that agent already has it in its own environment."""
+    monkeypatch.setenv("PROBE_FORWARDED", "secret")
+    connector = McpConnector(
+        "probe",
+        "some-server --flag",
+        env=["PROBE_FORWARDED", "PROBE_LITERAL=fixed"],
+        cwd=str(tmp_path),
+    )
+    assert connector.server_spec() == {
+        "command": "some-server",
+        "args": ["--flag"],
+        "cwd": str(tmp_path),
+        "env": {"PROBE_LITERAL": "fixed"},
+    }
+
+
+# -- reading another host's registration ------------------------------------
+
+
+def write_config(tmp_path: Path, body: dict[str, Any]) -> Path:
+    path = tmp_path / ".mcp.json"
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path
+
+
+def test_all_four_keys_become_the_row_a_hand_written_source_would_have(
+    tmp_path: Path,
+) -> None:
+    path = write_config(
+        tmp_path,
+        {
+            "mcpServers": {
+                "records": {
+                    "command": "records-mcp",
+                    "args": ["--store", "/tmp/store"],
+                    "env": {"AWS_REGION": "${AWS_REGION}", "MODE": "local"},
+                    "cwd": "./server",
+                }
+            }
+        },
+    )
+    name, target, options = read_mcp_config(path)
+    assert name == "records"
+    assert target == "records-mcp --store /tmp/store"
+    assert sorted(options["env"]) == ["AWS_REGION", "MODE=local"]
+    # Against the file's directory: by the time the recorded row is read, nobody
+    # remembers where the file was.
+    assert options["cwd"] == str(tmp_path / "server")
+
+
+def test_a_url_server_becomes_a_url_target(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path, {"servers": {"remote": {"url": "https://example.test/mcp"}}}
+    )
+    assert read_mcp_config(path) == ("remote", "https://example.test/mcp", {})
+
+
+def test_several_servers_and_no_name_lists_them(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {"mcpServers": {"records": {"command": "a"}, "notes": {"command": "b"}}},
+    )
+    with pytest.raises(ConnectError, match="notes, records"):
+        read_mcp_config(path)
+    with pytest.raises(ConnectError, match="notes, records"):
+        read_mcp_config(path, "absent")
+
+
+def test_an_expansion_only_the_other_host_understands_is_refused(
+    tmp_path: Path,
+) -> None:
+    """`${OTHER}` would have to be forwarded under a name it does not have, and
+    `${input:…}` is a prompt we never saw. Passing the text through would hand the
+    server a literal `${…}` and call it configured."""
+    path = write_config(
+        tmp_path,
+        {"servers": {"records": {"command": "a", "env": {"REGION": "${OTHER}"}}}},
+    )
+    with pytest.raises(ConnectError, match="only the host that wrote this file"):
+        read_mcp_config(path)
+
+
+def test_headers_are_refused_rather_than_dropped(tmp_path: Path) -> None:
+    """A credential silently not sent is a server that answers unauthorised."""
+    path = write_config(
+        tmp_path,
+        {"servers": {"remote": {"url": "https://example.test/mcp", "headers": {}}}},
+    )
+    with pytest.raises(ConnectError, match="headers are not supported"):
+        read_mcp_config(path)
+
+
+def test_a_file_with_neither_root_key_says_which_it_looked_for(tmp_path: Path) -> None:
+    path = write_config(tmp_path, {"inputs": []})
+    with pytest.raises(ConnectError, match="`mcpServers` and no `servers`"):
+        read_mcp_config(path)
+
+
 # -- lifecycle --------------------------------------------------------------
+
+
+async def test_a_server_that_dies_on_startup_reports_its_own_stderr(
+    tmp_path: Path,
+) -> None:
+    """`Connection closed` is the SDK's account of the pipe. What a reader needs is the
+    sentence the server printed before it went."""
+    script = tmp_path / "dies.py"
+    script.write_text(
+        "import sys\nsys.stderr.write('PROBE_BACKEND is not configured\\n')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    connector = McpConnector("bad", shlex.join([sys.executable, str(script)]))
+    with pytest.raises(ConnectError) as caught:
+        await connector.aopen()
+    assert "PROBE_BACKEND is not configured" in str(caught.value)
+    await connector.aclose()
 
 
 async def test_a_server_that_will_not_start_fails_with_its_command() -> None:

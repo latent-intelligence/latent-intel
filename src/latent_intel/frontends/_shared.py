@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.markup import escape
@@ -200,7 +201,14 @@ def use_brand(brand: brand_module.Brand, overrides: dict[str, str]) -> list[str]
     return unknown
 
 
-def record(spec: str, descriptor: Descriptor, *, remote: bool, by_name: bool) -> Path:
+def record(
+    spec: str,
+    descriptor: Descriptor,
+    *,
+    remote: bool,
+    by_name: bool,
+    options: dict[str, Any] | None = None,
+) -> Path:
     """Write an attached source to the config, as it was named.
 
     `by_name` is what keeps this portable: a registry id is stored as `from:` and
@@ -211,6 +219,10 @@ def record(spec: str, descriptor: Descriptor, *, remote: bool, by_name: bool) ->
     It writes the **user's overlay for the active project**, never the project file.
     That file belongs to whoever owns the deployment, and a tool that edited it would
     make a checked-out project repo dirty on the first `connect`.
+
+    `options` are written with the source, so a source that needed them to connect
+    reconnects without them being retyped — an MCP server attached with `env` and `cwd`
+    was silently recorded without either, and failed to start on the next command.
     """
     cfg = config_module.load()
     cfg.add(
@@ -220,6 +232,7 @@ def record(spec: str, descriptor: Descriptor, *, remote: bool, by_name: bool) ->
             from_registry=spec if by_name else None,
             target=None if by_name else spec,
             remote=remote,
+            options=dict(options or {}),
         ),
         settings_module.load().project_name,
     )

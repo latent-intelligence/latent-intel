@@ -244,6 +244,20 @@ class Session:
         return sorted(connectors.available_kinds())
 
     @staticmethod
+    def mcp_server_from(
+        path: str, name: str | None = None
+    ) -> tuple[str, str, dict[str, Any]]:
+        """One server out of a `.mcp.json`, as `(name, target, options)`.
+
+        Here for the same reason as `connector_kinds`: reading another host's server
+        registration is the MCP connector's knowledge, and a frontend may not import a
+        connector to reach it.
+        """
+        from .connectors.mcp import read_mcp_config
+
+        return read_mcp_config(path, name)
+
+    @staticmethod
     def runtime_status() -> dict[str, str | None]:
         """Installed runtime kinds, each mapped to None when usable or to why not.
 
