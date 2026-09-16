@@ -143,16 +143,21 @@ class Session:
         return connector.describe()
 
     async def connect_many(self, specs: Sequence[SourceRequest]) -> list[str]:
-        """Attach several sources, opening them concurrently.
+        """Attach several sources, in declared order.
 
-        The expensive part of attaching is I/O — an S3 wiki load, an MCP subprocess and
-        its handshake — and doing that serially costs the sum. Opening runs in a task
-        group, the way `find` already does.
+        **Opening cannot run in a task group**, tempting as the fan-out is. A stdio MCP
+        server's transport is an `@asynccontextmanager` that yields inside a task group
+        of its own, so its cancel scope belongs to whichever task entered it and anyio
+        requires that same task to exit it. `McpConnector.aopen` deliberately leaves it
+        open — the subprocess has to outlive the handshake — and `aclose` unwinds it
+        from the task that owns the session. Open it in a child task that then returns
+        and the next scope exit raises `Attempted to exit a cancel scope that isn't the
+        current task's`. `find` may fan out because it finishes inside the child and
+        holds nothing afterwards; a connector outlives the call, so it may not.
 
-        **Registration stays serial and in declared order.** `sources()` documents
-        connection order and `Ref.parse` resolves a bare key against `current`, so the
-        order sources arrive in is observable behaviour, not an implementation detail.
-        Concurrency is for the waiting, not for the bookkeeping.
+        `sources()` documents connection order and `Ref.parse` resolves a bare key
+        against `current`, so the order sources arrive in is observable behaviour
+        either way.
 
         Returns the failures, one message per source, rather than raising: one
         unreachable source must not stop the others. That is the behaviour
@@ -180,9 +185,8 @@ class Session:
             except SessionError as exc:
                 problems[index] = f"{request.source_id or request.spec}: {exc}"
 
-        async with anyio.create_task_group() as group:
-            for index, request in enumerate(specs):
-                group.start_soon(one, index, request)
+        for index, request in enumerate(specs):
+            await one(index, request)
 
         failures = [problems[i] for i in sorted(problems)]
         for index in sorted(opened):

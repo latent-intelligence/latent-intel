@@ -32,6 +32,7 @@ from latent_intel.models import (
     ToolSpec,
 )
 from latent_intel.session import Session
+from tests.test_mcp import probe_command
 
 pytestmark = pytest.mark.anyio
 
@@ -551,6 +552,27 @@ async def test_one_unreachable_source_does_not_stop_the_others(tmp_path: Path) -
 
     assert len(failures) == 1 and failures[0].startswith("bad:")
     assert [d.id for d in session.sources()] == ["good"]
+    await session.aclose()
+
+
+@pytest.mark.anyio
+async def test_connect_many_opens_a_subprocess_source_the_session_can_close() -> None:
+    """The combination nothing else covers: `connect_many` and a real stdio server.
+
+    A stdio transport yields inside a task group of its own, so its cancel scope belongs
+    to the task that entered it. Opening one in a child task left that scope behind and
+    the next scope exit raised `Attempted to exit a cancel scope that isn't the current
+    task's` — on success, after the handshake. The other cases here use `files`, and the
+    MCP suite opens its probe in the calling task, so the seam between them was unheld.
+    """
+    session = Session()
+    failures = await session.connect_many(
+        [SourceRequest(spec=probe_command(), kind="mcp", source_id="probe")]
+    )
+
+    assert failures == []
+    assert [d.id for d in session.sources()] == ["probe"]
+    assert "probe.whoami" in [t.qualified for t in session.tools()]
     await session.aclose()
 
 
