@@ -1,4 +1,9 @@
-"""The `anthropic` runtime: availability, the turn, and every way a turn can end.
+"""The messages adapter through `custom`: availability, the turn, and every way it ends.
+
+Every case here was written against the `anthropic` runtime and retargeted when that
+module was folded into `custom` on 2026-09-17: only the constructor and the file name
+changed, which is the refactor's proof. What it exercises is one loop
+(`runtimes/custom.py`) over one adapter (`protocols/messages.py`) on the Anthropic rows.
 
 No network, no key, no model. The SDK client is replaced by `fixtures/fake_anthropic`,
 which is the same shape the real one is — nested async context managers, streamed text
@@ -18,7 +23,7 @@ import anthropic
 import pytest
 
 from latent_intel import events as ev
-from latent_intel.agent.runtimes.anthropic import ENV_HOST, AnthropicRuntime
+from latent_intel.agent.runtimes.custom import ENV_HOST, CustomRuntime
 from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
 from tests.fixtures.fake_anthropic import FakeClient, Round, Usage
 
@@ -41,6 +46,13 @@ def credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "never-printed-resource")
 
 
+def runtime(**options: Any) -> CustomRuntime:
+    """The row this file exercises: Foundry's Anthropic surface, which speaks the
+    messages protocol. `custom` has no default host, so every case names one."""
+    options.setdefault("host", "foundry-anthropic")
+    return CustomRuntime(**options)
+
+
 def spec(name: str, effect: Effect = Effect.EXTERNAL_READ) -> ToolSpec:
     return ToolSpec(
         name=name, source_id="design", description=f"the {name} tool", effect=effect
@@ -48,13 +60,13 @@ def spec(name: str, effect: Effect = Effect.EXTERNAL_READ) -> ToolSpec:
 
 
 async def collect(
-    runtime: AnthropicRuntime,
+    backend: CustomRuntime,
     tools: list[ToolSpec] | None = None,
     **options: Any,
 ) -> list[ev.AgentEvent]:
     return [
         event
-        async for event in runtime.stream(
+        async for event in backend.stream(
             [Message(text="what is compaction?")],
             tools or [],
             emitter=ev.Emitter(uuid4()),
@@ -78,9 +90,9 @@ def terminal(events: list[ev.AgentEvent]) -> ev.AgentEvent:
 
 
 def test_a_runtime_with_nothing_set_names_the_variables_it_wants() -> None:
-    """`doctor` builds this with no arguments, which is why it has to be constructible
-    with none."""
-    reason = AnthropicRuntime().unavailable_reason()
+    """`doctor` builds every runtime and prints its reason, so the reason for the row
+    that is configured has to name what that row still wants."""
+    reason = runtime().unavailable_reason()
     assert reason is not None
     assert "ANTHROPIC_FOUNDRY_API_KEY" in reason
     assert "ANTHROPIC_FOUNDRY_RESOURCE" in reason
@@ -93,24 +105,26 @@ def test_either_endpoint_variable_satisfies_foundry(
     demanding both would refuse a correctly configured machine."""
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://example/anthropic")
-    assert AnthropicRuntime().available()
+    assert runtime().available()
 
 
 def test_the_anthropic_host_wants_one_variable_not_three(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runtime = AnthropicRuntime(host="anthropic")
-    reason = runtime.unavailable_reason()
+    backend = runtime(host="anthropic")
+    reason = backend.unavailable_reason()
     assert reason is not None and "ANTHROPIC_API_KEY" in reason
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
-    assert runtime.available()
+    assert backend.available()
 
 
 def test_an_unknown_host_names_the_known_ones() -> None:
     """A typo in a project file must not read as a missing credential."""
-    reason = AnthropicRuntime(host="bedrock").unavailable_reason()
+    reason = runtime(host="bedrock").unavailable_reason()
     assert reason is not None
-    assert "bedrock" in reason and "foundry" in reason and "anthropic" in reason
+    assert (
+        "bedrock" in reason and "foundry-anthropic" in reason and "anthropic" in reason
+    )
 
 
 def test_no_credential_value_ever_reaches_the_reason(
@@ -118,18 +132,26 @@ def test_no_credential_value_ever_reaches_the_reason(
 ) -> None:
     """`doctor` output is pasted into support threads. Names only, always."""
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "sk-sentinel-value")
-    reason = AnthropicRuntime().unavailable_reason()
+    reason = runtime().unavailable_reason()
     assert reason is not None
     assert "sk-sentinel-value" not in reason
 
 
-def test_host_selection_is_option_then_environment_then_default(
+def test_host_selection_is_option_then_environment_and_otherwise_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert AnthropicRuntime().host == "foundry"
+    """There is no default here, unlike the runtime this file was written against:
+    seven rows across two protocols make one right for at most one deployment, so an
+    unset host is reported by name. `doctor` still builds this with no arguments,
+    which is why it has to be constructible with none."""
+    bare = CustomRuntime()
+    assert bare.host == ""
+    reason = bare.unavailable_reason()
+    assert reason is not None and "no host is set" in reason
+
     monkeypatch.setenv(ENV_HOST, "anthropic")
-    assert AnthropicRuntime().host == "anthropic"
-    assert AnthropicRuntime(host="foundry").host == "foundry"
+    assert CustomRuntime().host == "anthropic"
+    assert CustomRuntime(host="foundry-anthropic").host == "foundry-anthropic"
 
 
 def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
@@ -138,10 +160,10 @@ def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
     the remedy is to fix or delete them, and a generic refusal says which file to open
     but not which line."""
     with pytest.raises(RuntimeUnavailable) as caught:
-        AnthropicRuntime(model="m", nonsense=1, cwd="/tmp")
+        runtime(model="m", nonsense=1, cwd="/tmp")
     message = str(caught.value)
     assert "cwd" in message and "nonsense" in message
-    assert "runtimes: anthropic:" in message
+    assert "runtimes: custom:" in message
 
 
 def test_both_endpoint_variables_at_once_are_refused_before_the_sdk_refuses_them(
@@ -153,7 +175,7 @@ def test_both_endpoint_variables_at_once_are_refused_before_the_sdk_refuses_them
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "r")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://example/anthropic")
-    reason = AnthropicRuntime().unavailable_reason()
+    reason = runtime().unavailable_reason()
     assert reason is not None
     assert "ANTHROPIC_FOUNDRY_RESOURCE" in reason
     assert "ANTHROPIC_FOUNDRY_BASE_URL" in reason
@@ -170,7 +192,7 @@ def test_an_empty_resource_is_named_rather_than_read_as_unset(
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://private.example/anthropic")
-    reason = AnthropicRuntime().unavailable_reason()
+    reason = runtime().unavailable_reason()
     assert reason is not None
     assert "ANTHROPIC_FOUNDRY_RESOURCE" in reason
     assert "empty" in reason
@@ -196,10 +218,21 @@ async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
             raise AssertionError("the anthropic runtime reached for the SDK anyway")
         return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
+    real_import_module = importlib.import_module
+
+    def refuse_module(name: str, package: str | None = None) -> Any:
+        # `custom.stream` imports the row's SDK by name through `import_module`,
+        # which does not pass through `builtins.__import__` — so both doors are shut,
+        # or this test would let a real client dial out from `tests/`.
+        if name == "anthropic":
+            raise AssertionError("the anthropic runtime reached for the SDK anyway")
+        return real_import_module(name, package)
+
     monkeypatch.setattr(importlib.util, "find_spec", no_spec)
     monkeypatch.setattr(builtins, "__import__", refuse)
+    monkeypatch.setattr(importlib, "import_module", refuse_module)
 
-    failed = terminal(await collect(AnthropicRuntime()))
+    failed = terminal(await collect(runtime()))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "runtime_unavailable"
     assert "latent-intel[api]" in failed.message
@@ -208,7 +241,7 @@ async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
 @pytest.mark.anyio
 async def test_an_unusable_runtime_fails_as_an_event_not_an_exception() -> None:
     """A frontend iterating this over a transport has nowhere to catch an exception."""
-    failed = terminal(await collect(AnthropicRuntime()))
+    failed = terminal(await collect(runtime()))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "runtime_unavailable"
 
@@ -219,7 +252,7 @@ async def test_an_unusable_runtime_fails_as_an_event_not_an_exception() -> None:
 @pytest.mark.anyio
 async def test_text_streams_then_completes_once(credentials: None) -> None:
     client = FakeClient(Round(text=("Compaction ", "is bounded.")))
-    events = await collect(AnthropicRuntime(client_factory=client))
+    events = await collect(runtime(client_factory=client))
 
     assert [e.text for e in events if isinstance(e, ev.AssistantToken)] == [
         "Compaction ",
@@ -237,7 +270,7 @@ async def test_a_turn_with_no_tools_sends_no_tools_key(credentials: None) -> Non
     """The API rejects an empty tool list, so the key is omitted rather than sent
     empty. The same rule applies to an absent system prompt."""
     client = FakeClient(Round(text=("hi",)))
-    await collect(AnthropicRuntime(client_factory=client))
+    await collect(runtime(client_factory=client))
     assert "tools" not in client.requests[0]
     assert "system" not in client.requests[0]
 
@@ -250,7 +283,7 @@ async def test_attached_sources_reach_the_model_as_a_system_prompt(
 
     client = FakeClient(Round(text=("hi",)))
     await collect(
-        AnthropicRuntime(client_factory=client),
+        runtime(client_factory=client),
         sources=[Descriptor(id="design", kind="wiki")],
     )
     assert "design (wiki)" in client.requests[0]["system"]
@@ -272,7 +305,7 @@ async def test_usage_is_summed_across_rounds_not_taken_from_the_last(
     )
     done = terminal(
         await collect(
-            AnthropicRuntime(client_factory=client),
+            runtime(client_factory=client),
             tools=[spec("wiki_get")],
             call_tool=_router,
         )
@@ -303,7 +336,7 @@ async def test_a_tool_call_is_routed_paired_and_sent_back(credentials: None) -> 
         Round(text=("the wiki says yes",)),
     )
     events = await collect(
-        AnthropicRuntime(client_factory=client),
+        runtime(client_factory=client),
         tools=[spec("wiki_get")],
         call_tool=_router,
     )
@@ -340,7 +373,7 @@ async def test_the_assistant_blocks_go_back_verbatim(credentials: None) -> None:
         Round(text=("done",)),
     )
     await collect(
-        AnthropicRuntime(client_factory=client),
+        runtime(client_factory=client),
         tools=[spec("wiki_get")],
         call_tool=_router,
     )
@@ -362,7 +395,7 @@ async def test_two_tool_blocks_in_one_message_are_both_run(credentials: None) ->
         Round(text=("done",)),
     )
     events = await collect(
-        AnthropicRuntime(client_factory=client),
+        runtime(client_factory=client),
         tools=[spec("wiki_get"), spec("wiki_search")],
         call_tool=_router,
     )
@@ -383,7 +416,7 @@ async def test_a_failing_tool_does_not_end_the_turn(credentials: None) -> None:
         Round(text=("I could not read it",)),
     )
     events = await collect(
-        AnthropicRuntime(client_factory=client),
+        runtime(client_factory=client),
         tools=[spec("wiki_get")],
         call_tool=angry,
     )
@@ -407,7 +440,7 @@ async def test_a_tool_the_model_invented_is_never_routed(credentials: None) -> N
         Round(text=("sorry",)),
     )
     events = await collect(
-        AnthropicRuntime(client_factory=client),
+        runtime(client_factory=client),
         tools=[spec("wiki_get")],
         call_tool=record,
     )
@@ -426,12 +459,12 @@ async def test_every_writing_tool_is_withheld_unless_approval_is_auto(
     tools = [spec("read"), spec("write", effect)]
 
     cautious = FakeClient(Round(text=("hi",)))
-    await collect(AnthropicRuntime(client_factory=cautious), tools=tools)
+    await collect(runtime(client_factory=cautious), tools=tools)
     assert [t["name"] for t in cautious.requests[0]["tools"]] == ["design_read"]
 
     permissive = FakeClient(Round(text=("hi",)))
     await collect(
-        AnthropicRuntime(client_factory=permissive, approval="auto"), tools=tools
+        runtime(client_factory=permissive, approval="auto"), tools=tools
     )
     assert len(permissive.requests[0]["tools"]) == 2
 
@@ -441,7 +474,7 @@ async def test_a_tool_that_declares_no_parameters_is_still_a_legal_definition(
     credentials: None,
 ) -> None:
     client = FakeClient(Round(text=("hi",)))
-    await collect(AnthropicRuntime(client_factory=client), tools=[spec("ping")])
+    await collect(runtime(client_factory=client), tools=[spec("ping")])
     assert client.requests[0]["tools"][0]["input_schema"] == {
         "type": "object",
         "properties": {},
@@ -460,7 +493,7 @@ async def test_a_paused_turn_is_resumed_rather_than_reported(
         Round(text=("thinking",), stop_reason="pause_turn"),
         Round(text=(" done",)),
     )
-    done = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    done = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(done, ev.AgentCompleted)
     assert done.text == "thinking done"
 
@@ -473,7 +506,7 @@ async def test_a_stop_reason_that_is_not_an_answer_fails_with_a_remedy(
     credentials: None, stop: str
 ) -> None:
     client = FakeClient(Round(text=("half an ans",), stop_reason=stop))
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == stop and failed.remedy
 
@@ -485,7 +518,7 @@ async def test_a_stop_reason_this_build_does_not_know_is_not_a_success(
     """Treating an unrecognised reason as `end_turn` would report a truncated answer
     as a complete one."""
     client = FakeClient(Round(text=("...",), stop_reason="something_new"))
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed) and failed.kind == "something_new"
 
 
@@ -496,7 +529,7 @@ async def test_a_stream_that_ends_with_no_stop_reason_is_not_an_answer(
     """A response cut by a proxy returns normally with no stop reason, and treating
     that as success reported whatever arrived before the cut as the whole answer."""
     client = FakeClient(Round(text=("Compaction is",), stop_reason=None))
-    events = await collect(AnthropicRuntime(client_factory=client))
+    events = await collect(runtime(client_factory=client))
     failed = terminal(events)
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "unexpected_stop"
@@ -515,7 +548,7 @@ async def test_two_tools_that_fold_to_one_name_end_the_turn_before_a_request(
         ToolSpec(name="search", source_id="my wiki", effect=Effect.EXTERNAL_READ),
         ToolSpec(name="search", source_id="my_wiki", effect=Effect.EXTERNAL_READ),
     ]
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client), tools))
+    failed = terminal(await collect(runtime(client_factory=client), tools))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "runtime_error"
     assert "my wiki.search" in failed.message
@@ -538,7 +571,7 @@ async def test_an_empty_earlier_answer_is_never_sent_back(
     ]
     events = [
         event
-        async for event in AnthropicRuntime(client_factory=client).stream(
+        async for event in runtime(client_factory=client).stream(
             history, [], emitter=ev.Emitter(uuid4())
         )
     ]
@@ -560,7 +593,7 @@ async def test_a_model_looping_on_tools_is_stopped_by_the_round_bound(
     client = FakeClient(*rounds)
     failed = terminal(
         await collect(
-            AnthropicRuntime(client_factory=client, max_tool_rounds=3),
+            runtime(client_factory=client, max_tool_rounds=3),
             tools=[spec("wiki_get")],
             call_tool=_router,
         )
@@ -581,7 +614,7 @@ async def test_a_rejected_key_names_the_variable_to_check(credentials: None) -> 
             )
         )
     )
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "auth"
     assert "ANTHROPIC_FOUNDRY_API_KEY" in failed.remedy
@@ -600,7 +633,7 @@ async def test_a_404_carries_the_host_s_own_remedy(credentials: None) -> None:
     )
     failed = terminal(
         await collect(
-            AnthropicRuntime(client_factory=client, model="claude-sonnet-5-20260101")
+            runtime(client_factory=client, model="claude-sonnet-5-20260101")
         )
     )
     assert isinstance(failed, ev.AgentFailed)
@@ -622,7 +655,7 @@ async def test_rate_limiting_is_its_own_kind_not_a_generic_api_error(
             )
         )
     )
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed) and failed.kind == "rate_limit"
 
 
@@ -637,7 +670,7 @@ async def test_any_other_status_reports_the_status(credentials: None) -> None:
             )
         )
     )
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "api_error" and "500" in failed.message
     assert failed.message == "the endpoint returned 500"
@@ -661,7 +694,7 @@ async def test_a_status_error_carries_the_endpoint_s_own_explanation(
             )
         )
     )
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "api_error"
     assert "400" in failed.message and detail in failed.message
@@ -678,7 +711,7 @@ async def test_an_unreachable_endpoint_names_where_it_is_configured(
             )
         )
     )
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "connection"
     assert "ANTHROPIC_FOUNDRY_RESOURCE" in failed.remedy
@@ -700,7 +733,7 @@ async def test_an_unreachable_default_endpoint_names_no_variable_at_all(
         )
     )
     failed = terminal(
-        await collect(AnthropicRuntime(host="anthropic", client_factory=client))
+        await collect(runtime(host="anthropic", client_factory=client))
     )
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "connection"
@@ -713,7 +746,7 @@ async def test_an_error_the_sdk_does_not_own_is_still_one_event(
     credentials: None,
 ) -> None:
     client = FakeClient(Round(raises=ValueError("something else entirely")))
-    failed = terminal(await collect(AnthropicRuntime(client_factory=client)))
+    failed = terminal(await collect(runtime(client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "runtime_error"
     assert "something else entirely" in failed.message
@@ -729,7 +762,7 @@ async def test_cancellation_closes_the_stream_rather_than_reporting_itself(
 
     client = FakeClient(Round(raises=anyio.get_cancelled_exc_class()()))
     with pytest.raises(anyio.get_cancelled_exc_class()):
-        await collect(AnthropicRuntime(client_factory=client))
+        await collect(runtime(client_factory=client))
 
 
 @pytest.mark.anyio
@@ -749,7 +782,7 @@ async def test_text_after_a_tool_round_starts_a_new_paragraph(
         Round(text=(" says yes",)),
     )
     events = await collect(
-        AnthropicRuntime(client_factory=client),
+        runtime(client_factory=client),
         tools=[spec("wiki_get")],
         call_tool=_router,
     )
@@ -783,7 +816,7 @@ def built(
         return FakeClient()
 
     monkeypatch.setattr(anthropic, client, factory)
-    AnthropicRuntime(**options)._client()
+    runtime(**options)._client()
     return seen
 
 

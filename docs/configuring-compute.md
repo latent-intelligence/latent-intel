@@ -16,11 +16,11 @@ should see.
 the one to use when the deployment has its own Anthropic account, and the shortest path
 to a capable model that handles a long tool loop well.
 
-Unlike OpenRouter, this is the **`anthropic` runtime** — a different protocol, not just a
-different endpoint. A runtime is **who owns the agent loop**; the custom-loop ones are
-named for the protocol they speak, and the host says which endpoint on that protocol.
-`sdk-anthropic` is the SDK-run sibling of `anthropic`: same protocol, same hosts, same
-variables, so everything on this page applies to it unchanged.
+Unlike OpenRouter, this is the **`anthropic` host row** — a different protocol, not just
+a different endpoint. A runtime is **who owns the agent loop**, and `custom` owns ours
+for every row; the row says which endpoint and which protocol. `sdk-anthropic` is the
+SDK-run sibling for this row: same protocol, same hosts, same variables, so everything on
+this page applies to it unchanged.
 
 ### 1. Set one variable
 
@@ -36,21 +36,30 @@ ANTHROPIC_API_KEY=sk-ant-…
 ```
 $ intel hosts
 
-anthropic
-  · foundry    set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
-  ✓ anthropic  ANTHROPIC_API_KEY
+custom
+  ! no host is set — set `host:` under `runtimes: custom:`; `intel hosts` lists them
+  ✓ anthropic          ANTHROPIC_API_KEY
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+  · openai             set OPENAI_API_KEY for host 'openai'
+  · foundry-openai     set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
+ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
+  · openrouter         set OPENROUTER_API_KEY for host 'openrouter'
+  · azure-openai       set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+OPENAI_API_VERSION for host 'azure-openai'
+  · local              set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
 
-The `anthropic` runtime defaults to `foundry`, not to the vendor's own API — the
-deployment this was written for runs on Azure. So a key alone is not enough: the host has
-to be chosen as well, which is the next step. The `✓` names the variable answering for
-it, so you can confirm the key landed before going further.
+`custom` has **no default host** — seven rows across two protocols make any default right
+for at most one deployment — so a key alone is not enough: the row has to be chosen as
+well, which is the next step and which the `!` line above says in as many words. The `✓`
+names the variable answering for it, so you can confirm the key landed before going
+further.
 
 ### 3. Choose it
 
 ```
-latent › /runtime anthropic
+latent › /runtime custom
 latent › /host anthropic
 latent › /model claude-haiku-4-5
 ```
@@ -58,9 +67,9 @@ latent › /model claude-haiku-4-5
 Or in config:
 
 ```yaml
-runtime: anthropic
+runtime: custom
 runtimes:
-  anthropic:
+  custom:
     host: anthropic
     model: claude-haiku-4-5
 ```
@@ -106,7 +115,8 @@ another by changing two lines of config.
 
 | what you see | what it means |
 |---|---|
-| `set ANTHROPIC_FOUNDRY_API_KEY, …` | the host is still `foundry`, the runtime's default. Set `host: anthropic` |
+| `no host is set` | no row has been chosen, and there is no default. Set `host: anthropic` |
+| `set ANTHROPIC_FOUNDRY_API_KEY, …` | the host is `foundry-anthropic`, which is the other Messages row. Set `host: anthropic` |
 | a 401 | the key was rejected. The remedy names the variable, never the value |
 | a 404 | the model id — check it against Anthropic's published list |
 | a 429 | Anthropic is rate limiting the account. Wait, or raise the account's limit |
@@ -117,17 +127,18 @@ another by changing two lines of config.
 
 **What it is for.** Claude models served from your own Azure resource — inside your
 subscription, inside your network boundary, billed through Azure. This is the enterprise
-path, and the reason the `anthropic` runtime defaults to it rather than to the vendor's
-own API.
+path, and the deployment this page was written for.
 
 **One resource, two surfaces.** A Foundry resource answers both the Anthropic Messages
-protocol and an OpenAI-compatible one, so Foundry appears as a host row under **both**
-runtimes. Which you choose decides the variable names and nothing else — the resource,
-the deployments and the key are the same either way.
+protocol and an OpenAI-compatible one, so Foundry is **two rows** — `foundry-anthropic`
+and `foundry-openai`. They read different variables and are dialled at different paths,
+which is why one `foundry` would have to be read twice to know which it meant. Which you
+choose decides the variable names and nothing else — the resource, the deployments and
+the key are the same either way.
 
 ### 1. Set two variables
 
-Over the Anthropic protocol, which is the `anthropic` runtime's default host:
+Over the Anthropic protocol, which is the `foundry-anthropic` row:
 
 ```bash
 # ~/.config/latent-intel/.env
@@ -135,7 +146,7 @@ ANTHROPIC_FOUNDRY_API_KEY=…
 ANTHROPIC_FOUNDRY_RESOURCE=<your-resource-name>
 ```
 
-Over the OpenAI-compatible surface, on the `openai` runtime:
+Over the OpenAI-compatible surface, which is the `foundry-openai` row:
 
 ```bash
 FOUNDRY_API_KEY=…
@@ -176,14 +187,17 @@ fallback in the same breath:
 ```
 $ intel hosts
 
-anthropic ← configured
-  · foundry    set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
-  ✓ anthropic  ← in use  ANTHROPIC_API_KEY
-
-openai
-  · foundry       set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
-ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
+custom ← configured
+  ✓ anthropic          ← in use  ANTHROPIC_API_KEY
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+  · openai             set OPENAI_API_KEY for host 'openai'
+  · foundry-openai     set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
+ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
+  · openrouter         set OPENROUTER_API_KEY for host 'openrouter'
+  · azure-openai       set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+OPENAI_API_VERSION for host 'azure-openai'
+  · local              set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
 
 > The blocks from here down are written from the host declarations rather than captured
@@ -192,23 +206,29 @@ ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
 
 ### 3. Choose it
 
-The Anthropic protocol, where `foundry` is already the default host:
+The Anthropic protocol, which is the `foundry-anthropic` row:
+
+```
+latent › /runtime custom
+latent › /host foundry-anthropic
+latent › /model claude-sonnet-5
+```
 
 ```yaml
-runtime: anthropic
+runtime: custom
 runtimes:
-  anthropic:
-    host: foundry
+  custom:
+    host: foundry-anthropic
     model: claude-sonnet-5
 ```
 
-The OpenAI-compatible surface, for the same resource:
+The OpenAI-compatible surface, for the same resource — the same runtime, a different row:
 
 ```yaml
-runtime: openai
+runtime: custom
 runtimes:
-  openai:
-    host: foundry
+  custom:
+    host: foundry-openai
     model: claude-sonnet-5
 ```
 
@@ -236,9 +256,9 @@ $ intel doctor
 
 runtimes
   custom loop
-    ✓ anthropic ← configured
-    · openai — set OPENAI_API_KEY for host 'openai'
+    ✓ custom ← configured
   sdk runner
+    · openai-agents — set OPENAI_API_KEY for host 'openai'
     ✓ sdk-anthropic
   delegated
     ✓ claude-cli
@@ -286,12 +306,17 @@ already exported beats both. Get the key from
 ```
 $ intel hosts
 
-openai ← configured
-  ! openai         set OPENAI_API_KEY for host 'openai'
-  ! foundry        set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
-  ✓ openrouter     ← in use  OPENROUTER_API_KEY
-  ! azure-openai   set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT, OPENAI_API_VERSION for host 'azure-openai'
-  ! local          set LOCAL_OPENAI_BASE_URL for host 'local'
+custom ← configured
+  · anthropic          set ANTHROPIC_API_KEY for host 'anthropic'
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+  · openai             set OPENAI_API_KEY for host 'openai'
+  · foundry-openai     set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
+ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
+  ✓ openrouter         ← in use  OPENROUTER_API_KEY
+  · azure-openai       set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+OPENAI_API_VERSION for host 'azure-openai'
+  · local              set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
 
 ### 3. Choose it
@@ -300,36 +325,36 @@ Three commands in the shell. Each persists immediately, the way `/connect` does,
 reports what is still missing — so the next thing to fix is always on screen:
 
 ```
-latent › /runtime openai
-runtime openai
-! set OPENAI_API_KEY for host 'openai'
+latent › /runtime custom
+runtime custom
+! no host is set — set `host:` under `runtimes: custom:`; `intel hosts` lists them
 latent › /host openrouter
-host openrouter for openai
-! no model is set — set `model:` under `runtimes: openai:`, because every host names its
+host openrouter for custom
+! no model is set — set `model:` under `runtimes: custom:`, because every host names its
 models differently and there is no default
 latent › /model poolside/laguna-s-2.1:free
-model poolside/laguna-s-2.1:free for openai
+model poolside/laguna-s-2.1:free for custom
 ```
 
 The last line prints no warning, which is how you know nothing is left. The same three
 values in config, if you would rather write the file:
 
 ```yaml
-runtime: openai
+runtime: custom
 runtimes:
-  openai:
+  custom:
     host: openrouter
     model: poolside/laguna-s-2.1:free
 ```
 
-**Why `openai` and not `anthropic`?** A runtime is who owns the loop, and the custom-loop
-ones are named for the *protocol* they speak, not the vendor. OpenRouter speaks the
-OpenAI-compatible one, so `runtime: openai` is right even when the model you pick is
-`anthropic/claude-sonnet-4.5`.
+**Why one runtime?** A runtime is who owns the loop; the *protocol* is a property of the
+endpoint, and the host row names it. OpenRouter speaks the OpenAI-compatible one, so
+`host: openrouter` under `runtime: custom` is right whatever vendor the model you pick
+comes from — `anthropic/claude-sonnet-4.5` included.
 
-`openai-agents` is the SDK-run sibling of `openai`: the same protocol, the same hosts and
-the same variables, so everything in this section applies to it unchanged once the
-`agents` extra is installed.
+`openai-agents` is the SDK-run sibling for the chat rows: the same protocol, the same
+hosts and the same variables, so everything in this section applies to it unchanged once
+the `agents` extra is installed.
 
 **Model ids are `<vendor>/<model>`**, listed at
 [openrouter.ai/models](https://openrouter.ai/models). A `:free` suffix is a free tier of
@@ -343,12 +368,11 @@ throughout this section.
 ```
 runtimes
   custom loop
-    · anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
-    ✓ openai ← configured
+    ✓ custom ← configured
   sdk runner
+    · openai-agents — set OPENAI_API_KEY for host 'openai'
     · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
   delegated
     ✓ claude-cli
   model: poolside/laguna-s-2.1:free
@@ -476,29 +500,36 @@ for the public API must never be forwarded to whatever is listening on the LAN.
 ```
 $ intel hosts
 
-openai ← configured
-  · openai        set OPENAI_API_KEY for host 'openai'
-  · openrouter    set OPENROUTER_API_KEY for host 'openrouter'
-  ✓ local         ← in use  LOCAL_OPENAI_BASE_URL
+custom ← configured
+  · anthropic          set ANTHROPIC_API_KEY for host 'anthropic'
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+  · openai             set OPENAI_API_KEY for host 'openai'
+  · foundry-openai     set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
+ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
+  · openrouter         set OPENROUTER_API_KEY for host 'openrouter'
+  · azure-openai       set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+OPENAI_API_VERSION for host 'azure-openai'
+  ✓ local              ← in use  LOCAL_OPENAI_BASE_URL
 ```
 
 ### 3. Choose it
 
-The runtime is `openai` — the protocol, not the vendor. Ollama speaks the
-OpenAI-compatible API, so nothing else changes. Its SDK-run sibling `openai-agents`
-reaches this host on the same variables, if you want the framework's loop against a
-server that costs nothing.
+The runtime is `custom` and the row is `local` — the row carries the protocol, so
+Ollama's OpenAI-compatible API changes nothing else. The SDK-run sibling for this row,
+`openai-agents`, reaches it on the same variables, if you want the framework's loop
+against a server that costs nothing.
 
 ```
-latent › /runtime openai
+latent › /runtime custom
 latent › /host local
 latent › /model qwen3:14b
 ```
 
 ```yaml
-runtime: openai
+runtime: custom
 runtimes:
-  openai:
+  custom:
     host: local
     model: qwen3:14b
 ```

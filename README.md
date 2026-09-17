@@ -18,11 +18,12 @@ or `uv tool install .` from a clone if you are working on the engine itself.
 intel doctor                     # what is installed, what is reachable, what is not
 ```
 
-For `intel ask` — an agent answering over your sources — install the `api` extra instead,
-which brings both in-process runtime SDKs:
+For `intel ask` — an agent answering over your sources — add the extras for the runtimes
+you want. `api` brings the Anthropic and OpenAI SDKs that `custom` and `sdk-anthropic` run
+on; `agents` adds the OpenAI Agents SDK for `openai-agents`:
 
 ```bash
-uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"
+uv tool install "latent-intel[api,agents] @ git+https://github.com/latent-intelligence/latent-intel"
 ```
 
 ## Attach context 
@@ -138,25 +139,31 @@ Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
 
 ## Configure compute
 
-Sources say where context comes from; a **runtime** says where answers come from. Five
-ship: `claude-cli`, which shells to the `claude` binary; `anthropic` and `openai`, which
-run our own loop against a **host** — an endpoint, declared as a row; and `sdk-anthropic`
-and `openai-agents`, which hand the loop to the Anthropic SDK's tool runner and the
-OpenAI Agents SDK over the same hosts, while tools stay ours. Seven hosts ship between
-them, including Azure AI Foundry, classic Azure OpenAI, OpenRouter and any
-OpenAI-compatible server on your own machine.
+Sources say where context comes from; a **runtime** says where answers come from. Four
+ship: `claude-cli`, which shells to the `claude` binary; `custom`, which runs our own loop
+against a **host** — an endpoint declared as a row, and the row says which protocol it
+speaks; and `sdk-anthropic` and `openai-agents`, which hand the loop to the Anthropic
+SDK's tool runner and the OpenAI Agents SDK over the same rows, while tools stay ours.
+Seven hosts ship, including Azure AI Foundry on both its surfaces, classic Azure OpenAI,
+OpenRouter and any OpenAI-compatible server on your own machine.
 
 `intel hosts` says what each one would cost you to set up, before you have chosen:
 
 ```
 $ intel hosts
 
-openai
-  ! openai        ← configured  set OPENAI_API_KEY for host 'openai'
-  ✓ openrouter
-  ! azure-openai  set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
-OPENAI_API_VERSION for host 'azure-openai'
-  ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
+custom ← configured
+  · anthropic          set ANTHROPIC_API_KEY for host 'anthropic'
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+  · openai             set OPENAI_API_KEY for host 'openai'
+  · foundry-openai     set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY),
+FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host
+'foundry-openai'
+  ✓ openrouter         ← in use  OPENROUTER_API_KEY
+  · azure-openai       set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN,
+AZURE_OPENAI_ENDPOINT, OPENAI_API_VERSION for host 'azure-openai'
+  · local              set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
 
 Names of variables, never values — the whole block is safe to paste. Credentials come

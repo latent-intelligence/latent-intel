@@ -8,7 +8,7 @@ One `Round` per model round-trip. The client records every request it was given,
 test can assert what was *sent* as well as what came back: a tool result that never
 reaches the second request is a bug no assertion about events would catch.
 
-**One client, two loops.** `messages.stream` is the path `runtimes/anthropic.py` drives
+**One client, two loops.** `messages.stream` is the path `protocols/messages.py` drives
 itself; `beta.messages.tool_runner` returns a `_FakeRunner` driving the same scripted
 rounds the way `BaseAsyncToolRunner.__run__` does — including the part that matters most
 to `runtimes/sdk_anthropic.py`, which is that **the runner calls our tools**, between

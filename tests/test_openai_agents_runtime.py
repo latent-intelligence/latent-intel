@@ -71,7 +71,7 @@ class FakeClient:
 
 def runtime(fake: FakeRunner | None = None, **options: Any) -> OpenAIAgentsRuntime:
     """The host this branch was written for, plus the model it has no default for."""
-    options.setdefault("host", "foundry")
+    options.setdefault("host", "foundry-openai")
     options.setdefault("model", "gpt-5-deployment")
     options.setdefault("client_factory", FakeClient())
     if fake is not None:
@@ -127,9 +127,9 @@ def test_a_runtime_with_nothing_set_names_the_variable_it_wants() -> None:
 
 
 def test_the_foundry_host_names_both_its_variables_and_their_stand_ins() -> None:
-    """The same rows as `openai`, imported rather than declared twice — so a row that
-    grew a fallback grew it for both runtimes."""
-    reason = OpenAIAgentsRuntime(host="foundry").unavailable_reason()
+    """The same rows as `custom` reaches on this protocol, read from one table rather
+    than declared twice — so a row that grew a fallback grew it for both runtimes."""
+    reason = OpenAIAgentsRuntime(host="foundry-openai").unavailable_reason()
     assert reason is not None
     assert "FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY)" in reason
     assert "FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_RESOURCE)" in reason
@@ -146,7 +146,7 @@ def test_no_credential_value_ever_reaches_the_reason(
 ) -> None:
     """`doctor` output is pasted into support threads. Names only, always."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "sk-sentinel-value")
-    reason = OpenAIAgentsRuntime(host="foundry").unavailable_reason()
+    reason = OpenAIAgentsRuntime(host="foundry-openai").unavailable_reason()
     assert reason is not None
     assert "sk-sentinel-value" not in reason
 
@@ -156,7 +156,7 @@ def test_a_configured_runtime_with_no_model_says_so_under_its_own_key(
 ) -> None:
     """Every host names its models differently, so the block the reason names has to be
     this runtime's, not the sibling's."""
-    reason = OpenAIAgentsRuntime(host="foundry").unavailable_reason()
+    reason = OpenAIAgentsRuntime(host="foundry-openai").unavailable_reason()
     assert reason is not None
     assert "no model is set" in reason
     assert "runtimes: openai-agents:" in reason
@@ -168,7 +168,7 @@ def test_host_selection_reads_this_runtime_s_own_variable(
     """Its own variable, not the sibling's: a machine comparing the two loops sets one
     against OpenRouter and the other against the public API."""
     assert OpenAIAgentsRuntime().host == "openai"
-    monkeypatch.setenv("LATENT_INTEL_OPENAI_HOST", "openrouter")
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "openrouter")
     assert OpenAIAgentsRuntime().host == "openai"
     monkeypatch.setenv(ENV_HOST, "openrouter")
     assert OpenAIAgentsRuntime().host == "openrouter"
@@ -532,7 +532,7 @@ async def test_a_failing_tool_reaches_the_model_as_an_error_not_a_dead_turn(
 
 @pytest.mark.anyio
 async def test_unparseable_arguments_are_never_routed(credentials: None) -> None:
-    """The protocol's rule, shared with `openai.py`: a call truncated by the output
+    """The protocol's rule, shared with the chat adapter: a call truncated by the output
     limit arrives as broken JSON, and passing the fragment to a connector would report
     the model's own mistake as a failed source."""
     called: list[str] = []
@@ -794,8 +794,8 @@ async def test_cancellation_closes_the_stream_rather_than_reporting_itself(
 def test_a_row_is_built_with_the_kwargs_it_declares(
     credentials: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The same rows as `openai`, and the same failure if they drift: a value that is
-    right and never sent."""
+    """The same rows as `custom` reaches on this protocol, and the same failure if they
+    drift: a value that is right and never sent."""
     seen: dict[str, Any] = {}
 
     def factory(**kwargs: Any) -> FakeClient:
@@ -803,6 +803,6 @@ def test_a_row_is_built_with_the_kwargs_it_declares(
         return FakeClient()
 
     monkeypatch.setattr(openai, "AsyncOpenAI", factory)
-    OpenAIAgentsRuntime(host="foundry", model="m")._client()
+    OpenAIAgentsRuntime(host="foundry-openai", model="m")._client()
     assert seen["api_key"] == "never-printed-key"
     assert "never-printed-resource" in str(seen["base_url"])

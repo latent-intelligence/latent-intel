@@ -1,4 +1,10 @@
-"""The `openai` runtime: availability, the turn, and every way a turn can end.
+"""The chat adapter through `custom`: availability, the turn, and every way it ends.
+
+Every case here was written against the `openai` runtime and retargeted when that
+module was folded into `custom` on 2026-09-17: only the constructor and the file name
+changed, which is the refactor's proof. What it exercises is one loop
+(`runtimes/custom.py`) over one adapter (`protocols/chat.py`) on the OpenAI-compatible
+rows.
 
 No network, no key, no model. The SDK client is replaced by `fixtures/fake_openai`,
 which is the same shape the real one is — an awaited `create` returning an async
@@ -19,10 +25,10 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel.agent.hosts import base_url
-from latent_intel.agent.runtimes.openai import (
+from latent_intel.agent.runtimes.custom import (
     ENV_HOST,
     HOSTS,
-    OpenAIRuntime,
+    CustomRuntime,
 )
 from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
 from tests.fixtures.fake_openai import (
@@ -51,11 +57,11 @@ def credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FOUNDRY_RESOURCE", "never-printed-resource")
 
 
-def runtime(**options: Any) -> OpenAIRuntime:
+def runtime(**options: Any) -> CustomRuntime:
     """The host this branch was written for, plus the model it has no default for."""
-    options.setdefault("host", "foundry")
+    options.setdefault("host", "foundry-openai")
     options.setdefault("model", "gpt-5-deployment")
-    return OpenAIRuntime(**options)
+    return CustomRuntime(**options)
 
 
 def spec(name: str, effect: Effect = Effect.EXTERNAL_READ) -> ToolSpec:
@@ -65,7 +71,7 @@ def spec(name: str, effect: Effect = Effect.EXTERNAL_READ) -> ToolSpec:
 
 
 async def collect(
-    backend: OpenAIRuntime,
+    backend: CustomRuntime,
     tools: list[ToolSpec] | None = None,
     **options: Any,
 ) -> list[ev.AgentEvent]:
@@ -95,9 +101,9 @@ def terminal(events: list[ev.AgentEvent]) -> ev.AgentEvent:
 
 
 def test_a_runtime_with_nothing_set_names_the_variable_it_wants() -> None:
-    """`doctor` builds this with no arguments, which is why it has to be constructible
-    with none."""
-    reason = OpenAIRuntime().unavailable_reason()
+    """`doctor` builds every runtime and prints its reason, so the reason for the row
+    that is configured has to name what that row still wants."""
+    reason = CustomRuntime(host="openai").unavailable_reason()
     assert reason is not None and "OPENAI_API_KEY" in reason
 
 
@@ -105,7 +111,7 @@ def test_the_foundry_host_names_both_its_variables_and_their_stand_ins() -> None
     """One Foundry resource has one key, so a deployment that already reaches the
     Anthropic surface is finished — and the reason has to say so, or someone sets a
     second variable to the same value they already have."""
-    reason = OpenAIRuntime(host="foundry").unavailable_reason()
+    reason = CustomRuntime(host="foundry-openai").unavailable_reason()
     assert reason is not None
     assert "FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY)" in reason
     assert "FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_RESOURCE)" in reason
@@ -119,7 +125,7 @@ def test_the_anthropic_surface_variables_alone_satisfy_foundry(
     one surface further along."""
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "r")
-    assert OpenAIRuntime(host="foundry", model="gpt-5-deployment").available()
+    assert CustomRuntime(host="foundry-openai", model="gpt-5-deployment").available()
 
 
 def test_the_other_surfaces_base_url_is_not_a_fallback(
@@ -129,7 +135,7 @@ def test_the_other_surfaces_base_url_is_not_a_fallback(
     resource. Accepting it here would send OpenAI requests to it."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://example/anthropic")
-    reason = OpenAIRuntime(host="foundry", model="m").unavailable_reason()
+    reason = CustomRuntime(host="foundry-openai", model="m").unavailable_reason()
     assert reason is not None and "FOUNDRY_RESOURCE" in reason
 
 
@@ -140,7 +146,7 @@ def test_either_endpoint_variable_satisfies_foundry(
     demanding both would refuse a correctly configured machine."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://example/openai/v1")
-    assert OpenAIRuntime(host="foundry", model="m").available()
+    assert CustomRuntime(host="foundry-openai", model="m").available()
 
 
 def test_the_openai_host_wants_one_variable_not_two(
@@ -148,7 +154,7 @@ def test_the_openai_host_wants_one_variable_not_two(
 ) -> None:
     """The SDK has a default endpoint, so `OPENAI_BASE_URL` is an override rather than
     a requirement."""
-    backend = OpenAIRuntime(host="openai", model="gpt-5")
+    backend = CustomRuntime(host="openai", model="gpt-5")
     reason = backend.unavailable_reason()
     assert reason is not None and "OPENAI_API_KEY" in reason
     monkeypatch.setenv("OPENAI_API_KEY", "k")
@@ -161,15 +167,15 @@ def test_a_configured_runtime_with_no_model_says_which_key_to_set(
     """There is no default model: every host names its models differently, so a default
     would be right on at most one of them. `doctor` has to say that offline rather than
     report a runtime as ready that fails at the first question."""
-    reason = OpenAIRuntime(host="foundry").unavailable_reason()
-    assert reason is not None and "model:" in reason and "openai" in reason
+    reason = CustomRuntime(host="foundry-openai").unavailable_reason()
+    assert reason is not None and "model:" in reason and "custom" in reason
 
 
 def test_an_unknown_host_names_the_known_ones() -> None:
     """A typo in a project file must not read as a missing credential."""
-    reason = OpenAIRuntime(host="openroutr").unavailable_reason()
+    reason = CustomRuntime(host="openroutr").unavailable_reason()
     assert reason is not None
-    assert "openroutr" in reason and "foundry" in reason and "openai" in reason
+    assert "openroutr" in reason and "foundry-openai" in reason and "openai" in reason
 
 
 def test_no_credential_value_ever_reaches_the_reason(
@@ -177,18 +183,25 @@ def test_no_credential_value_ever_reaches_the_reason(
 ) -> None:
     """`doctor` output is pasted into support threads. Names only, always."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "sk-sentinel-value")
-    reason = OpenAIRuntime(host="foundry").unavailable_reason()
+    reason = CustomRuntime(host="foundry-openai").unavailable_reason()
     assert reason is not None
     assert "sk-sentinel-value" not in reason
 
 
-def test_host_selection_is_option_then_environment_then_default(
+def test_host_selection_is_option_then_environment_and_otherwise_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert OpenAIRuntime().host == "openai"
-    monkeypatch.setenv(ENV_HOST, "foundry")
-    assert OpenAIRuntime().host == "foundry"
-    assert OpenAIRuntime(host="openai").host == "openai"
+    """There is no default here, unlike the runtime this file was written against:
+    seven rows across two protocols make one right for at most one deployment, so an
+    unset host is reported by name."""
+    bare = CustomRuntime()
+    assert bare.host == ""
+    reason = bare.unavailable_reason()
+    assert reason is not None and "no host is set" in reason
+
+    monkeypatch.setenv(ENV_HOST, "foundry-openai")
+    assert CustomRuntime().host == "foundry-openai"
+    assert CustomRuntime(host="openai").host == "openai"
 
 
 def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
@@ -197,10 +210,10 @@ def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
     remedy is to fix or delete them, and a generic refusal says which file to open but
     not which line."""
     with pytest.raises(RuntimeUnavailable) as caught:
-        OpenAIRuntime(model="m", nonsense=1, cwd="/tmp")
+        CustomRuntime(model="m", nonsense=1, cwd="/tmp")
     message = str(caught.value)
     assert "cwd" in message and "nonsense" in message
-    assert "runtimes: openai:" in message
+    assert "runtimes: custom:" in message
 
 
 def test_both_endpoint_variables_at_once_are_reported_rather_than_silently_ranked(
@@ -212,7 +225,7 @@ def test_both_endpoint_variables_at_once_are_reported_rather_than_silently_ranke
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://example/openai/v1")
-    reason = OpenAIRuntime(host="foundry", model="m").unavailable_reason()
+    reason = CustomRuntime(host="foundry-openai", model="m").unavailable_reason()
     assert reason is not None
     assert "FOUNDRY_RESOURCE" in reason and "FOUNDRY_BASE_URL" in reason
     assert "only one" in reason
@@ -228,8 +241,8 @@ def test_an_address_for_this_surface_beats_a_resource_it_inherited(
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "prod")
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://staging.example/openai/v1")
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
-    assert OpenAIRuntime(host="foundry", model="m").available()
-    assert base_url(HOSTS["foundry"]) == "https://staging.example/openai/v1"
+    assert CustomRuntime(host="foundry-openai", model="m").available()
+    assert base_url(HOSTS["foundry-openai"]) == "https://staging.example/openai/v1"
 
 
 # -- the ordinary turn ------------------------------------------------------
@@ -898,7 +911,7 @@ async def test_an_unreachable_default_endpoint_names_the_url_it_tried(
     )
     failed = terminal(
         await collect(
-            OpenAIRuntime(
+            CustomRuntime(
                 host="openrouter",
                 model="anthropic/claude-sonnet-5",
                 client_factory=client,
@@ -952,7 +965,7 @@ async def test_an_unreachable_sdk_default_names_no_variable_at_all(
     )
     failed = terminal(
         await collect(
-            OpenAIRuntime(host="openai", model="gpt-5", client_factory=client)
+            CustomRuntime(host="openai", model="gpt-5", client_factory=client)
         )
     )
     assert isinstance(failed, ev.AgentFailed)
@@ -969,7 +982,7 @@ def test_foundry_builds_its_base_url_from_the_resource_name(
 ) -> None:
     """A portal shows a resource name; the SDK wants a URL. Asking for both would be
     asking the same question twice."""
-    assert base_url(HOSTS["foundry"]) == (
+    assert base_url(HOSTS["foundry-openai"]) == (
         "https://never-printed-resource.services.ai.azure.com/openai/v1"
     )
 
@@ -980,7 +993,7 @@ def test_an_explicit_base_url_is_used_as_written(
     """A sovereign cloud, a private endpoint, a proxy — none of them match the
     template, and the variable exists so none of them need to."""
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://private.example/openai/v1")
-    assert base_url(HOSTS["foundry"]) == "https://private.example/openai/v1"
+    assert base_url(HOSTS["foundry-openai"]) == "https://private.example/openai/v1"
 
 
 def test_the_openai_host_points_nowhere_in_particular() -> None:
@@ -1009,7 +1022,7 @@ def built(
         return FakeClient()
 
     monkeypatch.setattr(openai, client, factory)
-    OpenAIRuntime(**options)._client()
+    CustomRuntime(**options)._client()
     return seen
 
 
@@ -1018,7 +1031,7 @@ def test_openrouter_wants_one_variable_and_names_it(
 ) -> None:
     """The gateway publishes its base URL, so a key is the whole configuration — and
     the one thing missing has to be named rather than implied."""
-    backend = OpenAIRuntime(host="openrouter", model="anthropic/claude-sonnet-5")
+    backend = CustomRuntime(host="openrouter", model="anthropic/claude-sonnet-5")
     reason = backend.unavailable_reason()
     assert reason is not None and "OPENROUTER_API_KEY" in reason
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
@@ -1045,7 +1058,9 @@ def test_one_url_field_serves_a_template_and_a_constant_alike(
     """`url` is read two ways from one field — formatted where the row's first endpoint
     variable names a resource, verbatim where it names none — and a row that sets it at
     all must not disturb a row that does not."""
-    assert base_url(HOSTS["foundry"]).startswith("https://never-printed-resource.")
+    assert base_url(HOSTS["foundry-openai"]).startswith(
+        "https://never-printed-resource."
+    )
     assert base_url(HOSTS["openrouter"]) == "https://openrouter.ai/api/v1"
     assert base_url(HOSTS["openai"]) is None
 
@@ -1059,7 +1074,7 @@ async def test_openrouter_sends_the_parameter_the_gateway_documents(
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     client = FakeClient(Round(text=("hi",)))
     events = await collect(
-        OpenAIRuntime(
+        CustomRuntime(
             host="openrouter",
             model="anthropic/claude-sonnet-5",
             client_factory=client,
@@ -1088,7 +1103,7 @@ async def test_openrouters_404_names_the_vendor_model_form(
     )
     failed = terminal(
         await collect(
-            OpenAIRuntime(
+            CustomRuntime(
                 host="openrouter", model="claude-sonnet-5", client_factory=client
             )
         )
@@ -1107,7 +1122,7 @@ def test_a_local_server_needs_its_own_address_and_nothing_else(
     Rewritten from the version that set `OPENAI_BASE_URL`: this row reads its own
     variables, so the public API's address does not configure it.
     """
-    backend = OpenAIRuntime(host="local", model="qwen3")
+    backend = CustomRuntime(host="local", model="qwen3")
     reason = backend.unavailable_reason()
     assert reason is not None and "LOCAL_OPENAI_BASE_URL" in reason
     assert "LOCAL_OPENAI_API_KEY" not in reason
@@ -1162,8 +1177,8 @@ def test_the_openai_and_local_hosts_resolve_from_one_environment(
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     monkeypatch.setenv("LOCAL_OPENAI_API_KEY", "sk-lan")
     monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
-    assert OpenAIRuntime(host="openai", model="gpt-5").available()
-    assert OpenAIRuntime(host="local", model="qwen3").available()
+    assert CustomRuntime(host="openai", model="gpt-5").available()
+    assert CustomRuntime(host="local", model="qwen3").available()
     assert base_url(HOSTS["openai"]) == "https://api.openai.com/v1"
     assert base_url(HOSTS["local"]) == "http://localhost:11434/v1"
 
@@ -1177,7 +1192,7 @@ async def test_a_local_server_answers_with_the_older_token_parameter(
     monkeypatch.setenv("LOCAL_OPENAI_BASE_URL", "http://localhost:11434/v1")
     client = FakeClient(Round(text=("hi",)))
     events = await collect(
-        OpenAIRuntime(
+        CustomRuntime(
             host="local", model="qwen3", client_factory=client, max_tokens=1024
         )
     )
@@ -1202,7 +1217,7 @@ async def test_a_local_404_names_the_server_s_own_model_list(
     )
     failed = terminal(
         await collect(
-            OpenAIRuntime(host="local", model="qwen3", client_factory=client)
+            CustomRuntime(host="local", model="qwen3", client_factory=client)
         )
     )
     assert isinstance(failed, ev.AgentFailed)
@@ -1224,7 +1239,7 @@ def test_azure_openai_names_all_three_of_its_variables() -> None:
     """Three, not two: this client refuses to be built without a dated API version, and
     someone who set only the pair every other row wants must be told which is left. The
     credential is named twice over, because either one of them will do."""
-    backend = OpenAIRuntime(host="azure-openai", model="my-deployment")
+    backend = CustomRuntime(host="azure-openai", model="my-deployment")
     reason = backend.unavailable_reason()
     assert reason is not None
     assert "AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN" in reason
@@ -1239,7 +1254,7 @@ def test_azure_openai_names_the_api_version_when_it_is_the_only_one_left(
     as a 400 from the endpoint naming neither this runtime nor the fix."""
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "k")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
-    backend = OpenAIRuntime(host="azure-openai", model="my-deployment")
+    backend = CustomRuntime(host="azure-openai", model="my-deployment")
     reason = backend.unavailable_reason()
     assert reason is not None and "OPENAI_API_VERSION" in reason
     assert "AZURE_OPENAI_API_KEY" not in reason
@@ -1280,7 +1295,7 @@ def test_an_entra_token_is_a_credential_this_row_accepts(entra: None) -> None:
     """A resource with key authentication disabled is the common enterprise posture,
     and until the credential became a group this row demanded a key such a resource
     cannot issue."""
-    backend = OpenAIRuntime(host="azure-openai", model="my-deployment")
+    backend = CustomRuntime(host="azure-openai", model="my-deployment")
     assert backend.unavailable_reason() is None
     assert backend.available()
 
@@ -1332,7 +1347,7 @@ async def test_a_rejected_azure_credential_names_both_ways_in(azure: None) -> No
     )
     failed = terminal(
         await collect(
-            OpenAIRuntime(
+            CustomRuntime(
                 host="azure-openai", model="my-deployment", client_factory=client
             )
         )
@@ -1347,7 +1362,7 @@ def test_foundry_is_built_with_the_url_its_resource_name_implies(
     credentials: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The default construction hook: a key and a base URL, through `AsyncOpenAI`."""
-    seen = built(monkeypatch, host="foundry", model="gpt-5-deployment")
+    seen = built(monkeypatch, host="foundry-openai", model="gpt-5-deployment")
     assert set(seen) == {"api_key", "base_url"}
     assert seen["api_key"] == "never-printed-key"
     assert seen["base_url"] == (
@@ -1361,7 +1376,7 @@ def test_foundry_is_built_with_the_resource_the_variable_names(
     """The template is the row's, and the resource is the environment's."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("FOUNDRY_RESOURCE", "demo")
-    seen = built(monkeypatch, host="foundry", model="m")
+    seen = built(monkeypatch, host="foundry-openai", model="m")
     assert seen["base_url"] == "https://demo.services.ai.azure.com/openai/v1"
 
 
@@ -1409,7 +1424,7 @@ async def test_azure_openai_answers_an_ordinary_question(azure: None) -> None:
     """
     client = FakeClient(Round(text=("hi",)))
     events = await collect(
-        OpenAIRuntime(
+        CustomRuntime(
             host="azure-openai", model="my-deployment", client_factory=client
         )
     )
@@ -1420,16 +1435,16 @@ async def test_azure_openai_answers_an_ordinary_question(azure: None) -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("host", ["foundry", "azure-openai"])
+@pytest.mark.parametrize("host", ["foundry-openai", "azure-openai"])
 async def test_the_runtime_option_overrides_whatever_the_row_asks_for(
     credentials: None, azure: None, host: str
 ) -> None:
     """The honest lever for a resource that accepts only the older name, and the
     reason no row has to guess on everyone's behalf: it is configured per install, as
-    `runtimes: openai: {tokens_param: max_tokens}`, and no row gets a say in it."""
+    `runtimes: custom: {tokens_param: max_tokens}`, and no row gets a say in it."""
     client = FakeClient(Round(text=("hi",)))
     events = await collect(
-        OpenAIRuntime(
+        CustomRuntime(
             host=host,
             model="my-deployment",
             client_factory=client,
@@ -1455,7 +1470,7 @@ async def test_azure_openais_404_names_the_deployment(azure: None) -> None:
     )
     failed = terminal(
         await collect(
-            OpenAIRuntime(
+            CustomRuntime(
                 host="azure-openai", model="gpt-5-2026-01-01", client_factory=client
             )
         )
@@ -1470,7 +1485,7 @@ def test_no_azure_credential_value_reaches_a_reason(
 ) -> None:
     """Same rule for every row: `doctor` output is pasted into support threads."""
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "sk-sentinel-value")
-    reason = OpenAIRuntime(host="azure-openai", model="m").unavailable_reason()
+    reason = CustomRuntime(host="azure-openai", model="m").unavailable_reason()
     assert reason is not None and "sk-sentinel-value" not in reason
 
 
@@ -1497,8 +1512,19 @@ async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
             raise AssertionError("the openai runtime reached for the SDK anyway")
         return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
+    real_import_module = importlib.import_module
+
+    def refuse_module(name: str, package: str | None = None) -> Any:
+        # `custom.stream` imports the row's SDK by name through `import_module`,
+        # which does not pass through `builtins.__import__` — so both doors are shut,
+        # or this test would let a real client dial out from `tests/`.
+        if name == "openai":
+            raise AssertionError("the openai runtime reached for the SDK anyway")
+        return real_import_module(name, package)
+
     monkeypatch.setattr(importlib.util, "find_spec", no_spec)
     monkeypatch.setattr(builtins, "__import__", refuse)
+    monkeypatch.setattr(importlib, "import_module", refuse_module)
 
     backend = runtime()
     reason = backend.unavailable_reason()
@@ -1513,6 +1539,6 @@ async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
 @pytest.mark.anyio
 async def test_an_unusable_runtime_fails_as_an_event_not_an_exception() -> None:
     """A frontend iterating this over a transport has nowhere to catch an exception."""
-    failed = terminal(await collect(OpenAIRuntime()))
+    failed = terminal(await collect(CustomRuntime()))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "runtime_unavailable"

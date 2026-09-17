@@ -7,11 +7,10 @@ tool call becomes a paired `ToolStarted`/`ToolResult`, and how usage adds up acr
 rounds. Only the transcript and stream shapes are vendor-specific, and those stay in the
 vendor's own module.
 
-This exists now because there is one caller, not because there will be several. What
-justifies it anyway is the boundary it draws: a second vendor's module should be a
-transcript translation and nothing else, and anything it copies out of `anthropic.py`
-is the signal that the loop itself wants extracting — which is a decision for that day,
-not this one.
+The trigger this file named for extracting the loop itself — a second vendor's module
+copying anything out of the first — arrived, and the loop moved to
+`runtimes/custom.py` with the transcript and stream shapes behind `agent/protocols/`.
+What is still here is what neither of those needs to know about.
 
 **Nothing here stamps an envelope.** `dispatch` is handed the `Emitter` the session
 built, exactly as a runtime is, so a sequence number stays out of reach here too.
@@ -39,6 +38,14 @@ _UNSAFE = re.compile(r"[^0-9A-Za-z_-]")
 #: And it may not be longer than this. Truncation is what the lookup built by the caller
 #: makes survivable: the wire name is not invertible, so nothing tries to reverse it.
 _MAX_NAME = 64
+
+#: How many output tokens one round may produce. The same default for every in-process
+#: runtime, because it is a property of the answers we want rather than of a protocol.
+DEFAULT_MAX_TOKENS = 16384
+
+#: How many model round-trips one question may take. A bound rather than a budget: a
+#: model that loops calling the same tool would otherwise spend until someone noticed.
+DEFAULT_MAX_TOOL_ROUNDS = 10
 
 #: Usage fields worth carrying. `AgentCompleted.usage` is `dict[str, int]`, and
 #: everything else on a usage object is a nested structure pydantic would reject.
@@ -220,6 +227,21 @@ def failure(
     }
 
 
+async def invalid_arguments(
+    source_id: str, name: str, arguments: dict[str, Any]
+) -> str:
+    """The router a call with unparseable arguments is dispatched through.
+
+    Raising inside `dispatch` is how the failure becomes a `ToolResult` the model is
+    shown, rather than a dead turn: a model that emitted broken JSON can emit it again
+    correctly, and one told nothing repeats the call.
+
+    Here rather than beside the protocol that decides what "unparseable" means, because
+    both runtimes speaking that protocol need it and neither owns the other.
+    """
+    raise ValueError("tool arguments were not valid JSON")
+
+
 async def dispatch(
     call_tool: ToolRouter | None,
     spec: ToolSpec | None,
@@ -306,6 +328,8 @@ class UsageTotals:
 
 
 __all__ = [
+    "DEFAULT_MAX_TOKENS",
+    "DEFAULT_MAX_TOOL_ROUNDS",
     "USAGE_KEYS",
     "ToolNameCollision",
     "ToolRouter",
@@ -313,6 +337,7 @@ __all__ = [
     "dispatch",
     "failure",
     "input_schema",
+    "invalid_arguments",
     "offered",
     "status_message",
     "system_prompt",

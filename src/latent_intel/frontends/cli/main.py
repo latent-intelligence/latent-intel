@@ -346,6 +346,18 @@ async def _doctor() -> None:
             note = "" if reason is None else f" [dim]— {escape(reason)}[/]"
             chosen = " [dim]← configured[/]" if name == configured else ""
             console.print(f"    {mark} [source]{name}[/]{note}{chosen}")
+    # Options left under `runtimes:` for a kind nothing provides — an `anthropic:`
+    # block after `anthropic` was folded into `custom`, a typo, a plugin whose extra
+    # is missing. Nothing reads them, and a file that says a host and a model are set
+    # while neither reaches anything is the failure this block is here to name. The
+    # settings layer stays kind-agnostic: this is a report, and it changes nothing.
+    for orphan in sorted(set(resolved.runtimes) - set(runtimes)):
+        if orphan == configured:
+            continue  # the line below says more about it
+        console.print(
+            f"  [dim]·[/] [source]{escape(orphan)}[/] [dim]— options set under "
+            "runtimes:, but no such runtime is installed[/]"
+        )
     # A runtime named in config that no entry point provides — a stale kind from an
     # older build, a typo, a plugin whose extra is missing — has no row above, so
     # doctor looked healthy while `ask` failed and pointed back here.

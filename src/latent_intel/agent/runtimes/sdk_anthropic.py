@@ -1,12 +1,12 @@
 """The Anthropic Messages protocol again, with the loop run by the SDK.
 
-`anthropic.py` and this module speak to the same hosts with the same credentials and
-the same options; they differ in who owns the agent loop. There the `for` loop, the
-transcript bookkeeping and the tool-result assembly are ours. Here they are
-`client.beta.messages.tool_runner`'s, and what stays ours is the part that should:
-**tool execution still runs through `turn.dispatch`**, reached by the runner through
-`agent/bridge.py`, so every attached source is served by our router and reported as the
-same pair of events.
+`custom.py` on a `messages` row and this module speak to the same hosts with the same
+credentials and the same options; they differ in who owns the agent loop. There the
+`for` loop, the transcript bookkeeping and the tool-result assembly are ours. Here
+they are `client.beta.messages.tool_runner`'s, and what stays ours is the part that
+should: **tool execution still runs through `turn.dispatch`**, reached by the runner
+through `agent/bridge.py`, so every attached source is served by our router and
+reported as the same pair of events.
 
 **Why offload a loop we already have.** The line count barely moves. What moves is
 everything arriving next: the ceiling, prompt caching, compaction and context editing
@@ -28,13 +28,13 @@ Foundry spike — it becomes a row flag and nothing else changes.
 **One difference from the custom loop, on purpose.** The runner resolves a tool name
 against the tools it was given, so a name the model invented never reaches our router
 and no `ToolStarted`/`ToolResult` pair is emitted for it; the model is still told the
-tool was not found. `anthropic.py` reports such a call as a failed pair. Reproducing
-that here would mean second-guessing the runner's dispatch, which is the part we chose
-to hand over.
+tool was not found. `custom.py` reports such a call as a failed pair. Reproducing that
+here would mean second-guessing the runner's dispatch, which is the part we chose to
+hand over.
 
-The rules `anthropic.py` states apply here verbatim: the SDK is imported inside the
-turn and never at module scope, reasons name variables and never their values, and
-every path ends with exactly one `AgentCompleted` or `AgentFailed`.
+The rules `custom.py` states apply here verbatim: the SDK is imported inside the turn
+and never at module scope, reasons name variables and never their values, and every
+path ends with exactly one `AgentCompleted` or `AgentFailed`.
 """
 
 from __future__ import annotations
@@ -48,19 +48,32 @@ from typing import Any
 from ... import events as ev
 from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
 from .. import bridge, hosts, turn
-from .anthropic import (
-    DEFAULT_HOST,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_MAX_TOOL_ROUNDS,
-    DEFAULT_MODEL,
-    HOSTS,
-    STOP_DONE,
-    STOP_FAILURES,
-)
+from ..protocols.messages import STOP_DONE, STOP_FAILURES
+
+#: Every host reachable through the Anthropic SDK: the rows of `hosts.HOSTS` that name
+#: this SDK. A new one is a row there, not a line here.
+HOSTS = hosts.for_sdk("anthropic")
+
+#: Foundry first: the deployment this was written for runs on Azure, and a default that
+#: is right for the common case beats one that is right for nobody.
+DEFAULT_HOST = "foundry-anthropic"
 
 #: Its own variable, not derived from the kind: a machine may well want the runner
 #: against Foundry and the custom loop against the public API while comparing them.
 ENV_HOST = "LATENT_INTEL_SDK_ANTHROPIC_HOST"
+
+#: Undated on purpose — see `hosts.HOSTS["foundry-anthropic"].remedy_404`. Taken from
+#: the default host's row rather than written again here: a model default is the row's
+#: to declare now that it is a field, and two places saying it are two places to
+#: disagree. Every row on this protocol declares one — `tests/test_hosts.py` is what
+#: holds that — and the check below is what tells mypy so without a second literal;
+#: a check rather than an assert, because `python -O` strips asserts and would leave
+#: this constant None while typed `str`.
+_default_model = HOSTS[DEFAULT_HOST].default_model
+if _default_model is None:
+    raise RuntimeError(f"host row '{DEFAULT_HOST}' declares no default model")
+DEFAULT_MODEL: str = _default_model
+del _default_model
 
 
 class SdkAnthropicRuntime:
@@ -74,13 +87,13 @@ class SdkAnthropicRuntime:
         model: str | None = None,
         host: str | None = None,
         approval: str = "ask",
-        max_tokens: int = DEFAULT_MAX_TOKENS,
-        max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
+        max_tokens: int = turn.DEFAULT_MAX_TOKENS,
+        max_tool_rounds: int = turn.DEFAULT_MAX_TOOL_ROUNDS,
         client_factory: Callable[[], Any] | None = None,
         **unknown: Any,
     ) -> None:
-        # Rejected, not ignored, for the reason `anthropic.py` gives: a key nothing
-        # reads is a setting the file says is on and no one honours.
+        # Rejected, not ignored, for the reason `custom.py` gives: a key nothing reads
+        # is a setting the file says is on and no one honours.
         if unknown:
             raise RuntimeUnavailable(
                 f"unknown option(s) for runtime '{self.id}': "
@@ -100,8 +113,8 @@ class SdkAnthropicRuntime:
 
     def unavailable_reason(self) -> str | None:
         """Why this cannot run here, in the order someone would fix it. Same rows, same
-        variables and same order as `anthropic.py` — the two runtimes differ in who
-        drives the loop, not in what a machine has to have."""
+        variables and same order as `custom.py` on a `messages` row — the two runtimes
+        differ in who drives the loop, not in what a machine has to have."""
         host = HOSTS.get(self.host)
         if host is None:
             return hosts.unknown(self.host, HOSTS)
@@ -193,8 +206,8 @@ class SdkAnthropicRuntime:
         class _Tool(BetaAsyncBuiltinFunctionTool):
             """One wired tool, as the runner's own tool type.
 
-            `to_dict` is the definition `anthropic.py` sends; `call` is our router.
-            `ToolError` is how the runner is told a call failed — it becomes a
+            `to_dict` is the definition `protocols/messages.py` sends; `call` is our
+            router. `ToolError` is how the runner is told a call failed — it becomes a
             `tool_result` with `is_error: True`, which is what makes a failed call
             something the model can respond to rather than a dead turn.
             """
@@ -272,9 +285,9 @@ class SdkAnthropicRuntime:
             runner = client.beta.messages.tool_runner(**request)
             if not definitions:
                 # `tools=` is required by `tool_runner`, so an empty turn cannot simply
-                # omit it the way `anthropic.py` does — and the API rejects an empty
-                # tool list. The SDK accepts the empty list and would send `tools: []`,
-                # so the key is dropped from the params the runner will use instead.
+                # omit it the way the messages adapter does — and the API rejects an
+                # empty tool list. The SDK accepts the empty list and would send
+                # `tools: []`, so the key is dropped from the params the runner uses.
                 runner.set_messages_params(
                     lambda params: {k: v for k, v in params.items() if k != "tools"}
                 )
@@ -363,7 +376,7 @@ class SdkAnthropicRuntime:
 
     def _client(self) -> Any:
         """The SDK client, as the async context manager the SDK itself returns. Same
-        rows and same construction as `anthropic.py` — see `_client` there."""
+        rows and same construction as `custom.py` — see `_client` there."""
         if self.client_factory is not None:
             return self.client_factory()
         import anthropic

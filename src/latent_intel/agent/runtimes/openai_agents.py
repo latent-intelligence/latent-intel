@@ -1,12 +1,12 @@
 """The OpenAI-compatible protocol again, with the loop run by the Agents SDK.
 
-`openai.py` and this module speak to the same five hosts with the same credentials and
-the same options; they differ in who owns the agent loop. There the `for` loop, the
-transcript bookkeeping and the reassembly of streamed tool-call fragments are ours.
-Here they are `Runner.run_streamed`'s, and what stays ours is the part that should:
-**tool execution still runs through `turn.dispatch`**, reached by the runner through
-`agent/bridge.py`, so every attached source is served by our router and reported as the
-same pair of events.
+`custom.py` on a `chat` row and this module speak to the same five hosts with the same
+credentials and the same options; they differ in who owns the agent loop. There the
+`for` loop, the transcript bookkeeping and the reassembly of streamed tool-call
+fragments are ours. Here they are `Runner.run_streamed`'s, and what stays ours is the
+part that should: **tool execution still runs through `turn.dispatch`**, reached by the
+runner through `agent/bridge.py`, so every attached source is served by our router and
+reported as the same pair of events.
 
 This is the wider reach of the two SDK runtimes — one runner across the OpenAI API,
 OpenRouter, Foundry, classic Azure OpenAI and a server on the machine you are sitting
@@ -29,23 +29,23 @@ the event is built.
 
 **Differences from the custom loop, on purpose — each a conformance finding.**
 
-- *A finish reason is not reported.* `openai.py` reads `length` and `content_filter`
-  off the chat completion and fails the turn with a remedy. The SDK does not surface
-  either through its stream, so an answer truncated by the output limit **completes
-  here**. The custom runtime is the one that reports it, and that difference belongs in
-  the conformance matrix rather than in a guess made here.
+- *A finish reason is not reported.* The chat adapter reads `length` and
+  `content_filter` off the chat completion and fails the turn with a remedy. The SDK
+  does not surface either through its stream, so an answer truncated by the output
+  limit **completes here**. The custom runtime is the one that reports it, and that
+  difference belongs in the conformance matrix rather than in a guess made here.
 - *An invented tool name emits no event pair.* The SDK resolves a tool call against
   the agent's tools, so a name the model invented never reaches our router. Its default
   is to raise and end the turn; this runtime sets `tool_not_found_behavior` to return
   the error to the model instead, so the model is told and the turn carries on — the
   same shape as `sdk_anthropic.py`, and the rule `turn.dispatch` states: one bad call
-  must not end a turn. `openai.py` reports such a call as a failed pair.
+  must not end a turn. `custom.py` reports such a call as a failed pair.
 - *The ceiling is raised, not silent.* The Anthropic runner exits without a signal when
   `max_iterations` is reached, so `sdk_anthropic.py` reads the ceiling off a last
   message still asking for tools. This runner raises `MaxTurnsExceeded` instead, which
   is caught by name — there is no silent stop to reconstruct.
 
-The rules `openai.py` states apply here verbatim: both SDKs are imported inside the turn
+The rules `custom.py` states apply here verbatim: both SDKs are imported inside the turn
 and never at module scope, reasons name variables and never their values, and every path
 ends with exactly one `AgentCompleted` or `AgentFailed`.
 """
@@ -61,13 +61,22 @@ from typing import Any
 from ... import events as ev
 from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
 from .. import bridge, hosts, turn
-from .openai import (
-    DEFAULT_HOST,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_MAX_TOOL_ROUNDS,
-    HOSTS,
-    arguments,
-)
+from ..protocols.chat import arguments
+
+#: Every host reachable through the OpenAI SDK: the `chat` rows of `hosts.HOSTS`. The
+#: table declares the base row type, and this protocol reads one field more —
+#: `tokens_param` — so the guard is what hands mypy the narrower row. It drops nothing:
+#: every `chat` row is an `OpenAIHost`, which `tests/test_hosts.py` asserts of the table
+#: itself rather than leaving it to be discovered by a host going missing here.
+HOSTS: dict[str, hosts.OpenAIHost] = {
+    name: row
+    for name, row in hosts.for_sdk("openai").items()
+    if isinstance(row, hosts.OpenAIHost)
+}
+
+#: The reference row: the API this protocol is named after, reachable with one variable.
+#: Foundry is a deployment's choice, made in its config rather than inherited here.
+DEFAULT_HOST = "openai"
 
 #: Its own variable, not derived from the kind: a machine may well want the framework
 #: against one host and the custom loop against another while comparing them.
@@ -85,14 +94,14 @@ class OpenAIAgentsRuntime:
         model: str | None = None,
         host: str | None = None,
         approval: str = "ask",
-        max_tokens: int = DEFAULT_MAX_TOKENS,
-        max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
+        max_tokens: int = turn.DEFAULT_MAX_TOKENS,
+        max_tool_rounds: int = turn.DEFAULT_MAX_TOOL_ROUNDS,
         tokens_param: str | None = None,
         client_factory: Callable[[], Any] | None = None,
         runner_factory: Callable[[], Any] | None = None,
         **unknown: Any,
     ) -> None:
-        # Rejected, not ignored, for the reason `openai.py` gives: a key nothing reads
+        # Rejected, not ignored, for the reason `custom.py` gives: a key nothing reads
         # is a setting the file says is on and no one honours.
         if unknown:
             raise RuntimeUnavailable(
@@ -105,7 +114,7 @@ class OpenAIAgentsRuntime:
         self.max_tokens = int(max_tokens)
         self.max_tool_rounds = int(max_tool_rounds)
         self.tokens_param = tokens_param
-        #: The client seam, as in `openai.py`.
+        #: The client seam, as in `custom.py`.
         self.client_factory = client_factory
         #: The runner seam, and the reason a test never reaches a network: it returns
         #: the object whose `run_streamed` is called, which in production is
@@ -382,20 +391,22 @@ class OpenAIAgentsRuntime:
         failure handler, so an exception out of `on_invoke_tool` ends the whole run,
         while a returned string becomes the tool's output verbatim — which is what puts
         `result.error or result.output` in front of the model, the same text
-        `openai.py` sends back in its `tool` message.
+        the chat adapter sends back in its `tool` message.
         """
 
         async def on_invoke_tool(ctx: Any, raw: str) -> str:
-            # The protocol's rule, shared with `openai.py`: arguments that are not a
-            # JSON object are the model's mistake to fix and are never routed.
-            decoded, per_call = arguments(raw, router)
+            # The protocol's rule, shared with the chat adapter: arguments that are not
+            # a JSON object are the model's mistake to fix and are never routed. The
+            # raising router is what puts that failure in front of the model.
+            decoded = arguments(raw)
+            per_call = router if decoded is not None else turn.invalid_arguments
             try:
                 return await bridge.run(
                     spec,
                     emitter=emitter,
                     relay=relay,
                     call_tool=per_call,
-                    arguments=decoded,
+                    arguments=decoded or {},
                 )
             except bridge.BridgeError as exc:
                 return str(exc)
@@ -445,7 +456,7 @@ class OpenAIAgentsRuntime:
 
     def _client(self) -> Any:
         """The SDK client, as the async context manager the SDK itself returns. Same
-        rows and same construction as `openai.py` — see `_client` there."""
+        rows and same construction as `custom.py` — see `_client` there."""
         if self.client_factory is not None:
             return self.client_factory()
         import openai

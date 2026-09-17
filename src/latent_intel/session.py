@@ -450,7 +450,7 @@ class Session:
         """What to build one runtime with — the resolved view, not the user's file.
 
         Both halves of this were silently dropped before. A project declaring
-        `agent: {runtimes: {anthropic: {model: ...}}}` never reached the runtime it
+        `agent: {runtimes: {custom: {model: ...}}}` never reached the runtime it
         named, because only `config.load()` was read; and `approval:` was resolved by
         the settings layer and then consumed by nobody, so a user who chose `auto` got
         the cautious gate anyway. A setting that does nothing is worse than one that is

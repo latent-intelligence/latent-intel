@@ -62,11 +62,12 @@ def test_an_unknown_kind_names_what_is_installed() -> None:
 
 
 def test_the_in_process_runtimes_load_even_where_they_cannot_run() -> None:
-    """Absent and unusable are different states. Both import their SDK inside a turn,
-    so each is listed — with a reason — on a machine with no credentials, rather than
+    """Absent and unusable are different states. Each imports its SDK inside a turn, so
+    it is listed — with a reason — on a machine with no credentials, rather than
     vanishing and taking the diagnosis with it."""
-    assert "anthropic" in agent.available_kinds()
-    assert "openai" in agent.available_kinds()
+    assert "custom" in agent.available_kinds()
+    assert "sdk-anthropic" in agent.available_kinds()
+    assert "openai-agents" in agent.available_kinds()
 
 
 def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:

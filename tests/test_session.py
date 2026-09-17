@@ -665,12 +665,12 @@ def test_a_project_runtime_block_reaches_the_runtime_it_names(
         tmp_path,
         monkeypatch,
         "agent:\n"
-        "  runtime: anthropic\n"
+        "  runtime: custom\n"
         "  runtimes:\n"
-        "    anthropic: {model: claude-opus-5, host: anthropic}\n",
+        "    custom: {model: claude-opus-5, host: anthropic}\n",
     )
     session = Session()
-    session.set_runtime("anthropic")
+    session.set_runtime("custom")
     built = session._runtime
     assert built is not None
     assert built.model == "claude-opus-5"  # type: ignore[attr-defined]
@@ -707,28 +707,28 @@ def test_a_runtime_is_diagnosed_as_it_is_built_not_bare(
         tmp_path,
         monkeypatch,
         "agent:\n"
-        "  runtime: openai\n"
+        "  runtime: custom\n"
         "  runtimes:\n"
-        "    openai: {model: gpt-5-deployment, host: foundry}\n",
+        "    custom: {model: gpt-5-deployment, host: foundry-openai}\n",
     )
-    assert Session.runtime_status()["openai"] is None
+    assert Session.runtime_status()["custom"] is None
 
 
 def test_the_reason_a_runtime_cannot_run_is_the_configured_host_s(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The variables a bare `openai` wants are the public API's. A deployment on
+    """The variables the `openai` row wants are the public API's. A deployment on
     Foundry that read `OPENAI_API_KEY` here would export the wrong one and see no
     change."""
     _project(
         tmp_path,
         monkeypatch,
         "agent:\n"
-        "  runtime: openai\n"
+        "  runtime: custom\n"
         "  runtimes:\n"
-        "    openai: {model: gpt-5-deployment, host: foundry}\n",
+        "    custom: {model: gpt-5-deployment, host: foundry-openai}\n",
     )
-    reason = Session.runtime_status()["openai"]
+    reason = Session.runtime_status()["custom"]
     assert reason is not None
     assert "FOUNDRY_API_KEY" in reason
     assert "OPENAI_API_KEY" not in reason
@@ -743,11 +743,11 @@ def test_a_runtime_option_this_build_does_not_know_is_reported_not_ignored(
         tmp_path,
         monkeypatch,
         "agent:\n"
-        "  runtime: openai\n"
+        "  runtime: custom\n"
         "  runtimes:\n"
-        "    openai: {modle: gpt-5-deployment}\n",
+        "    custom: {modle: gpt-5-deployment}\n",
     )
-    reason = Session.runtime_status()["openai"]
+    reason = Session.runtime_status()["custom"]
     assert reason is not None and "modle" in reason
 
 
@@ -764,20 +764,20 @@ def test_approval_nested_under_a_runtime_never_overrides_the_resolved_one(
         tmp_path,
         monkeypatch,
         "agent:\n"
-        "  runtime: anthropic\n"
+        "  runtime: custom\n"
         "  runtimes:\n"
-        "    anthropic: {approval: auto}\n",
+        "    custom: {approval: auto}\n",
     )
     config = config_module.load()
     config.approval = "never"
     config_module.save(config)
 
     session = Session()
-    session.set_runtime("anthropic")
+    session.set_runtime("custom")
     assert session._runtime is not None
     assert session._runtime.approval == "never"  # type: ignore[attr-defined]
     problems = settings_module.load().problems
-    assert any("runtimes:anthropic" in problem for problem in problems)
+    assert any("runtimes:custom" in problem for problem in problems)
 
 
 def test_runtime_status_names_the_reason_rather_than_only_the_verdict() -> None:
@@ -898,11 +898,14 @@ def test_a_setting_is_reported_as_the_runtime_holds_it_not_as_the_file_spells_it
     and `LATENT_INTEL_<RUNTIME>_HOST`, and only the built object knows which won. A
     frontend reading the file called a host set by the environment unset.
 
-    None where the runtime holds nothing: `openai` has no default model on purpose, and
-    an empty string reported as a setting is a setting nobody made."""
-    monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
-    assert Session.runtime_setting("anthropic", "host") == "anthropic"
-    assert Session.runtime_setting("openai", "model") is None
+    None where the runtime holds nothing: a chat row has no default model on purpose,
+    and an empty string reported as a setting is a setting nobody made."""
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "anthropic")
+    assert Session.runtime_setting("custom", "host") == "anthropic"
+    assert Session.runtime_setting("custom", "model") == "claude-sonnet-5"
+
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "openrouter")
+    assert Session.runtime_setting("custom", "model") is None
 
 
 def test_the_host_report_covers_every_host_not_only_the_configured_one(
@@ -911,9 +914,10 @@ def test_the_host_report_covers_every_host_not_only_the_configured_one(
     """`runtime_reason` diagnoses the row that is configured, which says why today
     failed but not which other host this machine could reach instead."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
-    report = Session.host_report("openai")
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "openai")
+    report = Session.host_report("custom")
 
-    assert report.runtime == "openai"
+    assert report.runtime == "custom"
     assert report.configured == "openai"
     assert report.hosts["openrouter"].reason is None
     assert report.hosts["openrouter"].variables == ["OPENROUTER_API_KEY"]
@@ -927,11 +931,11 @@ def test_the_host_report_agrees_with_the_reason_doctor_prints(
     """One build, and the verdict is the one `runtime_reason` reaches — a table whose
     rows were diagnosed a moment before or after the runtime that answers is a table
     that can contradict the line above it."""
-    monkeypatch.setenv("LATENT_INTEL_OPENAI_HOST", "openrouter")
-    report = Session.host_report("openai")
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "openrouter")
+    report = Session.host_report("custom")
 
     assert report.configured == "openrouter"
-    assert report.reason == Session.runtime_reason("openai")
+    assert report.reason == Session.runtime_reason("custom")
     assert report.hosts["openrouter"].reason == report.reason
 
 
