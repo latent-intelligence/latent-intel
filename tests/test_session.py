@@ -800,6 +800,97 @@ def test_one_runtime_s_reason_is_the_reason_the_table_reports_for_it() -> None:
     assert unknown is not None and "no runtime of kind 'nonsense'" in unknown
 
 
+class _Fabricated:
+    """A runtime that exists only here, so the grouping is asserted against something
+    other than the three that ship — which would pass for as long as nobody changed
+    them, and prove nothing about a third party's."""
+
+    id = "fabricated"
+    builds = 0
+
+    def __init__(self, **options: Any) -> None:
+        type(self).builds += 1
+
+    def available(self) -> bool:
+        return True
+
+    def stream(self, *args: Any, **options: Any) -> Any:  # pragma: no cover
+        raise NotImplementedError
+
+
+class _Declared(_Fabricated):
+    builds = 0
+
+    def family(self) -> str:
+        return "delegated"
+
+
+class _Nonsense(_Fabricated):
+    builds = 0
+
+    def family(self) -> str:
+        return "quantum"
+
+
+class _Broken(_Fabricated):
+    builds = 0
+
+    def family(self) -> str:
+        raise RuntimeError("the plugin is broken")
+
+
+def _installed(monkeypatch: pytest.MonkeyPatch, **kinds: type) -> None:
+    """Replace the entry-point sweep. `agent.build` reads the same function, so a
+    fabricated kind is reachable by name as well as listed."""
+    from latent_intel.agent import base as agent
+
+    monkeypatch.setattr(agent, "available_kinds", lambda: dict(kinds))
+
+
+@pytest.mark.parametrize(
+    ("kind", "family"),
+    [
+        (_Fabricated, "custom"),
+        (_Declared, "delegated"),
+        (_Nonsense, "custom"),
+        (_Broken, "custom"),
+    ],
+)
+def test_a_runtime_is_grouped_by_the_family_it_declares(
+    monkeypatch: pytest.MonkeyPatch, kind: type, family: str
+) -> None:
+    """Declared, never inferred, and never guessed at: a runtime that says nothing is
+    `custom`, and one that names a family this build does not know — or raises on the
+    way — is reported as `custom` rather than filed under a group nobody looks in."""
+    _installed(monkeypatch, fabricated=kind)
+    assert Session.runtime_reports()["fabricated"].family == family
+
+
+def test_no_runtime_is_built_twice_to_produce_the_grouping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The verdict and the family come off one object. Asking for them separately
+    would build each runtime twice and let the two answers describe different objects
+    — the same trap `host_report` was written to avoid."""
+    _installed(monkeypatch, fabricated=_Fabricated)
+    before = _Fabricated.builds
+    reports = Session.runtime_reports()
+    assert reports["fabricated"].reason is None
+    assert _Fabricated.builds - before == 1
+
+
+def test_runtime_status_is_the_reason_half_of_the_reports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`runtime_status` derives rather than sweeping again, so the two cannot
+    disagree."""
+    _installed(monkeypatch, fabricated=_Declared, claude_cli=_Fabricated)
+    reports = Session.runtime_reports()
+    assert Session.runtime_status() == {
+        name: report.reason for name, report in reports.items()
+    }
+
+
 def test_a_setting_is_reported_as_the_runtime_holds_it_not_as_the_file_spells_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

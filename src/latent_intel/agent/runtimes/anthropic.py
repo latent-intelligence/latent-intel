@@ -92,7 +92,7 @@ DEFAULT_MAX_TOOL_ROUNDS = 10
 #: Stop reasons that end a turn without an answer, each with what to do about it. A
 #: reason absent from here and not in the completing set is reported under its own name
 #: rather than guessed at — a vocabulary this build does not know is not a success.
-_STOP_FAILURES: dict[str, tuple[str, str]] = {
+STOP_FAILURES: dict[str, tuple[str, str]] = {
     "max_tokens": (
         "the model reached its output limit before finishing",
         "raise `max_tokens` under this runtime, or ask a narrower question",
@@ -108,7 +108,7 @@ _STOP_FAILURES: dict[str, tuple[str, str]] = {
 }
 
 #: Stop reasons that mean the model finished saying what it had to say.
-_STOP_DONE = frozenset({"end_turn", "stop_sequence"})
+STOP_DONE = frozenset({"end_turn", "stop_sequence"})
 
 
 class AnthropicRuntime:
@@ -212,54 +212,18 @@ class AnthropicRuntime:
         try:
             async for event in self._turn(messages, tools, emitter=emitter, **options):
                 yield event
-        # Most specific first: authentication, not-found and rate-limit all subclass
-        # APIStatusError, so a broader clause above them would swallow all three.
-        except anthropic.AuthenticationError:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message=f"the '{self.host}' endpoint rejected the credentials",
-                kind="auth",
-                remedy=hosts.auth_remedy(host),
-            )
-        except anthropic.NotFoundError:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message=(
-                    f"'{self.model}' was not found on the '{self.host}' "
-                    f"endpoint"
-                ),
-                kind="model_not_found",
-                remedy=host.remedy_404,
-            )
-        except anthropic.RateLimitError:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message="the endpoint is rate limiting this key",
-                kind="rate_limit",
-                remedy="wait and ask again, or raise the deployment's quota",
-            )
-        except anthropic.APIStatusError as exc:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message=turn.status_message(exc),
-                kind="api_error",
-                remedy="",
-            )
-        except anthropic.APIConnectionError:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message=f"could not reach the '{self.host}' endpoint",
-                kind="connection",
-                remedy=hosts.connection_remedy(host),
-            )
         except Exception as exc:  # noqa: BLE001 — a failure is an event, not a crash
             # Cancellation derives from BaseException and is deliberately not caught:
             # a cancelled turn has to close the stream rather than report itself.
             yield emitter.emit(
                 ev.AgentFailed,
-                message=str(exc) or type(exc).__name__,
-                kind="runtime_error",
-                remedy="",
+                **turn.failure(
+                    exc,
+                    sdk=anthropic,
+                    host=host,
+                    name=self.host,
+                    model=self.model,
+                ),
             )
 
     async def _turn(
@@ -376,7 +340,7 @@ class AnthropicRuntime:
                     continue  # a long-running turn the API asks us to resume
 
                 elapsed = int((time.monotonic() - began) * 1000)
-                if stop in _STOP_DONE:
+                if stop in STOP_DONE:
                     yield emitter.emit(
                         ev.AgentCompleted,
                         text="".join(answer),
@@ -397,7 +361,7 @@ class AnthropicRuntime:
                     )
                     return
 
-                message, remedy = _STOP_FAILURES.get(
+                message, remedy = STOP_FAILURES.get(
                     str(stop), (f"the model stopped: {stop}", "")
                 )
                 yield emitter.emit(
@@ -438,5 +402,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "ENV_HOST",
     "HOSTS",
+    "STOP_DONE",
+    "STOP_FAILURES",
     "AnthropicRuntime",
 ]

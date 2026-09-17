@@ -26,6 +26,7 @@ from typing import Any
 
 from .. import events as ev
 from ..models import Effect, ToolSpec
+from . import hosts
 
 #: What the router is, as a type. A `Session.call_tool` bound method satisfies it, and
 #: so does a test's lambda — a Protocol here would buy nothing over the signature.
@@ -165,6 +166,60 @@ def status_message(exc: Any) -> str:
     return f"the endpoint returned {exc.status_code}"
 
 
+def failure(
+    exc: BaseException, *, sdk: Any, host: hosts.Host, name: str, model: str
+) -> dict[str, str]:
+    """The `AgentFailed` fields — `message`, `kind`, `remedy` — for an exception a turn
+    raised through one SDK.
+
+    One ladder for every SDK runtime, rather than a copy per protocol module. It works
+    because both SDKs name these five classes identically and give them the same
+    meaning; `sdk` is the module the runtime already imported inside its own turn, so
+    nothing here imports either one — `available_kinds()` loads every runtime, and a
+    base install has neither.
+
+    Most specific first: authentication, not-found and rate-limit all subclass
+    `APIStatusError` on both SDKs, so a broader clause above them would swallow all
+    three. `name` is the host's name as configured, which is what a reader recognises;
+    `host` is its row, which is what knows the remedy.
+    """
+    if isinstance(exc, sdk.AuthenticationError):
+        return {
+            "message": f"the '{name}' endpoint rejected the credentials",
+            "kind": "auth",
+            "remedy": hosts.auth_remedy(host),
+        }
+    if isinstance(exc, sdk.NotFoundError):
+        return {
+            "message": f"'{model}' was not found on the '{name}' endpoint",
+            "kind": "model_not_found",
+            "remedy": host.remedy_404,
+        }
+    if isinstance(exc, sdk.RateLimitError):
+        return {
+            "message": "the endpoint is rate limiting this key",
+            "kind": "rate_limit",
+            "remedy": "wait and ask again, or raise the deployment's quota",
+        }
+    if isinstance(exc, sdk.APIStatusError):
+        return {
+            "message": status_message(exc),
+            "kind": "api_error",
+            "remedy": "",
+        }
+    if isinstance(exc, sdk.APIConnectionError):
+        return {
+            "message": f"could not reach the '{name}' endpoint",
+            "kind": "connection",
+            "remedy": hosts.connection_remedy(host),
+        }
+    return {
+        "message": str(exc) or type(exc).__name__,
+        "kind": "runtime_error",
+        "remedy": "",
+    }
+
+
 async def dispatch(
     call_tool: ToolRouter | None,
     spec: ToolSpec | None,
@@ -256,6 +311,7 @@ __all__ = [
     "ToolRouter",
     "UsageTotals",
     "dispatch",
+    "failure",
     "input_schema",
     "offered",
     "status_message",

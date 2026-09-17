@@ -320,51 +320,18 @@ class OpenAIRuntime:
         try:
             async for event in self._turn(messages, tools, emitter=emitter, **options):
                 yield event
-        # Most specific first: authentication, not-found and rate-limit all subclass
-        # APIStatusError, so a broader clause above them would swallow all three.
-        except openai.AuthenticationError:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message=f"the '{self.host}' endpoint rejected the credentials",
-                kind="auth",
-                remedy=hosts.auth_remedy(host),
-            )
-        except openai.NotFoundError:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message=f"'{self.model}' was not found on the '{self.host}' endpoint",
-                kind="model_not_found",
-                remedy=host.remedy_404,
-            )
-        except openai.RateLimitError:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message="the endpoint is rate limiting this key",
-                kind="rate_limit",
-                remedy="wait and ask again, or raise the deployment's quota",
-            )
-        except openai.APIStatusError as exc:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message=turn.status_message(exc),
-                kind="api_error",
-                remedy="",
-            )
-        except openai.APIConnectionError:
-            yield emitter.emit(
-                ev.AgentFailed,
-                message=f"could not reach the '{self.host}' endpoint",
-                kind="connection",
-                remedy=hosts.connection_remedy(host),
-            )
         except Exception as exc:  # noqa: BLE001 — a failure is an event, not a crash
             # Cancellation derives from BaseException and is deliberately not caught:
             # a cancelled turn has to close the stream rather than report itself.
             yield emitter.emit(
                 ev.AgentFailed,
-                message=str(exc) or type(exc).__name__,
-                kind="runtime_error",
-                remedy="",
+                **turn.failure(
+                    exc,
+                    sdk=openai,
+                    host=host,
+                    name=self.host,
+                    model=self.model,
+                ),
             )
 
     async def _turn(
@@ -548,13 +515,13 @@ class OpenAIRuntime:
                     for index in sorted(calls):
                         call = calls[index]
                         spec = by_name.get(call["name"])
-                        arguments, router = _arguments(call["arguments"], call_tool)
+                        decoded, router = arguments(call["arguments"], call_tool)
                         started, result = await turn.dispatch(
                             router,
                             spec,
                             source_id=spec.source_id if spec else "",
                             name=spec.name if spec else call["name"],
-                            arguments=arguments,
+                            arguments=decoded,
                             emitter=emitter,
                         )
                         yield started
@@ -637,13 +604,18 @@ async def _invalid_arguments(
     raise ValueError("tool arguments were not valid JSON")
 
 
-def _arguments(
+def arguments(
     raw: str, call_tool: turn.ToolRouter | None
 ) -> tuple[dict[str, Any], turn.ToolRouter | None]:
     """One call's arguments, with the router it should be dispatched through.
 
     Anything that is not a JSON object — a truncated fragment, a bare string — is the
     same failure, and it is the model's to fix.
+
+    Public because `openai_agents.py` needs the same rule: the protocol is what decides
+    that arguments arrive as a JSON string, so the two runtimes that speak it must
+    agree about a string that is not one, or a fragment routed by one and refused by
+    the other is a difference nobody chose.
     """
     try:
         decoded = json.loads(raw or "{}")
@@ -661,4 +633,5 @@ __all__ = [
     "ENV_HOST",
     "HOSTS",
     "OpenAIRuntime",
+    "arguments",
 ]

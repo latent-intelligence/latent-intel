@@ -7,13 +7,14 @@ exists to draw would be untested.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
 from latent_intel import events as ev
-from latent_intel.agent import turn
+from latent_intel.agent import hosts, turn
 from latent_intel.models import Descriptor, Effect, ToolSpec
 
 
@@ -308,4 +309,93 @@ def test_usage_with_nothing_recorded_still_reports_the_turn() -> None:
     assert turn.UsageTotals().totals(duration_ms=5) == {
         "duration_ms": 5,
         "num_turns": 0,
+    }
+
+
+# -- the failure ladder -----------------------------------------------------
+
+
+class _APIError(Exception):
+    """The shape both SDKs give these five classes, with none of either installed.
+
+    `failure` looks its classes up on the module it is handed, so a namespace of
+    exceptions exercises the ordering exactly as `anthropic` or `openai` would — and
+    keeps this file's rule that nothing here needs a vendor SDK present.
+    """
+
+
+class _APIStatusError(_APIError):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+        self.body = None
+
+
+class _AuthenticationError(_APIStatusError):
+    pass
+
+
+class _NotFoundError(_APIStatusError):
+    pass
+
+
+class _RateLimitError(_APIStatusError):
+    pass
+
+
+class _APIConnectionError(_APIError):
+    pass
+
+
+FAKE_SDK = SimpleNamespace(
+    AuthenticationError=_AuthenticationError,
+    NotFoundError=_NotFoundError,
+    RateLimitError=_RateLimitError,
+    APIStatusError=_APIStatusError,
+    APIConnectionError=_APIConnectionError,
+)
+
+FAKE_HOST = hosts.Host(
+    client="AsyncSomething",
+    key="EXAMPLE_API_KEY",
+    endpoint=("EXAMPLE_BASE_URL",),
+    required=("EXAMPLE_API_KEY",),
+    remedy_404="check the model id against the ones the endpoint publishes",
+)
+
+
+def test_an_authentication_error_is_auth_rather_than_the_status_error_it_also_is() -> (
+    None
+):
+    """Authentication, not-found and rate-limit all subclass `APIStatusError` on both
+    SDKs, so a ladder that tested the base class first would report all three as
+    `api_error` with none of their remedies."""
+    fields = turn.failure(
+        _AuthenticationError(401),
+        sdk=FAKE_SDK,
+        host=FAKE_HOST,
+        name="example",
+        model="a-model",
+    )
+
+    assert fields["kind"] == "auth"
+    assert fields["message"] == "the 'example' endpoint rejected the credentials"
+    assert "EXAMPLE_API_KEY" in fields["remedy"]
+
+
+def test_an_exception_neither_sdk_defines_is_a_runtime_error_rather_than_a_crash() -> (
+    None
+):
+    """A turn ends with exactly one terminal event, so anything the ladder does not
+    recognise still has to come back as fields rather than propagate."""
+    assert turn.failure(
+        RuntimeError("something else went wrong"),
+        sdk=FAKE_SDK,
+        host=FAKE_HOST,
+        name="example",
+        model="a-model",
+    ) == {
+        "message": "something else went wrong",
+        "kind": "runtime_error",
+        "remedy": "",
     }

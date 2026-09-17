@@ -102,6 +102,39 @@ class Hosted(Protocol):
         ...
 
 
+#: Who owns the agent loop, as the four answers there are. `custom` is ours — the loop
+#: in `runtimes/anthropic.py` over `agent/turn.py`. `sdk` is a vendor's runner driven in
+#: this process, with tool execution still routed through us. `delegated` is another
+#: harness on this machine, which owns orchestration, tools and permissions alike.
+#: `managed` is a loop running on someone else's infrastructure.
+FAMILIES: tuple[str, ...] = ("custom", "sdk", "delegated", "managed")
+
+#: What a runtime that declares nothing is. Every runtime written before this Protocol
+#: existed owns its own loop, so the default is the one that keeps them all correct.
+DEFAULT_FAMILY = "custom"
+
+
+@runtime_checkable
+class Owned(Protocol):
+    """A runtime that says who runs its agent loop.
+
+    Optional, and composed the way `Diagnosable` and `Hosted` are: a runtime declaring
+    nothing is `custom`, which is what every runtime written before this Protocol
+    existed is. **Declared, never inferred** — the same rule tool effects follow.
+    Reading it off `Hosted` would be coincidence: a delegated harness could perfectly
+    well have a host table, and the first one that does would be silently misfiled.
+
+    It matters because the flat list `doctor` printed blends two different things. A
+    `custom` runtime's orchestration is ours to configure; a `delegated` one's is not,
+    which is why `claude-cli` has no host rows and would take no `loop:`.
+    """
+
+    def family(self) -> str:
+        """One of `FAMILIES`. A value outside it reads as `DEFAULT_FAMILY` — the caller
+        reports what it was told and never guesses at a vocabulary it does not know."""
+        ...
+
+
 def available_kinds() -> dict[str, type]:
     """Every runtime class registered under the entry-point group.
 
@@ -132,9 +165,12 @@ def build(kind: str, **options: Any) -> Runtime:
 
 
 __all__ = [
+    "DEFAULT_FAMILY",
     "ENTRY_POINT_GROUP",
+    "FAMILIES",
     "Diagnosable",
     "Hosted",
+    "Owned",
     "Runtime",
     "available_kinds",
     "build",

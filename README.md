@@ -138,11 +138,13 @@ Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
 
 ## Configure compute
 
-Sources say where context comes from; a **runtime** says where answers come from. Three
-ship: `claude-cli`, which shells to the `claude` binary, and `anthropic` and `openai`,
-which run the turn in process against a **host** — an endpoint, declared as a row. Seven
-hosts ship between them, including Azure AI Foundry, classic Azure OpenAI, OpenRouter and
-any OpenAI-compatible server on your own machine.
+Sources say where context comes from; a **runtime** says where answers come from. Five
+ship: `claude-cli`, which shells to the `claude` binary; `anthropic` and `openai`, which
+run our own loop against a **host** — an endpoint, declared as a row; and `sdk-anthropic`
+and `openai-agents`, which hand the loop to the Anthropic SDK's tool runner and the
+OpenAI Agents SDK over the same hosts, while tools stay ours. Seven hosts ship between
+them, including Azure AI Foundry, classic Azure OpenAI, OpenRouter and any
+OpenAI-compatible server on your own machine.
 
 `intel hosts` says what each one would cost you to set up, before you have chosen:
 
@@ -200,5 +202,5 @@ If you are also *authoring* a wiki, add your wiki compiler alongside the engine:
 ## Status
 
 Early, but usable. Both terminal frontends work over the `files`, `wiki` and `mcp`
-connectors, and `intel ask` runs against all three runtimes above — the `api` extra
-installs the two in-process SDKs.
+connectors, and `intel ask` runs against every runtime above — the `api` extra installs
+the two in-process SDKs, and `agents` adds the OpenAI Agents SDK.

@@ -33,6 +33,39 @@ def capture(width: int = 100) -> Console:
     return Console(theme=THEME, width=width, force_terminal=False, record=True)
 
 
+#: The loop-owner headings `doctor` groups runtimes under, in printed order.
+FAMILY_HEADINGS = ("custom loop", "sdk runner", "delegated", "managed")
+
+
+def runtime_line(stdout: str, name: str) -> str | None:
+    """One runtime's `doctor` row, as a whole stripped line, or None if it has none.
+
+    Anchored to the name rather than matched as a substring, because the names nest:
+    `"anthropic" in stdout` is satisfied by `sdk-anthropic`, and `"! anthropic"` by
+    `! anthropic-something` — an assertion that passes because a sibling runtime is
+    installed is an assertion about nothing.
+    """
+    for raw in stdout.splitlines():
+        parts = raw.split()
+        if len(parts) >= 2 and parts[1] == name:
+            return raw.strip()
+    return None
+
+
+def runtime_group(stdout: str, name: str) -> str | None:
+    """Which loop-owner group one runtime's row was printed under."""
+    heading: str | None = None
+    for raw in stdout.splitlines():
+        stripped = raw.strip()
+        if stripped in FAMILY_HEADINGS:
+            heading = stripped
+            continue
+        parts = raw.split()
+        if len(parts) >= 2 and parts[1] == name:
+            return heading
+    return None
+
+
 # -- the renderer -----------------------------------------------------------
 
 
@@ -177,10 +210,32 @@ def test_doctor_names_the_variables_a_runtime_is_missing() -> None:
     the missing one. The names are safe to print; the values never appear."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    assert "anthropic" in result.stdout
+    assert runtime_line(result.stdout, "anthropic") is not None
     assert "ANTHROPIC_FOUNDRY_API_KEY" in result.stdout
-    assert "openai" in result.stdout
+    assert runtime_line(result.stdout, "openai") is not None
     assert "OPENAI_API_KEY" in result.stdout
+
+
+def test_doctor_groups_runtimes_by_who_owns_the_loop() -> None:
+    """The flat list blended two different things: a runtime whose orchestration is
+    ours to configure and one that hands orchestration, tools and permissions to
+    another harness. A reader discovered that only by noticing which rows `intel hosts`
+    had nothing to say about.
+
+    `managed` is absent because nothing installed declares it — an empty group is not
+    printed, since a machine with one runtime does not need a taxonomy."""
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    printed = [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip() in FAMILY_HEADINGS
+    ]
+    assert printed == ["custom loop", "sdk runner", "delegated"]
+    assert runtime_group(result.stdout, "anthropic") == "custom loop"
+    assert runtime_group(result.stdout, "sdk-anthropic") == "sdk runner"
+    assert runtime_group(result.stdout, "openai-agents") == "sdk runner"
+    assert runtime_group(result.stdout, "claude-cli") == "delegated"
 
 
 def test_doctor_diagnoses_the_runtime_as_configured_not_bare(
@@ -271,8 +326,8 @@ def test_an_unconfigured_runtime_is_not_flagged_as_a_fault() -> None:
     that mattered indistinguishable among them."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    assert "· anthropic" in result.stdout
-    assert "! anthropic" not in result.stdout
+    line = runtime_line(result.stdout, "anthropic")
+    assert line is not None and line.startswith("· anthropic ")
 
 
 def test_the_configured_runtime_is_flagged_when_it_cannot_run() -> None:
@@ -284,7 +339,8 @@ def test_the_configured_runtime_is_flagged_when_it_cannot_run() -> None:
 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    assert "! anthropic" in result.stdout
+    line = runtime_line(result.stdout, "anthropic")
+    assert line is not None and line.startswith("! anthropic ")
 
 
 def test_hosts_marks_only_the_answering_runtime_s_host_as_in_use(

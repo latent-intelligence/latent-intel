@@ -9,7 +9,7 @@ default:
 
 # Install the package with its development dependencies.
 install:
-    uv sync --extra dev --extra api
+    uv sync --extra dev --extra api --extra agents
 
 # -- checks -----------------------------------------------------------------
 

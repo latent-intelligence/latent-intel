@@ -232,6 +232,21 @@ class HostReport(BaseModel):
     hosts: dict[str, HostStatus] = Field(default_factory=dict)
 
 
+class RuntimeReport(BaseModel):
+    """One runtime, as a machine finds it: whether it can run, and who runs its loop.
+
+    A value rather than two lookups, for the reason `HostReport` gives — each would
+    build the runtime again to answer half a question, and a family read off a runtime
+    built a moment after the verdict can describe a different object.
+    """
+
+    #: Why this runtime cannot run here, or None when it can.
+    reason: str | None = None
+    #: Who owns its agent loop — one of `agent.base.FAMILIES`. A runtime that declares
+    #: nothing, or declares something this build does not know, reads as `custom`.
+    family: str = "custom"
+
+
 class Message(BaseModel):
     """One turn of conversation, as a runtime receives it.
 
@@ -284,6 +299,7 @@ __all__ = [
     "Provenance",
     "Ref",
     "RuntimeFailed",
+    "RuntimeReport",
     "RuntimeUnavailable",
     "SessionError",
     "SourceRequest",

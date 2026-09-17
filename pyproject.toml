@@ -51,6 +51,16 @@ api = [
     "anthropic>=0.87",
     "openai>=1.60",
 ]
+agents = [
+    # The OpenAI Agents SDK, for the `openai-agents` runtime — a framework that owns
+    # the agent loop rather than a client that speaks a protocol. Its own extra rather
+    # than part of `api`: a framework in a base install is the kind of dependency a
+    # client's security review asks about, and nothing outside that one runtime needs
+    # it. Imported inside the turn like every other SDK, so its absence is a missing
+    # runtime rather than a start-up failure. It requires `openai`, which is why
+    # `[agents]` implies `[api]` in practice.
+    "openai-agents>=0.22",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov",
@@ -81,7 +91,9 @@ vector = "latent_intel.connectors.vector:VectorConnector"
 [project.entry-points."latent_intel.runtimes"]
 claude-cli = "latent_intel.agent.runtimes.claude_cli:ClaudeCliRuntime"
 anthropic = "latent_intel.agent.runtimes.anthropic:AnthropicRuntime"
+sdk-anthropic = "latent_intel.agent.runtimes.sdk_anthropic:SdkAnthropicRuntime"
 openai = "latent_intel.agent.runtimes.openai:OpenAIRuntime"
+openai-agents = "latent_intel.agent.runtimes.openai_agents:OpenAIAgentsRuntime"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/latent_intel"]
