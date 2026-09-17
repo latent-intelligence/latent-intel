@@ -488,9 +488,9 @@ that runtime's table, differing in credentials and model names and in nothing el
 `intel doctor` groups the installed runtimes by loop owner, because that is the
 difference that decides what a runtime can reach and what you can configure about it.
 
-`ask` needs a backend. Four ship: one delegates the loop to a binary on your machine,
-two run a loop we wrote — named for the protocol each speaks — and one hands the loop to
-a vendor's SDK while tools stay ours.
+`ask` needs a backend. Five ship: one delegates the loop to a binary on your machine,
+two run a loop we wrote — named for the protocol each speaks — and two hand the loop to a
+vendor's SDK while tools stay ours.
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
@@ -512,6 +512,16 @@ a vendor's SDK while tools stay ours.
   round-trip bound is the runner's. Its host override is
   `LATENT_INTEL_SDK_ANTHROPIC_HOST`, separate from `anthropic`'s, so one machine can
   point the two at different endpoints while comparing them.
+- **`openai-agents`** is `openai` with the loop run by the OpenAI Agents SDK instead of
+  by us. Same protocol, the same five hosts, the same credentials and the same options —
+  `tokens_param` included, because the SDK's own parameter is the older name — and tools
+  still route through our router, so every attached source is visible to it. It needs the
+  `agents` extra, which pulls the framework alongside the `api` extra's SDKs:
+  `uv tool install ".[api,agents]"`. Its host override is
+  `LATENT_INTEL_OPENAI_AGENTS_HOST`. Two differences from `openai` worth knowing: an
+  answer cut short by the output limit completes rather than reporting why, and a tool
+  name the model invented is answered by the SDK rather than by our router, so no tool
+  event appears for it.
 
 ```
 latent › /runtime anthropic
@@ -546,6 +556,9 @@ runtimes:
     host: foundry            # or `openai`, `openrouter`, `azure-openai`, `local`
     model: my-gpt-deployment # required, and a deployment name, not a catalogue id
     tokens_param: max_completion_tokens  # or max_tokens for a host that only accepts it
+  openai-agents:             # the same options, and the same five hosts
+    host: openrouter
+    model: anthropic/claude-sonnet-5
 ```
 
 The same block may be written by a project, under `agent:` — which is how a deployment
@@ -565,9 +578,9 @@ stale. An unknown name fails when you ask, with the runtime's own message.
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
 MCP servers, so under `claude-cli` only `mcp` and `wiki` sources are visible to it —
 `files` and `vector` run in this process and have no server to point at. `intel doctor`
-marks the difference under `attached`. Under `anthropic`, `openai` and `sdk-anthropic`
-the distinction does not apply: the tool router is ours either way — whoever drives the
-loop — so everything attached is a tool.
+marks the difference under `attached`. Under `anthropic`, `openai`, `sdk-anthropic` and
+`openai-agents` the distinction does not apply: the tool router is ours either way —
+whoever drives the loop — so everything attached is a tool.
 
 **Credentials for the in-process runtimes.** Names only, always in the environment,
 never in a config file.
@@ -581,7 +594,7 @@ there.
 | `foundry` (default) | `ANTHROPIC_FOUNDRY_API_KEY`, and one of `ANTHROPIC_FOUNDRY_RESOURCE` / `ANTHROPIC_FOUNDRY_BASE_URL` | — |
 | `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` |
 
-`openai`:
+`openai` and `openai-agents` (one table: the same rows, read by both):
 
 | host | needs | optional | model is |
 |---|---|---|---|

@@ -63,6 +63,36 @@ class Relay:
         return held
 
 
+async def run(
+    spec: ToolSpec,
+    *,
+    emitter: ev.Emitter,
+    relay: Relay,
+    call_tool: turn.ToolRouter | None,
+    arguments: dict[str, Any],
+) -> str:
+    """One tool call, routed through `turn.dispatch` and relayed.
+
+    The router is an argument rather than something closed over, because one SDK
+    decides it per call: an OpenAI-protocol call whose arguments are not valid JSON is
+    dispatched through a router that raises, so the model is shown its own mistake
+    rather than having the fragment passed to a connector. A runner whose tool objects
+    are built once, before any arguments exist, cannot bind that router at build time.
+    """
+    started, result = await turn.dispatch(
+        call_tool,
+        spec,
+        source_id=spec.source_id,
+        name=spec.name,
+        arguments=arguments,
+        emitter=emitter,
+    )
+    relay.push(started, result)
+    if not result.ok:
+        raise BridgeError(result.error)
+    return result.output
+
+
 def bridged(
     spec: ToolSpec,
     *,
@@ -72,26 +102,23 @@ def bridged(
 ) -> Callable[[dict[str, Any]], Awaitable[str]]:
     """One wired tool, as the async callable an SDK runner awaits.
 
-    The body is `turn.dispatch`, so a tool reached through a runner is routed,
-    reported and timed exactly as one reached through our own loop — the point of
-    offloading the loop is that execution stays ours.
+    The body is `run`, so a tool reached through a runner is routed, reported and timed
+    exactly as one reached through our own loop — the point of offloading the loop is
+    that execution stays ours. For a runner that hands over the arguments already
+    decoded and always through the one router, this is the whole seam; the other kind
+    calls `run` itself.
     """
 
     async def call(arguments: dict[str, Any]) -> str:
-        started, result = await turn.dispatch(
-            call_tool,
+        return await run(
             spec,
-            source_id=spec.source_id,
-            name=spec.name,
-            arguments=arguments,
             emitter=emitter,
+            relay=relay,
+            call_tool=call_tool,
+            arguments=arguments,
         )
-        relay.push(started, result)
-        if not result.ok:
-            raise BridgeError(result.error)
-        return result.output
 
     return call
 
 
-__all__ = ["BridgeError", "Relay", "bridged"]
+__all__ = ["BridgeError", "Relay", "bridged", "run"]

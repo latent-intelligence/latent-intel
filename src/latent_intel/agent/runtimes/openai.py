@@ -515,13 +515,13 @@ class OpenAIRuntime:
                     for index in sorted(calls):
                         call = calls[index]
                         spec = by_name.get(call["name"])
-                        arguments, router = _arguments(call["arguments"], call_tool)
+                        decoded, router = arguments(call["arguments"], call_tool)
                         started, result = await turn.dispatch(
                             router,
                             spec,
                             source_id=spec.source_id if spec else "",
                             name=spec.name if spec else call["name"],
-                            arguments=arguments,
+                            arguments=decoded,
                             emitter=emitter,
                         )
                         yield started
@@ -604,13 +604,18 @@ async def _invalid_arguments(
     raise ValueError("tool arguments were not valid JSON")
 
 
-def _arguments(
+def arguments(
     raw: str, call_tool: turn.ToolRouter | None
 ) -> tuple[dict[str, Any], turn.ToolRouter | None]:
     """One call's arguments, with the router it should be dispatched through.
 
     Anything that is not a JSON object — a truncated fragment, a bare string — is the
     same failure, and it is the model's to fix.
+
+    Public because `openai_agents.py` needs the same rule: the protocol is what decides
+    that arguments arrive as a JSON string, so the two runtimes that speak it must
+    agree about a string that is not one, or a fragment routed by one and refused by
+    the other is a difference nobody chose.
     """
     try:
         decoded = json.loads(raw or "{}")
@@ -628,4 +633,5 @@ __all__ = [
     "ENV_HOST",
     "HOSTS",
     "OpenAIRuntime",
+    "arguments",
 ]

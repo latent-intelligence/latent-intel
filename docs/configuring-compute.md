@@ -327,6 +327,10 @@ ones are named for the *protocol* they speak, not the vendor. OpenRouter speaks 
 OpenAI-compatible one, so `runtime: openai` is right even when the model you pick is
 `anthropic/claude-sonnet-4.5`.
 
+`openai-agents` is the SDK-run sibling of `openai`: the same protocol, the same hosts and
+the same variables, so everything in this section applies to it unchanged once the
+`agents` extra is installed.
+
 **Model ids are `<vendor>/<model>`**, listed at
 [openrouter.ai/models](https://openrouter.ai/models). A `:free` suffix is a free tier of
 that model — rate-limited, but real. `poolside/laguna-s-2.1:free` is the one used
@@ -481,7 +485,9 @@ openai ← configured
 ### 3. Choose it
 
 The runtime is `openai` — the protocol, not the vendor. Ollama speaks the
-OpenAI-compatible API, so nothing else changes.
+OpenAI-compatible API, so nothing else changes. Its SDK-run sibling `openai-agents`
+reaches this host on the same variables, if you want the framework's loop against a
+server that costs nothing.
 
 ```
 latent › /runtime openai

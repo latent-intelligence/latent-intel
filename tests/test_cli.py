@@ -234,6 +234,7 @@ def test_doctor_groups_runtimes_by_who_owns_the_loop() -> None:
     assert printed == ["custom loop", "sdk runner", "delegated"]
     assert runtime_group(result.stdout, "anthropic") == "custom loop"
     assert runtime_group(result.stdout, "sdk-anthropic") == "sdk runner"
+    assert runtime_group(result.stdout, "openai-agents") == "sdk runner"
     assert runtime_group(result.stdout, "claude-cli") == "delegated"
 
 
