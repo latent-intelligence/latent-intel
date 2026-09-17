@@ -127,24 +127,54 @@ def input_schema(spec: ToolSpec) -> dict[str, Any]:
     return spec.input_schema or {"type": "object", "properties": {}}
 
 
-def system_prompt(sources: Sequence[Any]) -> str:
-    """Tell the agent what it is looking at, and how to cite it.
+#: What the agent is told to do with what it finds. The one line a persona competes
+#: with, and therefore the only one `persona_mode: replace` substitutes.
+POSTURE = "Cite what you use as `source:key`. Say when the sources do not answer."
+
+
+def system_prompt(
+    sources: Sequence[Any],
+    *,
+    persona: str = "",
+    persona_mode: str = "append",
+    skills: Sequence[tuple[str, str]] = (),
+) -> str:
+    """Tell the agent what it is looking at, how to cite it, and who it is.
 
     Cheap, and the difference between a generic chat and one that knows it has a wiki
     attached. Citations are recoverable later only if it is asked for them now.
+
+    Two parts, and they are not equally replaceable. **The inventory is never
+    replaced** — the agent cannot use its tools without it, and a mode that could drop
+    it would be a footgun that looks like a preference. Only `POSTURE` is, and only
+    under `persona_mode: replace`; anything else appends, because a deployment whose
+    mode is misspelled should sound like itself plus our posture rather than fail.
+
+    A source's own `description` is printed under its line when it declares one: asked
+    what a store was *about*, every model answered that it could not tell, because
+    nothing in the prompt said. Generic — any connector may declare one.
     """
-    if not sources:
-        return ""
-    lines = [
-        "You are answering over attached context sources, reachable as tools.",
-        "Attached:",
-    ]
-    for descriptor in sources:
-        caps = ", ".join(sorted(str(c) for c in descriptor.capabilities))
-        lines.append(f"  {descriptor.id} ({descriptor.kind}) — {caps}")
-    lines.append(
-        "Cite what you use as `source:key`. Say when the sources do not answer."
-    )
+    lines: list[str] = []
+    if sources:
+        lines += [
+            "You are answering over attached context sources, reachable as tools.",
+            "Attached:",
+        ]
+        for descriptor in sources:
+            caps = ", ".join(sorted(str(c) for c in descriptor.capabilities))
+            lines.append(f"  {descriptor.id} ({descriptor.kind}) — {caps}")
+            detail = descriptor.detail or {}
+            description = str(detail.get("description") or "").strip()
+            if description:
+                lines.append(f"    {description}")
+
+    persona = persona.strip()
+    if sources and not (persona and persona_mode == "replace"):
+        lines.append(POSTURE)
+    if persona:
+        lines += ["", persona] if lines else [persona]
+    for name, body in skills:
+        lines += ["", f"## {name}", "", body.strip()]
     return "\n".join(lines)
 
 
@@ -330,6 +360,7 @@ class UsageTotals:
 __all__ = [
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MAX_TOOL_ROUNDS",
+    "POSTURE",
     "USAGE_KEYS",
     "ToolNameCollision",
     "ToolRouter",

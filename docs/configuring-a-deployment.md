@@ -17,14 +17,10 @@ release.
 ├── corpus/                      material this deployment ships, if any
 │   └── notes/
 ├── .env                         optional credentials — git-ignored, never committed
-├── skills/                      PLANNED — bodies offered to the agent
+├── skills/                      one .md per skill  →  the agent's standing knowledge
 │   └── methodology.md
-└── persona.md                   PLANNED — voice and standing instructions
+└── persona.md                   voice and standing instructions
 ```
-
-`skills/` and `persona.md` are marked PLANNED deliberately: the keys parse today but
-nothing consumes them yet, and a directory that looks live and does nothing is worse than
-one that says so.
 
 **Every relative path resolves against `research.yaml`**, never your working directory, so
 the same checkout works on any machine and in any cwd. Remote locations go through
@@ -121,6 +117,44 @@ research › /brief nitrate levels
 `kind` is `search`, `prompt` or `sequence`. They compose what the engine already does,
 which is why they need no code and no release. The two points where new *capability*
 plugs in — connectors and tools — are in [`../CLAUDE.md`](../CLAUDE.md).
+
+---
+
+## Persona and skills
+
+Both are markdown the agent is given before your question, and the line between them is
+what is true *when*. A **persona** is true on every turn — the role, what it refuses,
+how it cites — so it is one file and it is always sent. A **skill** is true *sometimes*
+and too long to pay for always: how this corpus is organised, the query patterns that
+work on it, a method it should follow when asked for one.
+
+```yaml
+# ~/deployments/research/research.yaml
+skills: ./skills                      # every *.md in it, in filename order
+agent:
+  persona: ./persona.md               # resolved against this file, like every path
+  persona_mode: append                # or: replace
+```
+
+`persona_mode: append` (the default) adds your persona after ours. `replace` puts it in
+place of our posture line — *"cite what you use as `source:key`, say when the sources do
+not answer"* — and nothing else: the list of attached sources is never replaced, because
+the agent cannot use its tools without it. An unrecognized mode is reported by
+`intel project validate` and read as `append`.
+
+A skill is named by the filename, or by a `name:` in its frontmatter when you want
+another name:
+
+```markdown
+---
+name: citation-style
+---
+Cite a single page inline as `source:key`, in the sentence that uses it.
+```
+
+Skills are sent whole, so keep them to what earns its tokens. A missing persona file or
+a skill whose frontmatter will not parse is **reported and skipped** — one bad file does
+not cost a deployment its other four. `intel project validate` lists them.
 
 ---
 

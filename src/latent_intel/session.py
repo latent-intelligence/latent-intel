@@ -558,8 +558,13 @@ class Session:
         The runtime is resolved on first use rather than in `__init__`: a `Session` is
         built on every CLI invocation, and `intel search` should not pay for an
         entry-point scan and a config read it never uses.
+
+        Persona and skills travel beside `sources` rather than as runtime options: they
+        are the project's, not one runtime's, and resolving them here is what stops
+        every runtime re-reading the project to find them.
         """
         runtime = self._resolve_runtime()
+        resolved = settings_module.load()
         emitter = ev.Emitter(self.session_id)
         self._history.append(Message(role="user", text=prompt))
         async for event in runtime.stream(
@@ -568,6 +573,9 @@ class Session:
             emitter=emitter,
             mcp_servers=self.mcp_servers(),
             sources=self.sources(),
+            persona=resolved.persona,
+            persona_mode=resolved.persona_mode,
+            skills=resolved.skills,
             call_tool=self.call_tool,
         ):
             if isinstance(event, ev.AgentCompleted):

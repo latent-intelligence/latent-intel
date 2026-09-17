@@ -29,7 +29,14 @@ from typing import Any
 
 import yaml
 
+from . import procedures
 from .config import SourceSpec
+
+#: How a persona meets our own prompt. `append` adds it after ours; `replace` puts it
+#: in place of the posture line — and of that line only, never the sources inventory,
+#: which the agent cannot use its tools without. Anything else is a problem and reads
+#: as `append`: a misspelled mode should not cost a deployment its voice.
+PERSONA_MODES = ("append", "replace")
 
 #: Where `intel project add` records extra search locations, and what a deployment sets.
 ENV_PROJECTS = "LATENT_INTEL_PROJECTS"
@@ -123,6 +130,68 @@ def _option(key: str, value: Any, base: Path, variables: dict[str, str]) -> Any:
     return _substituted(value, variables)
 
 
+def _persona(
+    agent: dict[str, Any], base: Path, variables: dict[str, str], problems: list[str]
+) -> tuple[str, str]:
+    """The persona text and the mode it applies in, from a project's `agent:` block.
+
+    A path, resolved against the project file like every other path — a persona that
+    only resolves on the machine that authored it is the failure the path rule exists
+    for. A file that cannot be read is a problem and an empty persona, never a crash:
+    the same non-fatal discipline sources follow.
+    """
+    mode = str(agent.get("persona_mode") or "append")
+    if mode not in PERSONA_MODES:
+        problems.append(
+            f"persona_mode: '{mode}' is not one of {', '.join(PERSONA_MODES)} — "
+            f"reading it as append"
+        )
+        mode = "append"
+    value = agent.get("persona")
+    if not value:
+        return "", mode
+    try:
+        text = Path(_resolve(str(value), base, variables)).read_text(encoding="utf-8")
+    except (UnsetVariable, OSError) as exc:
+        problems.append(f"persona: {exc}")
+        return "", mode
+    return text.strip(), mode
+
+
+def _skills(directory: Path | None, problems: list[str]) -> list[tuple[str, str]]:
+    """Every `*.md` in a project's skills directory, as `(name, body)`.
+
+    Filename order, so what the model is given is what the directory listing says.
+    `name` comes from a frontmatter `name:` when there is one and from the filename
+    otherwise — a skill is prose, and requiring a header to have any would be a
+    ceremony with no reader. One unreadable file is reported and skipped rather than
+    costing a deployment its other four.
+    """
+    found: list[tuple[str, str]] = []
+    if directory is None:
+        return found
+    for path in sorted(directory.glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            problems.append(f"skills: {exc}")
+            continue
+        block, body = procedures.split_frontmatter(text)
+        name = path.stem
+        if block is not None:
+            try:
+                meta = yaml.safe_load(block) or {}
+            except yaml.YAMLError as exc:
+                problems.append(f"skills: {path.name}: {exc}")
+                continue
+            if not isinstance(meta, dict):
+                problems.append(f"skills: {path.name}: frontmatter must be a mapping")
+                continue
+            name = str(meta.get("name") or path.stem)
+        found.append((name, body.strip()))
+    return found
+
+
 @dataclass
 class Project:
     """One deployment, as loaded. Never written by the engine."""
@@ -139,6 +208,12 @@ class Project:
     agent: dict[str, Any] = field(default_factory=dict)
     commands_dir: Path | None = None
     skills_dir: Path | None = None
+    #: The deployment's own voice, already read. Text rather than a path, because every
+    #: reader of it wants the text and only this module knows where the file was.
+    persona: str = ""
+    persona_mode: str = "append"
+    #: `(name, body)` per skill, in filename order — what a turn is given whole.
+    skills: list[tuple[str, str]] = field(default_factory=list)
     defaults: dict[str, Any] = field(default_factory=dict)
     #: Validation complaints. Non-fatal by design: a project with one bad source should
     #: still attach the other four, and `doctor` is where you go to find out why.
@@ -216,6 +291,10 @@ def load(path: Path | str) -> Project:
             return None
         return resolved
 
+    agent = dict(raw.get("agent") or {})
+    persona, persona_mode = _persona(agent, base, variables, problems)
+    skills_dir = directory("skills")
+
     registry: str | None = None
     if registry_value := raw.get("registry"):
         try:
@@ -232,9 +311,12 @@ def load(path: Path | str) -> Project:
         variables=variables,
         sources=sources,
         branding=dict(raw.get("branding") or {}),
-        agent=dict(raw.get("agent") or {}),
+        agent=agent,
         commands_dir=directory("commands"),
-        skills_dir=directory("skills"),
+        skills_dir=skills_dir,
+        persona=persona,
+        persona_mode=persona_mode,
+        skills=_skills(skills_dir, problems),
         defaults=dict(raw.get("defaults") or {}),
         problems=problems,
     )

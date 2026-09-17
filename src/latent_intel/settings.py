@@ -43,6 +43,12 @@ class Settings:
     runtime: str | None = None
     runtimes: dict[str, dict[str, Any]] = field(default_factory=dict)
     approval: str = "ask"
+    #: The deployment's voice and standing knowledge, as the project declared them. No
+    #: user layer: a project is composition, and the engine writes only the user's own
+    #: config — so there is nothing here for a later layer to win over.
+    persona: str = ""
+    persona_mode: str = "append"
+    skills: list[tuple[str, str]] = field(default_factory=list)
     theme: dict[str, str] = field(default_factory=dict)
     registry_path: str | None = None
     #: key -> "engine" | "project" | "user", for `project show`.
@@ -166,6 +172,11 @@ def load(name: str | None = None) -> Settings:
     theme = {str(k): str(v) for k, v in (branding.get("theme") or {}).items()}
     theme.update(config.theme)
     settings.theme = theme
+
+    # -- the deployment's voice ------------------------------------------------
+    settings.persona = loaded.persona if loaded else ""
+    settings.persona_mode = loaded.persona_mode if loaded else "append"
+    settings.skills = list(loaded.skills) if loaded else []
 
     settings.registry_path = loaded.registry if loaded else None
 

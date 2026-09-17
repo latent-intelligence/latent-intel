@@ -307,6 +307,24 @@ async def test_attached_sources_reach_the_model_as_instructions(
 
 
 @pytest.mark.anyio
+async def test_a_persona_and_its_skills_reach_the_model_too(credentials: None) -> None:
+    """This runtime forwards the three options like the other three; a runtime that
+    dropped them would still answer, which is why it is asserted."""
+    from latent_intel.models import Descriptor
+
+    fake = FakeRunner(Round(text=("hi",)))
+    await collect(
+        runtime(fake),
+        sources=[Descriptor(id="design", kind="wiki")],
+        persona="You are an archivist.",
+        skills=[("citation-style", "Cite inline.")],
+    )
+    instructions = fake.runs[0]["agent"].instructions
+    assert "You are an archivist." in instructions
+    assert "## citation-style" in instructions
+
+
+@pytest.mark.anyio
 async def test_the_tools_reach_the_agent_as_non_strict_function_tools(
     credentials: None,
 ) -> None:

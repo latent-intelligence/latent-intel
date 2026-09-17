@@ -191,6 +191,88 @@ def test_an_mcp_target_is_a_command_line_and_is_never_path_joined(
     assert var.target == "georecords-mcp --stdio"
 
 
+# -- the persona and the skills ---------------------------------------------
+
+
+def test_a_persona_is_read_from_a_path_resolved_against_the_project_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The persona is a path like every other, so it obeys the path rule: a voice that
+    only resolves where it was authored is the failure that rule exists for."""
+    home = tmp_path / "elsewhere"
+    home.mkdir()
+    (home / "persona.md").write_text("You are a careful archivist.\n", encoding="utf-8")
+    path = write(home, "voiced", "agent: {persona: ./persona.md}\n")
+
+    monkeypatch.chdir(tmp_path)
+    loaded = project.load(path)
+
+    assert loaded.persona == "You are a careful archivist."
+    assert loaded.persona_mode == "append"
+    assert loaded.problems == []
+
+
+def test_a_persona_file_that_is_not_there_is_reported_not_fatal(tmp_path: Path) -> None:
+    """One missing file must not cost a deployment its sources, its commands and its
+    branding — the same non-fatal discipline a bad source gets."""
+    path = write(tmp_path, "absent", "agent: {persona: ./nowhere.md}\n")
+    loaded = project.load(path)
+
+    assert loaded.persona == ""
+    assert len(loaded.problems) == 1 and "persona" in loaded.problems[0]
+
+
+def test_a_mode_this_build_does_not_know_is_named_and_read_as_append(
+    tmp_path: Path,
+) -> None:
+    """A misspelled mode is worth saying out loud, and worth nothing else: the
+    deployment still sounds like itself."""
+    path = write(tmp_path, "typo", "agent: {persona_mode: replce}\n")
+    loaded = project.load(path)
+
+    assert loaded.persona_mode == "append"
+    assert any("replce" in problem for problem in loaded.problems), loaded.problems
+
+
+def test_skills_load_in_filename_order_and_name_themselves(tmp_path: Path) -> None:
+    """A skill is prose. Frontmatter names it when the author wants a name other than
+    the filename, and is not required for a file to be a skill at all."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "b-plain.md").write_text("No frontmatter here.\n", encoding="utf-8")
+    (skills / "a-named.md").write_text(
+        "---\nname: citation-style\n---\nCite inline.\n", encoding="utf-8"
+    )
+    path = write(tmp_path, "skilled", "skills: ./skills\n")
+
+    loaded = project.load(path)
+
+    assert loaded.skills == [
+        ("citation-style", "Cite inline."),
+        ("b-plain", "No frontmatter here."),
+    ]
+    assert loaded.problems == []
+
+
+def test_one_unreadable_skill_is_skipped_while_the_others_still_load(
+    tmp_path: Path,
+) -> None:
+    """One bad file must not cost a deployment its other four."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "good.md").write_text("Fine.\n", encoding="utf-8")
+    (skills / "broken.md").write_text(
+        "---\nname: [unclosed\n---\nbody\n", encoding="utf-8"
+    )
+    (skills / "later.md").write_text("Also fine.\n", encoding="utf-8")
+    path = write(tmp_path, "partial", "skills: ./skills\n")
+
+    loaded = project.load(path)
+
+    assert [name for name, _ in loaded.skills] == ["good", "later"]
+    assert len(loaded.problems) == 1 and "broken.md" in loaded.problems[0]
+
+
 # -- discovery --------------------------------------------------------------
 
 

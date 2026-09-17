@@ -244,7 +244,12 @@ class CustomRuntime:
         wired = turn.wired(tools, self.approval)
         by_name = dict(wired)
         definitions = adapter.definitions(wired)
-        system = turn.system_prompt(sources)
+        system = turn.system_prompt(
+            sources,
+            persona=options.get("persona") or "",
+            persona_mode=options.get("persona_mode") or "append",
+            skills=options.get("skills") or (),
+        )
         transcript = adapter.transcript(messages, system)
         # The runtime's override, then the row's, then whatever the adapter defaults
         # to. Read here rather than in the adapter, which owns no rows.
