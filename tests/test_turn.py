@@ -319,7 +319,7 @@ class _APIError(Exception):
     """The shape both SDKs give these five classes, with none of either installed.
 
     `failure` looks its classes up on the module it is handed, so a namespace of
-    exceptions exercises the ordering exactly as `anthropic` or `openai` would — and
+    exceptions exercises the ordering exactly as either SDK module would — and
     keeps this file's rule that nothing here needs a vendor SDK present.
     """
 

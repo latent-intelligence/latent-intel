@@ -142,7 +142,7 @@ def test_host_selection_reads_this_runtime_s_own_variable(
     """Its own variable, not the sibling's: a machine comparing the two loops sets one
     against Foundry and the other against the public API."""
     assert SdkAnthropicRuntime().host == "foundry-anthropic"
-    monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "anthropic")
     assert SdkAnthropicRuntime().host == "foundry-anthropic"
     monkeypatch.setenv(ENV_HOST, "anthropic")
     assert SdkAnthropicRuntime().host == "anthropic"

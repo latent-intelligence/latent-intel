@@ -66,10 +66,14 @@ ENV_HOST = "LATENT_INTEL_SDK_ANTHROPIC_HOST"
 #: the default host's row rather than written again here: a model default is the row's
 #: to declare now that it is a field, and two places saying it are two places to
 #: disagree. Every row on this protocol declares one — `tests/test_hosts.py` is what
-#: holds that — and the assert is what tells mypy so without a second literal.
+#: holds that — and the check below is what tells mypy so without a second literal;
+#: a check rather than an assert, because `python -O` strips asserts and would leave
+#: this constant None while typed `str`.
 _default_model = HOSTS[DEFAULT_HOST].default_model
-assert _default_model is not None
+if _default_model is None:
+    raise RuntimeError(f"host row '{DEFAULT_HOST}' declares no default model")
 DEFAULT_MODEL: str = _default_model
+del _default_model
 
 
 class SdkAnthropicRuntime:

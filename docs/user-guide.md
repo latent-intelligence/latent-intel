@@ -62,14 +62,16 @@ build** points at `src/` and tracks the working tree, so an edit is live and a
 half-finished branch is too.
 
 ```bash
-uv tool install ".[api]" --reinstall              # user build — a snapshot of the checkout
-uv tool install --editable ".[api]" --reinstall   # dev build  — tracks the working tree
+uv tool install ".[api,agents]" --reinstall              # user build — a snapshot of the checkout
+uv tool install --editable ".[api,agents]" --reinstall   # dev build  — tracks the working tree
 ```
 
-Both want `[api]`: without it the in-process runtimes report themselves as not installed,
-since `uv run` reads the project environment and a tool install does not. Or skip PATH —
-`uv sync --extra dev`, and prefix commands with `uv run`. Everything below works either
-way.
+Both want the extras: `[api]` is the Anthropic and OpenAI SDKs that `custom` and
+`sdk-anthropic` run on, `[agents]` is the OpenAI Agents SDK for `openai-agents`. Without
+one, that runtime reports itself as not installed, since `uv run` reads the project
+environment and a tool install does not. Or skip PATH — `just install`, which is
+`uv sync --extra dev --extra api --extra agents`, and prefix commands with `uv run`.
+Everything below works either way.
 
 Check what you got:
 

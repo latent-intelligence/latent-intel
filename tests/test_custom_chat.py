@@ -1441,7 +1441,7 @@ async def test_the_runtime_option_overrides_whatever_the_row_asks_for(
 ) -> None:
     """The honest lever for a resource that accepts only the older name, and the
     reason no row has to guess on everyone's behalf: it is configured per install, as
-    `runtimes: openai: {tokens_param: max_tokens}`, and no row gets a say in it."""
+    `runtimes: custom: {tokens_param: max_tokens}`, and no row gets a say in it."""
     client = FakeClient(Round(text=("hi",)))
     events = await collect(
         CustomRuntime(
@@ -1512,8 +1512,19 @@ async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
             raise AssertionError("the openai runtime reached for the SDK anyway")
         return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
+    real_import_module = importlib.import_module
+
+    def refuse_module(name: str, package: str | None = None) -> Any:
+        # `custom.stream` imports the row's SDK by name through `import_module`,
+        # which does not pass through `builtins.__import__` — so both doors are shut,
+        # or this test would let a real client dial out from `tests/`.
+        if name == "openai":
+            raise AssertionError("the openai runtime reached for the SDK anyway")
+        return real_import_module(name, package)
+
     monkeypatch.setattr(importlib.util, "find_spec", no_spec)
     monkeypatch.setattr(builtins, "__import__", refuse)
+    monkeypatch.setattr(importlib, "import_module", refuse_module)
 
     backend = runtime()
     reason = backend.unavailable_reason()

@@ -248,7 +248,9 @@ class CustomRuntime:
         transcript = adapter.transcript(messages, system)
         # The runtime's override, then the row's, then whatever the adapter defaults
         # to. Read here rather than in the adapter, which owns no rows.
-        tokens_param = self.tokens_param or getattr(row, "tokens_param", None)
+        tokens_param = self.tokens_param or (
+            row.tokens_param if isinstance(row, hosts.OpenAIHost) else None
+        )
         usage = turn.UsageTotals()
         began = time.monotonic()
         answer: list[str] = []
@@ -280,8 +282,11 @@ class CustomRuntime:
                     answer.append(item)
                     yield emitter.emit(ev.AssistantToken, text=item)
                 # Exactly one per round is the Protocol; an adapter that breaks it
-                # leaves through `stream` as the turn's one failure.
-                assert outcome is not None, f"the {row.protocol} adapter yielded none"
+                # leaves through `stream` as the turn's one failure. A raise rather
+                # than an assert, so `python -O` reports the adapter and not an
+                # AttributeError two lines down.
+                if outcome is None:
+                    raise RuntimeError(f"the {row.protocol} adapter yielded no outcome")
 
                 usage.add_counts(**outcome.counts)
                 transcript.append(outcome.assistant)

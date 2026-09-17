@@ -168,7 +168,7 @@ def test_host_selection_reads_this_runtime_s_own_variable(
     """Its own variable, not the sibling's: a machine comparing the two loops sets one
     against OpenRouter and the other against the public API."""
     assert OpenAIAgentsRuntime().host == "openai"
-    monkeypatch.setenv("LATENT_INTEL_OPENAI_HOST", "openrouter")
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "openrouter")
     assert OpenAIAgentsRuntime().host == "openai"
     monkeypatch.setenv(ENV_HOST, "openrouter")
     assert OpenAIAgentsRuntime().host == "openrouter"

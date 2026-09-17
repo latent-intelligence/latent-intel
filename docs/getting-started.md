@@ -78,8 +78,8 @@ select the active project either; that is `intel project use`, which persists.
 `intel` on your PATH moves when the repository does.
 
 ```bash
-uv tool install ".[api]" --reinstall              # user build — a snapshot of the checkout
-uv tool install --editable ".[api]" --reinstall   # dev build  — tracks the working tree
+uv tool install ".[api,agents]" --reinstall              # user build — a snapshot of the checkout
+uv tool install --editable ".[api,agents]" --reinstall   # dev build  — tracks the working tree
 ```
 
 A **user build** is copied at install time and stays put until you reinstall. A **dev
@@ -87,12 +87,15 @@ build** points at `src/`, so an edit is live — and so is a half-finished branc
 the cost: switch branches and the tool switches with you. Either way, a changed dependency
 or entry point still needs another reinstall.
 
-`[api]` adds the two in-process runtime SDKs, and both builds want it: leave it out and
-`intel ask` reports the runtime as not installed however much else is configured, because
-`uv run` reads the project's own environment while a tool install does not. Quote the
-argument — an unquoted `.[api]` is glob-expanded by the shell.
+Two extras, by runtime. `[api]` adds the Anthropic and OpenAI SDKs, which `custom` and
+`sdk-anthropic` run on; `[agents]` adds the OpenAI Agents SDK for `openai-agents`, and
+implies `[api]`. Leave one out and `intel ask` reports that runtime as not installed
+however much else is configured, because `uv run` reads the project's own environment
+while a tool install does not. Quote the argument — an unquoted `.[api,agents]` is
+glob-expanded by the shell.
 
-To skip PATH entirely, `uv sync --extra dev` and prefix everything below with `uv run`.
+To skip PATH entirely, `just install` (which is `uv sync --extra dev --extra api --extra
+agents`) and prefix everything below with `uv run`.
 
 ---
 
