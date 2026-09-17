@@ -488,48 +488,52 @@ that runtime's table, differing in credentials and model names and in nothing el
 `intel doctor` groups the installed runtimes by loop owner, because that is the
 difference that decides what a runtime can reach and what you can configure about it.
 
-`ask` needs a backend. Five ship: one delegates the loop to a binary on your machine,
-two run a loop we wrote — named for the protocol each speaks — and two hand the loop to a
-vendor's SDK while tools stay ours.
+`ask` needs a backend. Four ship: one delegates the loop to a binary on your machine, one
+runs the loop we wrote, and two hand the loop to a vendor's SDK while tools stay ours.
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
   MCP servers: `files` and `vector` are invisible to it.
-- **`anthropic`** runs the turn in this process over the Anthropic Messages protocol, so
-  our tool router runs and **every** attached source's tools are visible to it. It needs
-  credentials in the environment and the `api` extra — from a clone
-  `uv tool install ".[api]"`, or
+- **`custom`** runs the turn in this process, so our tool router runs and **every**
+  attached source's tools are visible to it. One loop over any row in the table below:
+  the **row carries the protocol**, so the same runtime reaches an Anthropic Messages
+  endpoint and an OpenAI-compatible one without you choosing between them. Seven hosts
+  ship. It has **no default host** — seven rows across two protocols make any default
+  right for at most one deployment, so an unset host is reported by name — and on a chat
+  row **no default model**, because every host names its models differently. Its host
+  override is `LATENT_INTEL_CUSTOM_HOST`. It needs credentials in the environment and
+  the `api` extra — from a clone `uv tool install ".[api]"`, or
   `uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"`.
-- **`openai`** runs the turn in this process over the OpenAI-compatible protocol, and
-  reaches every attached source the same way `anthropic` does. Five hosts ship: `openai`,
-  `foundry-openai`, `openrouter`, `azure-openai` and `local`. Same `api` extra — one install
-  carries both SDKs — and it has **no default model**, because every host names its
-  models differently.
-- **`sdk-anthropic`** is `anthropic` with the loop run by the Anthropic SDK's tool
-  runner instead of by us. Same protocol, same two hosts, same credentials and the same
-  options, and tools are still routed through our router, so it sees every attached
-  source too. What it adds is what the SDK maintains: prompt caching is on, and the
-  round-trip bound is the runner's. Its host override is
-  `LATENT_INTEL_SDK_ANTHROPIC_HOST`, separate from `anthropic`'s, so one machine can
-  point the two at different endpoints while comparing them.
-- **`openai-agents`** is `openai` with the loop run by the OpenAI Agents SDK instead of
-  by us. Same protocol, the same five hosts, the same credentials and the same options —
-  `tokens_param` included, because the SDK's own parameter is the older name — and tools
-  still route through our router, so every attached source is visible to it. It needs the
-  `agents` extra, which pulls the framework alongside the `api` extra's SDKs:
-  `uv tool install ".[api,agents]"`. Its host override is
-  `LATENT_INTEL_OPENAI_AGENTS_HOST`. Two differences from `openai` worth knowing: an
+- **`sdk-anthropic`** is `custom` on a Messages row with the loop run by the Anthropic
+  SDK's tool runner instead of by us. Same protocol, the two Anthropic hosts, the same
+  credentials and the same options, and tools are still routed through our router, so it
+  sees every attached source too. What it adds is what the SDK maintains: prompt caching
+  is on, and the round-trip bound is the runner's. Its host override is
+  `LATENT_INTEL_SDK_ANTHROPIC_HOST`, separate from `custom`'s, so one machine can point
+  the two at different endpoints while comparing them.
+- **`openai-agents`** is `custom` on a chat row with the loop run by the OpenAI Agents
+  SDK instead of by us. Same protocol, the five chat hosts, the same credentials and the
+  same options — `tokens_param` included, because the SDK's own parameter is the older
+  name — and tools still route through our router, so every attached source is visible
+  to it. It needs the `agents` extra, which pulls the framework alongside the `api`
+  extra's SDKs: `uv tool install ".[api,agents]"`. Its host override is
+  `LATENT_INTEL_OPENAI_AGENTS_HOST`. Two differences from `custom` worth knowing: an
   answer cut short by the output limit completes rather than reporting why, and a tool
   name the model invented is answered by the SDK rather than by our router, so no tool
   event appears for it.
 
+`anthropic` and `openai` were folded into `custom` on 2026-09-17 — they named a wire
+protocol rather than a loop owner, and the row names it now: set `runtime: custom` and
+the `host:` the old runtime's name implied.
+
 ```
-latent › /runtime anthropic
-runtime anthropic
-latent › /model claude-sonnet-5
-model claude-sonnet-5 for anthropic
+latent › /runtime custom
+runtime custom
+! no host is set — set `host:` under `runtimes: custom:`; `intel hosts` lists them
 latent › /host foundry-anthropic
-host foundry-anthropic for anthropic
+host foundry-anthropic for custom
+latent › /model claude-sonnet-5
+model claude-sonnet-5 for custom
 ```
 
 All three persist immediately, the way `/connect` does. `intel doctor` lists what is
@@ -540,25 +544,22 @@ the backend it belongs to, and `/model none` or `/host none` clears your overrid
 the project declares stays in force, and the command prints what is in force:
 
 ```yaml
-runtime: anthropic
+runtime: custom
 runtimes:
   claude-cli:
     model: sonnet
-  anthropic:
-    host: foundry-anthropic  # or `anthropic`
-    model: claude-sonnet-5
+  custom:
+    host: openrouter         # required — no default; `intel hosts` lists the seven
+    model: anthropic/claude-sonnet-5  # required on a chat row; a Messages row has one
     max_tokens: 16384
     max_tool_rounds: 10      # how many model round-trips one question may take
-  sdk-anthropic:             # the same options, and the same two hosts
+    tokens_param: max_tokens # chat hosts only — refused by name on a Messages row
+  sdk-anthropic:             # the same options, and the two Anthropic hosts
     host: foundry-anthropic
     model: claude-sonnet-5
-  openai:
-    host: foundry-openai     # or `openai`, `openrouter`, `azure-openai`, `local`
-    model: my-gpt-deployment # required, and a deployment name, not a catalogue id
-    tokens_param: max_completion_tokens  # or max_tokens for a host that only accepts it
-  openai-agents:             # the same options, and the same five hosts
-    host: openrouter
-    model: anthropic/claude-sonnet-5
+  openai-agents:             # the same options, and the five chat hosts
+    host: foundry-openai
+    model: my-gpt-deployment # a deployment name, not a catalogue id
 ```
 
 The same block may be written by a project, under `agent:` — which is how a deployment
@@ -566,10 +567,10 @@ ships its runtime and model as configuration rather than setup:
 
 ```yaml
 agent:
-  runtime: anthropic
+  runtime: custom
   runtimes:
-    anthropic: {host: foundry-anthropic, model: claude-sonnet-5}
-    openai: {host: foundry-openai, model: my-gpt-deployment}
+    custom: {host: foundry-anthropic, model: claude-sonnet-5}
+    openai-agents: {host: foundry-openai, model: my-gpt-deployment}
 ```
 
 A model name is never validated here — we cannot enumerate them and a hardcoded list goes
@@ -578,7 +579,7 @@ stale. An unknown name fails when you ask, with the runtime's own message.
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
 MCP servers, so under `claude-cli` only `mcp` and `wiki` sources are visible to it —
 `files` and `vector` run in this process and have no server to point at. `intel doctor`
-marks the difference under `attached`. Under `anthropic`, `openai`, `sdk-anthropic` and
+marks the difference under `attached`. Under `custom`, `sdk-anthropic` and
 `openai-agents` the distinction does not apply: the tool router is ours either way —
 whoever drives the loop — so everything attached is a tool.
 
@@ -587,22 +588,26 @@ never in a config file.
 A project's `.env` is loaded before the runtime is built, so deployment credentials live
 there.
 
-`anthropic` and `sdk-anthropic` (one table: the same rows, read by both):
+One table, whichever runtime dials it. `custom` reaches every row; `sdk-anthropic` the
+two `messages` rows and `openai-agents` the five `chat` ones, because a runtime built on
+one SDK can dial no other.
 
-| host | needs | optional |
-|---|---|---|
-| `foundry-anthropic` (default) | `ANTHROPIC_FOUNDRY_API_KEY`, and one of `ANTHROPIC_FOUNDRY_RESOURCE` / `ANTHROPIC_FOUNDRY_BASE_URL` | — |
-| `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` |
+| host | protocol | needs | optional | model is |
+|---|---|---|---|---|
+| `anthropic` | messages | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` | a published id, defaulting to `claude-sonnet-5` |
+| `foundry-anthropic` | messages | `ANTHROPIC_FOUNDRY_API_KEY`, and one of `ANTHROPIC_FOUNDRY_RESOURCE` / `ANTHROPIC_FOUNDRY_BASE_URL` | — | a deployment name, defaulting to `claude-sonnet-5` |
+| `openai` | chat | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | a published id |
+| `foundry-openai` | chat | `FOUNDRY_API_KEY`, and one of `FOUNDRY_RESOURCE` / `FOUNDRY_BASE_URL` | — | a deployment name |
+| `openrouter` | chat | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` | `<vendor>/<model>` |
+| `azure-openai` | chat | `AZURE_OPENAI_API_KEY` **or** `AZURE_OPENAI_AD_TOKEN`, plus `AZURE_OPENAI_ENDPOINT` and `OPENAI_API_VERSION` | — | a deployment name |
+| `local` | chat | `LOCAL_OPENAI_BASE_URL` | `LOCAL_OPENAI_API_KEY` | whatever the server serves |
 
-`openai` and `openai-agents` (one table: the same rows, read by both):
-
-| host | needs | optional | model is |
-|---|---|---|---|
-| `openai` (default) | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | a published id |
-| `foundry-openai` | `FOUNDRY_API_KEY`, and one of `FOUNDRY_RESOURCE` / `FOUNDRY_BASE_URL` | — | a deployment name |
-| `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` | `<vendor>/<model>` |
-| `azure-openai` | `AZURE_OPENAI_API_KEY` **or** `AZURE_OPENAI_AD_TOKEN`, plus `AZURE_OPENAI_ENDPOINT` and `OPENAI_API_VERSION` | — | a deployment name |
-| `local` | `LOCAL_OPENAI_BASE_URL` | `LOCAL_OPENAI_API_KEY` | whatever the server serves |
+**The protocol column is why there is one runtime.** It is a property of the endpoint,
+not of the loop: the two `messages` rows speak the Anthropic Messages protocol and the
+five `chat` rows an OpenAI-compatible one, and `custom` picks the adapter off the row. A
+`chat` row names no default model, because every one of them names deployments
+differently; `tokens_param` is a `chat` setting and is refused by name on a `messages`
+row rather than silently dropped.
 
 **OpenRouter** is one key for open and low-cost models from every vendor at once; ids are
 `<vendor>/<model>`, e.g. `anthropic/claude-sonnet-5`, listed at openrouter.ai/models.
@@ -634,33 +639,47 @@ the reason names both. `ANTHROPIC_FOUNDRY_BASE_URL` does not stand in — it poi
 other surface of the same resource.
 
 A host comes from `/host <name>` in the shell or `host:` in config, then from
-`LATENT_INTEL_ANTHROPIC_HOST` / `LATENT_INTEL_OPENAI_HOST` where neither says anything,
-then from the runtime's own default. `/host` writes the same `host:` key, so the two are
-one setting and the environment is the machine-by-machine fallback beneath both.
-`intel doctor` names exactly which variable is missing, for the host that is configured:
+`LATENT_INTEL_CUSTOM_HOST` (or the SDK runtimes' own overrides) where neither says
+anything. `custom` has nothing beneath that: an unset host is reported by name rather
+than defaulted. `/host` writes the same `host:` key, so the two are one setting and the
+environment is the machine-by-machine fallback beneath both. `intel doctor` names exactly
+which variable is missing, for the host that is configured — here on a machine with
+nothing set at all:
 
 ```
 runtimes
   custom loop
-    ! anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry-anthropic'
-    · openai — set OPENAI_API_KEY for host 'openai'
+    · custom — no host is set — set `host:` under `runtimes: custom:`; `intel hosts` lists them
   sdk runner
-    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry-anthropic'
+    · openai-agents — set OPENAI_API_KEY for host 'openai'
+    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
   delegated
     ✓ claude-cli
 ```
+
+A kind left under `runtimes:` that nothing provides is named too — `· anthropic —
+options set under runtimes:, but no such runtime is installed` — because options nothing
+reads are worse than options that are missing: the file says a host and a model are set
+while neither reaches anything.
 
 **`intel hosts` asks the same question of every host instead**, which is the one a
 machine has before it has chosen one — what each endpoint would cost to set up, not why
 today failed:
 
 ```
-openai
-  ! openai        ← configured  set OPENAI_API_KEY for host 'openai'
-  ✓ openrouter
-  ! azure-openai  set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+custom
+  ! no host is set — set `host:` under `runtimes: custom:`; `intel hosts` lists them
+  · anthropic          set ANTHROPIC_API_KEY for host 'anthropic'
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+  · openai             set OPENAI_API_KEY for host 'openai'
+  · foundry-openai     set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
+ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
+  · openrouter         set OPENROUTER_API_KEY for host 'openrouter'
+  · azure-openai       set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
 OPENAI_API_VERSION for host 'azure-openai'
-  ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
+  · local              set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
 
 Setting one up, host by host, is

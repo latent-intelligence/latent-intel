@@ -404,6 +404,75 @@ def test_a_host_this_runtime_has_no_row_for_prints_the_known_ones(
     assert "foundry-anthropic" in text
 
 
+def test_choosing_custom_then_a_row_persists_both_and_reports_what_is_in_force(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The migration in two keystrokes. `anthropic` and `openai` named a protocol
+    rather than a loop owner and were folded into `custom`, so a machine that ran one
+    of them names the runtime and then the row. Both persist immediately, and a bare
+    `/host` afterwards reports what the built runtime holds."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    console = _shell(monkeypatch)
+    session = Session()
+    repl._runtime(session, "custom")
+    repl._host(session, "openrouter")
+
+    saved = config_module.load()
+    assert saved.runtime == "custom"
+    assert saved.runtime_options("custom")["host"] == "openrouter"
+    assert "host openrouter for custom" in " ".join(console.export_text().split())
+
+    repl._host(session, "")
+    assert console.export_text().count("openrouter") >= 2
+
+
+def test_a_host_named_foundry_is_kept_and_the_reason_names_both_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One Foundry resource serves two surfaces on different variables and paths, so
+    `foundry` is a row nobody has — and the reason is the only place someone finds out
+    there are two of them. It is still written: `/host` reports the reason standing
+    after it rather than refusing, the way it does for a host whose key is unset."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.runtime = "custom"
+    config_module.save(config)
+
+    console = _shell(monkeypatch)
+    repl._host(Session(), "foundry")
+
+    assert config_module.load().runtime_options("custom")["host"] == "foundry"
+    text = console.export_text()
+    assert "unknown host 'foundry'" in text
+    assert "foundry-anthropic" in text and "foundry-openai" in text
+
+
+def test_a_runtime_folded_into_custom_is_refused_with_the_installed_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Removed rather than aliased: one deployment exists and it runs `claude-cli`, so
+    alias machinery would serve nobody. `/runtime anthropic` fails the way any unknown
+    kind does, and the list is what says where to go instead."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    console = _shell(monkeypatch)
+    repl._runtime(Session(), "anthropic")
+
+    text = " ".join(console.export_text().split())
+    assert "no runtime 'anthropic'" in text
+    for kind in Session.runtime_status():
+        assert kind in text
+    assert config_module.load().runtime is None
+
+
 def test_a_host_on_a_runtime_that_has_none_is_refused_and_not_kept(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

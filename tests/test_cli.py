@@ -11,6 +11,7 @@ import json
 import shlex
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from rich.console import Console
@@ -18,6 +19,7 @@ from typer.testing import CliRunner
 
 from latent_intel import config as config_module
 from latent_intel import events as ev
+from latent_intel.agent import hosts
 from latent_intel.frontends.cli.main import app
 from latent_intel.models import Capability, Descriptor
 from latent_intel.ui import banner, render
@@ -64,6 +66,39 @@ def runtime_group(stdout: str, name: str) -> str | None:
         if len(parts) >= 2 and parts[1] == name:
             return heading
     return None
+
+
+def flat(text: str) -> str:
+    """One line of whitespace-normalized text.
+
+    A reason long enough to be worth printing is long enough to wrap, and where it
+    wraps depends on a terminal width no assertion should depend on.
+    """
+    return " ".join(text.split())
+
+
+def hosts_table(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+    """`intel hosts` read back as {runtime: the host names printed under it}.
+
+    Captured wide so no row wraps, and keyed on the row names the table declares, so a
+    runtime-level reason printed above the rows is not mistaken for one of them.
+    """
+    from latent_intel.frontends import _shared
+
+    console = Console(theme=THEME, width=200, record=True)
+    monkeypatch.setattr(_shared, "console", console)
+    _shared.print_hosts()
+
+    table: dict[str, list[str]] = {}
+    runtime = ""
+    for raw in console.export_text().splitlines():
+        if raw and not raw.startswith(" "):
+            runtime = raw.split()[0]
+            continue
+        parts = raw.split()
+        if runtime and len(parts) >= 2 and parts[1] in hosts.HOSTS:
+            table.setdefault(runtime, []).append(parts[1])
+    return table
 
 
 # -- the renderer -----------------------------------------------------------
@@ -239,6 +274,77 @@ def test_doctor_groups_runtimes_by_who_owns_the_loop() -> None:
     assert runtime_group(result.stdout, "claude-cli") == "delegated"
 
 
+def test_doctor_lists_custom_and_neither_of_the_names_it_replaced() -> None:
+    """`anthropic` and `openai` named a wire protocol, which is a property of the
+    endpoint rather than of the loop. They were folded into `custom` on 2026-09-17 and
+    removed rather than aliased, so neither has a row here — and `custom`'s own reason
+    is the one thing a machine that has not chosen a host needs to read."""
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert runtime_line(result.stdout, "anthropic") is None
+    assert runtime_line(result.stdout, "openai") is None
+    assert runtime_line(result.stdout, "custom") is not None
+    assert "no host is set — set `host:` under `runtimes: custom:`" in flat(
+        result.stdout
+    )
+
+
+def test_doctor_says_a_folded_runtime_still_in_config_is_not_installed() -> None:
+    """The whole migration story for a machine that has not read the release note: the
+    kind it names is gone, and `doctor` is where that is said rather than at the next
+    question."""
+    config = config_module.load()
+    config.runtime = "anthropic"
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "anthropic — configured, but not installed" in flat(result.stdout)
+
+
+def test_doctor_names_an_orphaned_runtimes_block_rather_than_ignoring_it() -> None:
+    """Options left under `runtimes:` for a kind nothing provides are read by nobody,
+    and a file saying a host and a model are set while neither reaches anything is the
+    failure this line exists to name. Display only: the settings layer stays
+    kind-agnostic and nothing here rewrites the config."""
+    config = config_module.load()
+    config.runtime = "custom"
+    config.runtimes = {
+        "custom": {"host": "openrouter", "model": "vendor/model"},
+        "anthropic": {"host": "foundry-anthropic", "model": "claude-sonnet-5"},
+    }
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert (
+        "anthropic — options set under runtimes:, but no such runtime is installed"
+        in flat(result.stdout)
+    )
+    assert runtime_line(result.stdout, "custom") is not None
+
+
+def test_doctor_builds_each_installed_runtime_exactly_once() -> None:
+    """`doctor` asks three questions of every runtime — can it run, who owns its loop,
+    which host did it resolve — and a build per question let the verdict describe a
+    different object than the row beside it, at three times the cost."""
+    from latent_intel.agent import base
+
+    built: list[str] = []
+    original = base.build
+
+    def counting(kind: str, **options: Any) -> Any:
+        built.append(kind)
+        return original(kind, **options)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(base, "build", counting)
+        result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert built and sorted(built) == sorted(set(built))
+
+
 def test_doctor_diagnoses_the_runtime_as_configured_not_bare(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -287,6 +393,19 @@ def test_hosts_lists_every_endpoint_with_what_it_still_needs() -> None:
         assert name in result.stdout
     assert "OPENROUTER_API_KEY" in result.stdout
     assert "AZURE_OPENAI_ENDPOINT" in result.stdout
+
+
+def test_hosts_gives_each_runtime_the_rows_it_can_actually_dial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`custom` speaks both protocols and sees the whole table; a runtime built on one
+    SDK can dial no other, so listing the rest would offer it endpoints it cannot reach
+    and name variables that would not help."""
+    table = hosts_table(monkeypatch)
+    assert table["custom"] == list(hosts.HOSTS)
+    assert table["sdk-anthropic"] == list(hosts.for_sdk("anthropic"))
+    assert table["openai-agents"] == list(hosts.for_sdk("openai"))
+    assert "claude-cli" not in table
 
 
 def test_hosts_marks_the_configured_row_and_never_prints_a_value(
