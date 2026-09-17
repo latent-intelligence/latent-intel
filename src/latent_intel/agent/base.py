@@ -4,7 +4,7 @@ The second of the two extension points, and the mirror of `connectors/base.py`. 
 parallel is deliberate: a runtime is discovered, built and reported exactly the way a
 connector is, so someone who has read one file already knows this one.
 
-**A runtime owns how much of the loop it wants.** `anthropic` hands the tool list to
+**A runtime owns how much of the loop it wants.** `custom` hands the tool list to
 our own router and drives the turn itself. `claude-cli` shells to a binary with its own
 agent loop, reaching our sources as MCP servers instead. Both asymmetries live behind
 `stream`; what comes out is the same event stream either way.
@@ -103,7 +103,7 @@ class Hosted(Protocol):
 
 
 #: Who owns the agent loop, as the four answers there are. `custom` is ours — the loop
-#: in `runtimes/anthropic.py` over `agent/turn.py`. `sdk` is a vendor's runner driven in
+#: in `runtimes/custom.py` over `agent/turn.py`. `sdk` is a vendor's runner driven in
 #: this process, with tool execution still routed through us. `delegated` is another
 #: harness on this machine, which owns orchestration, tools and permissions alike.
 #: `managed` is a loop running on someone else's infrastructure.

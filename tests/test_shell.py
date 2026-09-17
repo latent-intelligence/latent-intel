@@ -283,18 +283,18 @@ def test_host_refuses_when_no_runtime_is_configured(
 def test_bare_host_reports_the_host_the_environment_put_in_force(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`LATENT_INTEL_ANTHROPIC_HOST` is how one machine runs against Foundry and
-    another against the public API with the same project checked out on both. Reading
-    only the config file reported that machine's host as unset — and a report that
-    contradicts the runtime is worse than no report."""
+    """`LATENT_INTEL_CUSTOM_HOST` is how one machine runs against Foundry and another
+    against the public API with the same project checked out on both. Reading only the
+    config file reported that machine's host as unset — and a report that contradicts
+    the runtime is worse than no report."""
     from latent_intel import config as config_module
     from latent_intel.frontends.shell import repl
     from latent_intel.session import Session
 
     config = config_module.load()
-    config.runtime = "anthropic"
+    config.runtime = "custom"
     config_module.save(config)
-    monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "anthropic")
 
     console = _shell(monkeypatch)
     repl._host(Session(), "")
@@ -307,7 +307,7 @@ def test_bare_host_reports_the_host_the_environment_put_in_force(
 def test_bare_model_says_unset_where_the_runtime_holds_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`openai` has no default model on purpose — every host names its models
+    """A chat row has no default model on purpose — every host names its models
     differently — so "its default" named a thing that does not exist, next to the
     runtime's own reason saying no model is set."""
     from latent_intel import config as config_module
@@ -315,7 +315,8 @@ def test_bare_model_says_unset_where_the_runtime_holds_nothing(
     from latent_intel.session import Session
 
     config = config_module.load()
-    config.runtime = "openai"
+    config.runtime = "custom"
+    config.set_runtime_option("custom", "host", "openai")
     config_module.save(config)
     # The credential, so the reason left is the model's: the variables are diagnosed
     # first, and one missing key would answer for both halves of this test.
@@ -344,9 +345,9 @@ def test_clearing_a_host_the_project_declares_reports_what_is_still_in_force(
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "deploy.yaml").write_text(
         "agent:\n"
-        "  runtime: anthropic\n"
+        "  runtime: custom\n"
         "  runtimes:\n"
-        "    anthropic: {host: foundry-anthropic}\n",
+        "    custom: {host: foundry-anthropic}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("LATENT_INTEL_PROJECT", "deploy")
@@ -371,13 +372,13 @@ def test_choosing_a_host_persists_it_under_the_runtime_it_belongs_to(
     from latent_intel.session import Session
 
     config = config_module.load()
-    config.runtime = "anthropic"
+    config.runtime = "custom"
     config_module.save(config)
 
     console = _shell(monkeypatch)
     repl._host(Session(), "anthropic")
 
-    assert config_module.load().runtime_options("anthropic")["host"] == "anthropic"
+    assert config_module.load().runtime_options("custom")["host"] == "anthropic"
     text = console.export_text()
     assert "host" in text and "anthropic" in text
 
@@ -392,7 +393,7 @@ def test_a_host_this_runtime_has_no_row_for_prints_the_known_ones(
     from latent_intel.session import Session
 
     config = config_module.load()
-    config.runtime = "anthropic"
+    config.runtime = "custom"
     config_module.save(config)
 
     console = _shell(monkeypatch)
@@ -435,13 +436,14 @@ def test_a_model_the_runtime_accepts_is_persisted_and_nothing_is_refused(
     from latent_intel.session import Session
 
     config = config_module.load()
-    config.runtime = "anthropic"
+    config.runtime = "custom"
+    config.set_runtime_option("custom", "host", "anthropic")
     config_module.save(config)
 
     console = _shell(monkeypatch)
     repl._model(Session(), "claude-sonnet-5")
 
-    assert config_module.load().runtime_options("anthropic")["model"] == (
+    assert config_module.load().runtime_options("custom")["model"] == (
         "claude-sonnet-5"
     )
     assert "✗" not in console.export_text()

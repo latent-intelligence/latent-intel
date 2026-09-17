@@ -210,9 +210,10 @@ def test_doctor_names_the_variables_a_runtime_is_missing() -> None:
     the missing one. The names are safe to print; the values never appear."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    assert runtime_line(result.stdout, "anthropic") is not None
+    assert runtime_line(result.stdout, "custom") is not None
+    assert runtime_line(result.stdout, "sdk-anthropic") is not None
     assert "ANTHROPIC_FOUNDRY_API_KEY" in result.stdout
-    assert runtime_line(result.stdout, "openai") is not None
+    assert runtime_line(result.stdout, "openai-agents") is not None
     assert "OPENAI_API_KEY" in result.stdout
 
 
@@ -232,7 +233,7 @@ def test_doctor_groups_runtimes_by_who_owns_the_loop() -> None:
         if line.strip() in FAMILY_HEADINGS
     ]
     assert printed == ["custom loop", "sdk runner", "delegated"]
-    assert runtime_group(result.stdout, "anthropic") == "custom loop"
+    assert runtime_group(result.stdout, "custom") == "custom loop"
     assert runtime_group(result.stdout, "sdk-anthropic") == "sdk runner"
     assert runtime_group(result.stdout, "openai-agents") == "sdk runner"
     assert runtime_group(result.stdout, "claude-cli") == "delegated"
@@ -247,15 +248,15 @@ def test_doctor_diagnoses_the_runtime_as_configured_not_bare(
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
     config = config_module.load()
-    config.runtime = "openai"
+    config.runtime = "custom"
     config.runtimes = {
-        "openai": {"model": "gpt-5-deployment", "host": "foundry-openai"}
+        "custom": {"model": "gpt-5-deployment", "host": "foundry-openai"}
     }
     config_module.save(config)
 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    assert "✓ openai" in result.stdout
+    assert "✓ custom" in result.stdout
     assert "no model is set" not in result.stdout
 
 
@@ -268,8 +269,8 @@ def test_doctor_names_a_host_s_third_variable(
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "k")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
     config = config_module.load()
-    config.runtime = "openai"
-    config.runtimes = {"openai": {"host": "azure-openai", "model": "m"}}
+    config.runtime = "custom"
+    config.runtimes = {"custom": {"host": "azure-openai", "model": "m"}}
     config_module.save(config)
 
     result = runner.invoke(app, ["doctor"])
@@ -293,13 +294,13 @@ def test_hosts_marks_the_configured_row_and_never_prints_a_value(
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret-value")
     config = config_module.load()
-    config.runtime = "openai"
-    config.runtimes = {"openai": {"host": "openrouter", "model": "vendor/model"}}
+    config.runtime = "custom"
+    config.runtimes = {"custom": {"host": "openrouter", "model": "vendor/model"}}
     config_module.save(config)
 
     result = runner.invoke(app, ["hosts"])
     assert result.exit_code == 0
-    assert "openai ← configured" in result.stdout
+    assert "custom ← configured" in result.stdout
     assert "← in use" in result.stdout
     # The variable is named so a ✓ can be confirmed; its value never appears.
     assert "OPENROUTER_API_KEY" in result.stdout
@@ -313,8 +314,8 @@ def test_hosts_reports_a_runtime_level_reason_once_not_against_a_host(
     configured host's missing variables are already printed against that host."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     config = config_module.load()
-    config.runtime = "openai"
-    config.runtimes = {"openai": {"host": "openrouter"}}
+    config.runtime = "custom"
+    config.runtimes = {"custom": {"host": "openrouter"}}
     config_module.save(config)
 
     result = runner.invoke(app, ["hosts"])
@@ -328,21 +329,21 @@ def test_an_unconfigured_runtime_is_not_flagged_as_a_fault() -> None:
     that mattered indistinguishable among them."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    line = runtime_line(result.stdout, "anthropic")
-    assert line is not None and line.startswith("· anthropic ")
+    line = runtime_line(result.stdout, "custom")
+    assert line is not None and line.startswith("· custom ")
 
 
 def test_the_configured_runtime_is_flagged_when_it_cannot_run() -> None:
     """The other half of the same rule: the backend that was chosen and cannot run is
     the one thing worth a warning."""
     config = config_module.load()
-    config.runtime = "anthropic"
+    config.runtime = "custom"
     config_module.save(config)
 
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
-    line = runtime_line(result.stdout, "anthropic")
-    assert line is not None and line.startswith("! anthropic ")
+    line = runtime_line(result.stdout, "custom")
+    assert line is not None and line.startswith("! custom ")
 
 
 def test_hosts_marks_only_the_answering_runtime_s_host_as_in_use(
@@ -353,15 +354,15 @@ def test_hosts_marks_only_the_answering_runtime_s_host_as_in_use(
     they had."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     config = config_module.load()
-    config.runtime = "openai"
-    config.runtimes = {"openai": {"host": "openrouter", "model": "vendor/model"}}
+    config.runtime = "custom"
+    config.runtimes = {"custom": {"host": "openrouter", "model": "vendor/model"}}
     config_module.save(config)
 
     result = runner.invoke(app, ["hosts"])
     assert result.exit_code == 0
     assert result.stdout.count("← in use") == 1
     assert result.stdout.count("← configured") == 1
-    # anthropic resolves `foundry-anthropic` too, and it is nobody's choice here.
+    # sdk-anthropic resolves `foundry-anthropic` too, and it is nobody's choice here.
     assert "· foundry-anthropic" in result.stdout
 
 

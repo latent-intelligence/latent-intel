@@ -363,9 +363,9 @@ def test_every_row_declares_one_sdk_and_one_protocol_and_the_right_row_type() ->
     catches exceptions from, so a row misdeclaring either picks the wrong adapter or
     the wrong failure ladder — and both go wrong at the first question rather than
     here. `chat` and `OpenAIHost` are the same claim from two directions: the row type
-    carries `tokens_param`, which only that protocol sends, and `runtimes/openai.py`
-    narrows to it with a guard that would silently drop a row declared as the base
-    type.
+    carries `tokens_param`, which only that protocol sends, and
+    `runtimes/openai_agents.py` narrows to it with a guard that would silently drop a
+    row declared as the base type.
 
     The names are listed rather than counted: `foundry-anthropic` and `foundry-openai`
     are one platform's two surfaces, reading different variables and dialled at
@@ -384,9 +384,9 @@ def test_every_row_declares_one_sdk_and_one_protocol_and_the_right_row_type() ->
         assert host.sdk in hosts.SDKS, name
         assert host.protocol in hosts.PROTOCOLS, name
         assert isinstance(host, hosts.OpenAIHost) == (host.protocol == "chat"), name
-        # What `runtimes/anthropic.py` derives `DEFAULT_MODEL` from rather than
-        # restating it: a row on this protocol that declared none would leave that
-        # constant with nothing to read.
+        # What `runtimes/sdk_anthropic.py` derives `DEFAULT_MODEL` from rather than
+        # restating it, and what `custom` applies when a deployment names no model: a
+        # row on this protocol that declared none would leave both with nothing.
         if host.protocol == "messages":
             assert host.default_model, name
 

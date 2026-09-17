@@ -90,9 +90,8 @@ vector = "latent_intel.connectors.vector:VectorConnector"
 
 [project.entry-points."latent_intel.runtimes"]
 claude-cli = "latent_intel.agent.runtimes.claude_cli:ClaudeCliRuntime"
-anthropic = "latent_intel.agent.runtimes.anthropic:AnthropicRuntime"
+custom = "latent_intel.agent.runtimes.custom:CustomRuntime"
 sdk-anthropic = "latent_intel.agent.runtimes.sdk_anthropic:SdkAnthropicRuntime"
-openai = "latent_intel.agent.runtimes.openai:OpenAIRuntime"
 openai-agents = "latent_intel.agent.runtimes.openai_agents:OpenAIAgentsRuntime"
 
 [tool.hatch.build.targets.wheel]
