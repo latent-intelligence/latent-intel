@@ -248,7 +248,9 @@ def test_doctor_diagnoses_the_runtime_as_configured_not_bare(
     monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
     config = config_module.load()
     config.runtime = "openai"
-    config.runtimes = {"openai": {"model": "gpt-5-deployment", "host": "foundry"}}
+    config.runtimes = {
+        "openai": {"model": "gpt-5-deployment", "host": "foundry-openai"}
+    }
     config_module.save(config)
 
     result = runner.invoke(app, ["doctor"])
@@ -359,8 +361,8 @@ def test_hosts_marks_only_the_answering_runtime_s_host_as_in_use(
     assert result.exit_code == 0
     assert result.stdout.count("← in use") == 1
     assert result.stdout.count("← configured") == 1
-    # anthropic resolves `foundry` too, and it is nobody's choice here.
-    assert "· foundry" in result.stdout
+    # anthropic resolves `foundry-anthropic` too, and it is nobody's choice here.
+    assert "· foundry-anthropic" in result.stdout
 
 
 def test_hosts_says_so_for_a_runtime_that_declares_none() -> None:

@@ -709,7 +709,7 @@ def test_a_runtime_is_diagnosed_as_it_is_built_not_bare(
         "agent:\n"
         "  runtime: openai\n"
         "  runtimes:\n"
-        "    openai: {model: gpt-5-deployment, host: foundry}\n",
+        "    openai: {model: gpt-5-deployment, host: foundry-openai}\n",
     )
     assert Session.runtime_status()["openai"] is None
 
@@ -726,7 +726,7 @@ def test_the_reason_a_runtime_cannot_run_is_the_configured_host_s(
         "agent:\n"
         "  runtime: openai\n"
         "  runtimes:\n"
-        "    openai: {model: gpt-5-deployment, host: foundry}\n",
+        "    openai: {model: gpt-5-deployment, host: foundry-openai}\n",
     )
     reason = Session.runtime_status()["openai"]
     assert reason is not None

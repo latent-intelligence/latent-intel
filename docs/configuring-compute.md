@@ -37,12 +37,12 @@ ANTHROPIC_API_KEY=sk-ant-…
 $ intel hosts
 
 anthropic
-  · foundry    set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
-  ✓ anthropic  ANTHROPIC_API_KEY
+  ✓ anthropic          ANTHROPIC_API_KEY
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
 ```
 
-The `anthropic` runtime defaults to `foundry`, not to the vendor's own API — the
+The `anthropic` runtime defaults to `foundry-anthropic`, not to the vendor's own API — the
 deployment this was written for runs on Azure. So a key alone is not enough: the host has
 to be chosen as well, which is the next step. The `✓` names the variable answering for
 it, so you can confirm the key landed before going further.
@@ -106,7 +106,7 @@ another by changing two lines of config.
 
 | what you see | what it means |
 |---|---|
-| `set ANTHROPIC_FOUNDRY_API_KEY, …` | the host is still `foundry`, the runtime's default. Set `host: anthropic` |
+| `set ANTHROPIC_FOUNDRY_API_KEY, …` | the host is still `foundry-anthropic`, the runtime's default. Set `host: anthropic` |
 | a 401 | the key was rejected. The remedy names the variable, never the value |
 | a 404 | the model id — check it against Anthropic's published list |
 | a 429 | Anthropic is rate limiting the account. Wait, or raise the account's limit |
@@ -177,13 +177,13 @@ fallback in the same breath:
 $ intel hosts
 
 anthropic ← configured
-  · foundry    set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
-  ✓ anthropic  ← in use  ANTHROPIC_API_KEY
+  ✓ anthropic          ← in use  ANTHROPIC_API_KEY
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
 
 openai
-  · foundry       set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
-ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
+  · foundry-openai  set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
+ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
 ```
 
 > The blocks from here down are written from the host declarations rather than captured
@@ -192,13 +192,13 @@ ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
 
 ### 3. Choose it
 
-The Anthropic protocol, where `foundry` is already the default host:
+The Anthropic protocol, where `foundry-anthropic` is already the default host:
 
 ```yaml
 runtime: anthropic
 runtimes:
   anthropic:
-    host: foundry
+    host: foundry-anthropic
     model: claude-sonnet-5
 ```
 
@@ -208,7 +208,7 @@ The OpenAI-compatible surface, for the same resource:
 runtime: openai
 runtimes:
   openai:
-    host: foundry
+    host: foundry-openai
     model: claude-sonnet-5
 ```
 
@@ -287,11 +287,11 @@ already exported beats both. Get the key from
 $ intel hosts
 
 openai ← configured
-  ! openai         set OPENAI_API_KEY for host 'openai'
-  ! foundry        set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
-  ✓ openrouter     ← in use  OPENROUTER_API_KEY
-  ! azure-openai   set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT, OPENAI_API_VERSION for host 'azure-openai'
-  ! local          set LOCAL_OPENAI_BASE_URL for host 'local'
+  ! openai          set OPENAI_API_KEY for host 'openai'
+  ! foundry-openai  set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
+  ✓ openrouter      ← in use  OPENROUTER_API_KEY
+  ! azure-openai    set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT, OPENAI_API_VERSION for host 'azure-openai'
+  ! local           set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
 
 ### 3. Choose it
@@ -344,11 +344,11 @@ throughout this section.
 runtimes
   custom loop
     · anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
     ✓ openai ← configured
   sdk runner
     · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
   delegated
     ✓ claude-cli
   model: poolside/laguna-s-2.1:free

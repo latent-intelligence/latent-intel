@@ -53,7 +53,7 @@ def credentials(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def runtime(**options: Any) -> OpenAIRuntime:
     """The host this branch was written for, plus the model it has no default for."""
-    options.setdefault("host", "foundry")
+    options.setdefault("host", "foundry-openai")
     options.setdefault("model", "gpt-5-deployment")
     return OpenAIRuntime(**options)
 
@@ -105,7 +105,7 @@ def test_the_foundry_host_names_both_its_variables_and_their_stand_ins() -> None
     """One Foundry resource has one key, so a deployment that already reaches the
     Anthropic surface is finished — and the reason has to say so, or someone sets a
     second variable to the same value they already have."""
-    reason = OpenAIRuntime(host="foundry").unavailable_reason()
+    reason = OpenAIRuntime(host="foundry-openai").unavailable_reason()
     assert reason is not None
     assert "FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY)" in reason
     assert "FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_RESOURCE)" in reason
@@ -119,7 +119,7 @@ def test_the_anthropic_surface_variables_alone_satisfy_foundry(
     one surface further along."""
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "r")
-    assert OpenAIRuntime(host="foundry", model="gpt-5-deployment").available()
+    assert OpenAIRuntime(host="foundry-openai", model="gpt-5-deployment").available()
 
 
 def test_the_other_surfaces_base_url_is_not_a_fallback(
@@ -129,7 +129,7 @@ def test_the_other_surfaces_base_url_is_not_a_fallback(
     resource. Accepting it here would send OpenAI requests to it."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://example/anthropic")
-    reason = OpenAIRuntime(host="foundry", model="m").unavailable_reason()
+    reason = OpenAIRuntime(host="foundry-openai", model="m").unavailable_reason()
     assert reason is not None and "FOUNDRY_RESOURCE" in reason
 
 
@@ -140,7 +140,7 @@ def test_either_endpoint_variable_satisfies_foundry(
     demanding both would refuse a correctly configured machine."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://example/openai/v1")
-    assert OpenAIRuntime(host="foundry", model="m").available()
+    assert OpenAIRuntime(host="foundry-openai", model="m").available()
 
 
 def test_the_openai_host_wants_one_variable_not_two(
@@ -161,7 +161,7 @@ def test_a_configured_runtime_with_no_model_says_which_key_to_set(
     """There is no default model: every host names its models differently, so a default
     would be right on at most one of them. `doctor` has to say that offline rather than
     report a runtime as ready that fails at the first question."""
-    reason = OpenAIRuntime(host="foundry").unavailable_reason()
+    reason = OpenAIRuntime(host="foundry-openai").unavailable_reason()
     assert reason is not None and "model:" in reason and "openai" in reason
 
 
@@ -169,7 +169,7 @@ def test_an_unknown_host_names_the_known_ones() -> None:
     """A typo in a project file must not read as a missing credential."""
     reason = OpenAIRuntime(host="openroutr").unavailable_reason()
     assert reason is not None
-    assert "openroutr" in reason and "foundry" in reason and "openai" in reason
+    assert "openroutr" in reason and "foundry-openai" in reason and "openai" in reason
 
 
 def test_no_credential_value_ever_reaches_the_reason(
@@ -177,7 +177,7 @@ def test_no_credential_value_ever_reaches_the_reason(
 ) -> None:
     """`doctor` output is pasted into support threads. Names only, always."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "sk-sentinel-value")
-    reason = OpenAIRuntime(host="foundry").unavailable_reason()
+    reason = OpenAIRuntime(host="foundry-openai").unavailable_reason()
     assert reason is not None
     assert "sk-sentinel-value" not in reason
 
@@ -186,8 +186,8 @@ def test_host_selection_is_option_then_environment_then_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert OpenAIRuntime().host == "openai"
-    monkeypatch.setenv(ENV_HOST, "foundry")
-    assert OpenAIRuntime().host == "foundry"
+    monkeypatch.setenv(ENV_HOST, "foundry-openai")
+    assert OpenAIRuntime().host == "foundry-openai"
     assert OpenAIRuntime(host="openai").host == "openai"
 
 
@@ -212,7 +212,7 @@ def test_both_endpoint_variables_at_once_are_reported_rather_than_silently_ranke
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("FOUNDRY_RESOURCE", "r")
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://example/openai/v1")
-    reason = OpenAIRuntime(host="foundry", model="m").unavailable_reason()
+    reason = OpenAIRuntime(host="foundry-openai", model="m").unavailable_reason()
     assert reason is not None
     assert "FOUNDRY_RESOURCE" in reason and "FOUNDRY_BASE_URL" in reason
     assert "only one" in reason
@@ -228,8 +228,8 @@ def test_an_address_for_this_surface_beats_a_resource_it_inherited(
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "prod")
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://staging.example/openai/v1")
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
-    assert OpenAIRuntime(host="foundry", model="m").available()
-    assert base_url(HOSTS["foundry"]) == "https://staging.example/openai/v1"
+    assert OpenAIRuntime(host="foundry-openai", model="m").available()
+    assert base_url(HOSTS["foundry-openai"]) == "https://staging.example/openai/v1"
 
 
 # -- the ordinary turn ------------------------------------------------------
@@ -969,7 +969,7 @@ def test_foundry_builds_its_base_url_from_the_resource_name(
 ) -> None:
     """A portal shows a resource name; the SDK wants a URL. Asking for both would be
     asking the same question twice."""
-    assert base_url(HOSTS["foundry"]) == (
+    assert base_url(HOSTS["foundry-openai"]) == (
         "https://never-printed-resource.services.ai.azure.com/openai/v1"
     )
 
@@ -980,7 +980,7 @@ def test_an_explicit_base_url_is_used_as_written(
     """A sovereign cloud, a private endpoint, a proxy — none of them match the
     template, and the variable exists so none of them need to."""
     monkeypatch.setenv("FOUNDRY_BASE_URL", "https://private.example/openai/v1")
-    assert base_url(HOSTS["foundry"]) == "https://private.example/openai/v1"
+    assert base_url(HOSTS["foundry-openai"]) == "https://private.example/openai/v1"
 
 
 def test_the_openai_host_points_nowhere_in_particular() -> None:
@@ -1045,7 +1045,9 @@ def test_one_url_field_serves_a_template_and_a_constant_alike(
     """`url` is read two ways from one field — formatted where the row's first endpoint
     variable names a resource, verbatim where it names none — and a row that sets it at
     all must not disturb a row that does not."""
-    assert base_url(HOSTS["foundry"]).startswith("https://never-printed-resource.")
+    assert base_url(HOSTS["foundry-openai"]).startswith(
+        "https://never-printed-resource."
+    )
     assert base_url(HOSTS["openrouter"]) == "https://openrouter.ai/api/v1"
     assert base_url(HOSTS["openai"]) is None
 
@@ -1347,7 +1349,7 @@ def test_foundry_is_built_with_the_url_its_resource_name_implies(
     credentials: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The default construction hook: a key and a base URL, through `AsyncOpenAI`."""
-    seen = built(monkeypatch, host="foundry", model="gpt-5-deployment")
+    seen = built(monkeypatch, host="foundry-openai", model="gpt-5-deployment")
     assert set(seen) == {"api_key", "base_url"}
     assert seen["api_key"] == "never-printed-key"
     assert seen["base_url"] == (
@@ -1361,7 +1363,7 @@ def test_foundry_is_built_with_the_resource_the_variable_names(
     """The template is the row's, and the resource is the environment's."""
     monkeypatch.setenv("FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("FOUNDRY_RESOURCE", "demo")
-    seen = built(monkeypatch, host="foundry", model="m")
+    seen = built(monkeypatch, host="foundry-openai", model="m")
     assert seen["base_url"] == "https://demo.services.ai.azure.com/openai/v1"
 
 
@@ -1420,7 +1422,7 @@ async def test_azure_openai_answers_an_ordinary_question(azure: None) -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("host", ["foundry", "azure-openai"])
+@pytest.mark.parametrize("host", ["foundry-openai", "azure-openai"])
 async def test_the_runtime_option_overrides_whatever_the_row_asks_for(
     credentials: None, azure: None, host: str
 ) -> None:

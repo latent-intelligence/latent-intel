@@ -502,7 +502,7 @@ vendor's SDK while tools stay ours.
   `uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"`.
 - **`openai`** runs the turn in this process over the OpenAI-compatible protocol, and
   reaches every attached source the same way `anthropic` does. Five hosts ship: `openai`,
-  `foundry`, `openrouter`, `azure-openai` and `local`. Same `api` extra — one install
+  `foundry-openai`, `openrouter`, `azure-openai` and `local`. Same `api` extra — one install
   carries both SDKs — and it has **no default model**, because every host names its
   models differently.
 - **`sdk-anthropic`** is `anthropic` with the loop run by the Anthropic SDK's tool
@@ -528,8 +528,8 @@ latent › /runtime anthropic
 runtime anthropic
 latent › /model claude-sonnet-5
 model claude-sonnet-5 for anthropic
-latent › /host foundry
-host foundry for anthropic
+latent › /host foundry-anthropic
+host foundry-anthropic for anthropic
 ```
 
 All three persist immediately, the way `/connect` does. `intel doctor` lists what is
@@ -545,15 +545,15 @@ runtimes:
   claude-cli:
     model: sonnet
   anthropic:
-    host: foundry            # or `anthropic`
+    host: foundry-anthropic  # or `anthropic`
     model: claude-sonnet-5
     max_tokens: 16384
     max_tool_rounds: 10      # how many model round-trips one question may take
   sdk-anthropic:             # the same options, and the same two hosts
-    host: foundry
+    host: foundry-anthropic
     model: claude-sonnet-5
   openai:
-    host: foundry            # or `openai`, `openrouter`, `azure-openai`, `local`
+    host: foundry-openai     # or `openai`, `openrouter`, `azure-openai`, `local`
     model: my-gpt-deployment # required, and a deployment name, not a catalogue id
     tokens_param: max_completion_tokens  # or max_tokens for a host that only accepts it
   openai-agents:             # the same options, and the same five hosts
@@ -568,8 +568,8 @@ ships its runtime and model as configuration rather than setup:
 agent:
   runtime: anthropic
   runtimes:
-    anthropic: {host: foundry, model: claude-sonnet-5}
-    openai: {host: foundry, model: my-gpt-deployment}
+    anthropic: {host: foundry-anthropic, model: claude-sonnet-5}
+    openai: {host: foundry-openai, model: my-gpt-deployment}
 ```
 
 A model name is never validated here — we cannot enumerate them and a hardcoded list goes
@@ -591,7 +591,7 @@ there.
 
 | host | needs | optional |
 |---|---|---|
-| `foundry` (default) | `ANTHROPIC_FOUNDRY_API_KEY`, and one of `ANTHROPIC_FOUNDRY_RESOURCE` / `ANTHROPIC_FOUNDRY_BASE_URL` | — |
+| `foundry-anthropic` (default) | `ANTHROPIC_FOUNDRY_API_KEY`, and one of `ANTHROPIC_FOUNDRY_RESOURCE` / `ANTHROPIC_FOUNDRY_BASE_URL` | — |
 | `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_BASE_URL` |
 
 `openai` and `openai-agents` (one table: the same rows, read by both):
@@ -599,7 +599,7 @@ there.
 | host | needs | optional | model is |
 |---|---|---|---|
 | `openai` (default) | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | a published id |
-| `foundry` | `FOUNDRY_API_KEY`, and one of `FOUNDRY_RESOURCE` / `FOUNDRY_BASE_URL` | — | a deployment name |
+| `foundry-openai` | `FOUNDRY_API_KEY`, and one of `FOUNDRY_RESOURCE` / `FOUNDRY_BASE_URL` | — | a deployment name |
 | `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_BASE_URL` | `<vendor>/<model>` |
 | `azure-openai` | `AZURE_OPENAI_API_KEY` **or** `AZURE_OPENAI_AD_TOKEN`, plus `AZURE_OPENAI_ENDPOINT` and `OPENAI_API_VERSION` | — | a deployment name |
 | `local` | `LOCAL_OPENAI_BASE_URL` | `LOCAL_OPENAI_API_KEY` | whatever the server serves |
@@ -616,7 +616,7 @@ servers ignore one (a placeholder is sent, since the SDK refuses to build a clie
 any credential at all).
 
 **`azure-openai` is the classic surface**, and distinct from Foundry's OpenAI-compatible
-one — that is `host: foundry`. It needs the dated `OPENAI_API_VERSION` as well as a
+one — that is `host: foundry-openai`. It needs the dated `OPENAI_API_VERSION` as well as a
 credential and the endpoint; there is no default version, because one guessed here goes
 stale and returns a 400 that names neither the variable nor the fix.
 
@@ -642,10 +642,10 @@ one setting and the environment is the machine-by-machine fallback beneath both.
 ```
 runtimes
   custom loop
-    ! anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry'
+    ! anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry-anthropic'
     · openai — set OPENAI_API_KEY for host 'openai'
   sdk runner
-    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry'
+    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry-anthropic'
   delegated
     ✓ claude-cli
 ```

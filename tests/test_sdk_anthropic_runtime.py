@@ -121,7 +121,9 @@ def test_the_anthropic_host_wants_one_variable_not_three(
 def test_an_unknown_host_names_the_known_ones() -> None:
     reason = SdkAnthropicRuntime(host="bedrock").unavailable_reason()
     assert reason is not None
-    assert "bedrock" in reason and "foundry" in reason and "anthropic" in reason
+    assert (
+        "bedrock" in reason and "foundry-anthropic" in reason and "anthropic" in reason
+    )
 
 
 def test_no_credential_value_ever_reaches_the_reason(
@@ -139,12 +141,12 @@ def test_host_selection_reads_this_runtime_s_own_variable(
 ) -> None:
     """Its own variable, not the sibling's: a machine comparing the two loops sets one
     against Foundry and the other against the public API."""
-    assert SdkAnthropicRuntime().host == "foundry"
+    assert SdkAnthropicRuntime().host == "foundry-anthropic"
     monkeypatch.setenv("LATENT_INTEL_ANTHROPIC_HOST", "anthropic")
-    assert SdkAnthropicRuntime().host == "foundry"
+    assert SdkAnthropicRuntime().host == "foundry-anthropic"
     monkeypatch.setenv(ENV_HOST, "anthropic")
     assert SdkAnthropicRuntime().host == "anthropic"
-    assert SdkAnthropicRuntime(host="foundry").host == "foundry"
+    assert SdkAnthropicRuntime(host="foundry-anthropic").host == "foundry-anthropic"
 
 
 def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:

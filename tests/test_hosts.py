@@ -4,7 +4,9 @@ Exercised against synthetic rows rather than the shipped ones: a test reading
 `HOSTS["foundry"]` would pass or fail on a decision about Foundry, while what is under
 test here is the rules — what a requirement means, when a fallback counts, what reaches
 a constructor. The shipped rows are checked in each runtime's own file, which is where
-their variable names belong.
+their variable names belong. The exception is the last section, which reads `HOSTS`
+itself: what every row must declare is a property of the table rather than of any one
+runtime's view of it, and there is now no other file that sees all seven.
 
 Every variable is `AZURE_T_*`, so `conftest`'s `AZURE_` prefix deletes it whether this
 file set it or a developer exported it.
@@ -23,6 +25,8 @@ from latent_intel.agent.hosts import Host
 def row(**overrides: Any) -> Host:
     """A row with only what every row must have, and one field changed per test."""
     fields: dict[str, Any] = {
+        "sdk": "anthropic",
+        "protocol": "messages",
         "client": "AsyncThing",
         "key": "AZURE_T_KEY",
         "endpoint": ("AZURE_T_BASE_URL",),
@@ -347,3 +351,59 @@ def test_a_row_reading_nothing_from_the_environment_names_nothing() -> None:
         defaults={"AZURE_T_KEY": "local"},
     )
     assert hosts.supplied(host) == ()
+
+
+# -- the shipped table -------------------------------------------------------
+
+
+def test_every_row_declares_one_sdk_and_one_protocol_and_the_right_row_type() -> None:
+    """The invariants the rest of the build reads the table under.
+
+    A protocol is what a loop selects an adapter by and an SDK is what it imports and
+    catches exceptions from, so a row misdeclaring either picks the wrong adapter or
+    the wrong failure ladder — and both go wrong at the first question rather than
+    here. `chat` and `OpenAIHost` are the same claim from two directions: the row type
+    carries `tokens_param`, which only that protocol sends, and `runtimes/openai.py`
+    narrows to it with a guard that would silently drop a row declared as the base
+    type.
+
+    The names are listed rather than counted: `foundry-anthropic` and `foundry-openai`
+    are one platform's two surfaces, reading different variables and dialled at
+    different paths, and a single `foundry` is exactly the ambiguity this spells out.
+    """
+    assert list(hosts.HOSTS) == [
+        "anthropic",
+        "foundry-anthropic",
+        "openai",
+        "foundry-openai",
+        "openrouter",
+        "azure-openai",
+        "local",
+    ]
+    for name, host in hosts.HOSTS.items():
+        assert host.sdk in hosts.SDKS, name
+        assert host.protocol in hosts.PROTOCOLS, name
+        assert isinstance(host, hosts.OpenAIHost) == (host.protocol == "chat"), name
+        # What `runtimes/anthropic.py` derives `DEFAULT_MODEL` from rather than
+        # restating it: a row on this protocol that declared none would leave that
+        # constant with nothing to read.
+        if host.protocol == "messages":
+            assert host.default_model, name
+
+
+def test_for_sdk_partitions_the_table_in_its_own_order() -> None:
+    """Every row belongs to exactly one SDK's subset, and a runtime's table is that
+    subset — so a row added here reaches the runtime that can dial it without being
+    listed anywhere else, and reaches no runtime that cannot."""
+    subsets = {sdk: hosts.for_sdk(sdk) for sdk in hosts.SDKS}
+    assert list(subsets["anthropic"]) == ["anthropic", "foundry-anthropic"]
+    assert list(subsets["openai"]) == [
+        "openai",
+        "foundry-openai",
+        "openrouter",
+        "azure-openai",
+        "local",
+    ]
+    together = [name for subset in subsets.values() for name in subset]
+    assert sorted(together) == sorted(hosts.HOSTS)
+    assert hosts.for_sdk("bedrock") == {}

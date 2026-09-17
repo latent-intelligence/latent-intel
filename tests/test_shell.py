@@ -346,7 +346,7 @@ def test_clearing_a_host_the_project_declares_reports_what_is_still_in_force(
         "agent:\n"
         "  runtime: anthropic\n"
         "  runtimes:\n"
-        "    anthropic: {host: foundry}\n",
+        "    anthropic: {host: foundry-anthropic}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("LATENT_INTEL_PROJECT", "deploy")
@@ -356,7 +356,7 @@ def test_clearing_a_host_the_project_declares_reports_what_is_still_in_force(
     repl._host(Session(), "none")
 
     text = console.export_text()
-    assert "foundry" in text
+    assert "foundry-anthropic" in text
     assert "none" not in text
 
 
@@ -400,7 +400,7 @@ def test_a_host_this_runtime_has_no_row_for_prints_the_known_ones(
 
     text = console.export_text()
     assert "unknown host" in text and "nonsense" in text
-    assert "foundry" in text
+    assert "foundry-anthropic" in text
 
 
 def test_a_host_on_a_runtime_that_has_none_is_refused_and_not_kept(

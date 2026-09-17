@@ -356,6 +356,8 @@ FAKE_SDK = SimpleNamespace(
 )
 
 FAKE_HOST = hosts.Host(
+    sdk="anthropic",
+    protocol="messages",
     client="AsyncSomething",
     key="EXAMPLE_API_KEY",
     endpoint=("EXAMPLE_BASE_URL",),

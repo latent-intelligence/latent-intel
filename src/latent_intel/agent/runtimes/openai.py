@@ -9,8 +9,9 @@ fragments to be reassembled, and a `finish_reason` instead of a stop reason.
 Foundry's OpenAI-compatible surface, the OpenAI API, OpenRouter, classic Azure OpenAI
 and a server on the machine you are sitting at: they differ in which variables name the
 credential and the endpoint, how the client is constructed, and what a 404 means — and
-in nothing else about a turn. The row *type* is `agent/hosts.py`, shared with the
-Anthropic runtime rather than declared twice.
+in nothing else about a turn. The rows themselves are `hosts.HOSTS` — every endpoint
+this build can reach, whichever runtime dials it — and this module reads the subset
+naming the `openai` SDK, rather than a table declared here and a second one next door.
 
 **A host decides its own construction.** Classic Azure OpenAI is reached through a
 different client class and named kwargs — `azure_endpoint` and `api_version` rather than
@@ -59,120 +60,15 @@ from ... import events as ev
 from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
 from .. import hosts, turn
 
-# Construction, above the table because one of these is a row's field and a module body
-# is evaluated when it is read. The annotations are lazy; the values are not.
-
-
-def _construct_azure(host: hosts.Host, values: hosts.Values) -> dict[str, Any]:
-    """The kwargs `AsyncAzureOpenAI` takes instead of a base URL: the resource endpoint
-    under its own name, and the dated API version, which this client requires and no
-    other does.
-
-    Read by name from the row's own resolved values, so the names a reason prints and
-    the names a client is built from cannot drift apart.
-
-    Exactly one credential kwarg, and the Entra ID token where both are set: the SDK
-    refuses a client given both, and a token is the deliberate choice while a key is
-    what a machine tends to still have exported from before. The other is omitted
-    rather than passed as None, because the SDK reads its own environment when a
-    credential is absent and a None it was handed is not absent.
-    """
-    kwargs: dict[str, Any] = {
-        "azure_endpoint": values["AZURE_OPENAI_ENDPOINT"],
-        "api_version": values["OPENAI_API_VERSION"],
-    }
-    token = values["AZURE_OPENAI_AD_TOKEN"]
-    if token:
-        kwargs["azure_ad_token"] = token
-    else:
-        kwargs["api_key"] = values["AZURE_OPENAI_API_KEY"]
-    return kwargs
-
-
-#: Every host reachable through the OpenAI SDK. A new one is a row.
+#: Every host reachable through the OpenAI SDK: the `chat` rows of `hosts.HOSTS`. The
+#: table declares the base row type, and this protocol reads one field more —
+#: `tokens_param` — so the guard is what hands mypy the narrower row. It drops nothing:
+#: every `chat` row is an `OpenAIHost`, which `tests/test_hosts.py` asserts of the table
+#: itself rather than leaving it to be discovered by a host going missing here.
 HOSTS: dict[str, hosts.OpenAIHost] = {
-    "openai": hosts.OpenAIHost(
-        client="AsyncOpenAI",
-        key="OPENAI_API_KEY",
-        endpoint=("OPENAI_BASE_URL",),
-        required=("OPENAI_API_KEY",),
-        remedy_404="check the model id against the ones the API publishes",
-    ),
-    "foundry": hosts.OpenAIHost(
-        client="AsyncOpenAI",
-        key="FOUNDRY_API_KEY",
-        # Both at once is refused: `base_url` takes the address and would quietly
-        # ignore the resource, which is the same ambiguity the Anthropic SDK refuses
-        # outright — and one of the two is not doing what whoever set it thinks.
-        endpoint=("FOUNDRY_RESOURCE", "FOUNDRY_BASE_URL"),
-        required=("FOUNDRY_API_KEY", ("FOUNDRY_RESOURCE", "FOUNDRY_BASE_URL")),
-        remedy_404=(
-            "Foundry resolves deployment names — check the deployment exists on this "
-            "resource and is served on its OpenAI-compatible surface"
-        ),
-        url="https://{resource}.services.ai.azure.com/openai/v1",
-        fallback={
-            "FOUNDRY_API_KEY": "ANTHROPIC_FOUNDRY_API_KEY",
-            "FOUNDRY_RESOURCE": "ANTHROPIC_FOUNDRY_RESOURCE",
-        },
-    ),
-    "openrouter": hosts.OpenAIHost(
-        client="AsyncOpenAI",
-        key="OPENROUTER_API_KEY",
-        endpoint=("OPENROUTER_BASE_URL",),
-        required=("OPENROUTER_API_KEY",),
-        remedy_404=(
-            "OpenRouter model ids are `<vendor>/<model>` — check the id at "
-            "openrouter.ai/models"
-        ),
-        url="https://openrouter.ai/api/v1",
-        tokens_param="max_tokens",
-    ),
-    "azure-openai": hosts.OpenAIHost(
-        client="AsyncAzureOpenAI",
-        key="AZURE_OPENAI_API_KEY",
-        endpoint=("AZURE_OPENAI_ENDPOINT",),
-        # A key *or* an Entra ID token — a resource with key auth disabled is the
-        # common enterprise posture, and until the group existed this row demanded a
-        # credential such a resource cannot issue. Then the endpoint, then the dated
-        # API version this client requires and no other does: no default version, one
-        # guessed here goes stale and returns a 400 that names neither this file nor
-        # the variable that would fix it.
-        required=(
-            ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_AD_TOKEN"),
-            "AZURE_OPENAI_ENDPOINT",
-            "OPENAI_API_VERSION",
-        ),
-        remedy_404=(
-            "Azure OpenAI resolves deployment names — check the deployment exists on "
-            "this resource"
-        ),
-        # The row's default token parameter, not `max_tokens`: a reasoning deployment
-        # here rejects `max_tokens` on every API version, and a version old enough to
-        # reject `max_completion_tokens` also rejects the `stream_options` every turn
-        # sends — so the override bought nothing and cost the newer deployments. A
-        # resource that really does want the older name has `tokens_param:` on the
-        # runtime.
-        construct=_construct_azure,
-    ),
-    "local": hosts.OpenAIHost(
-        client="AsyncOpenAI",
-        # Its own variables, not the `openai` row's: a key for the public API
-        # forwarded to a server on the LAN is a credential leaving the machine it was
-        # issued for, and one pair shared between the rows means the two hosts cannot
-        # both be configured in one `.env`.
-        key="LOCAL_OPENAI_API_KEY",
-        endpoint=("LOCAL_OPENAI_BASE_URL",),
-        # The address only. A server on localhost authenticates nobody, so demanding a
-        # credential for it would be a requirement invented here rather than one the
-        # endpoint has — and the default below is why something is still sent.
-        required=("LOCAL_OPENAI_BASE_URL",),
-        remedy_404="check the model name the server reports (e.g. its models list)",
-        # The SDK refuses to construct a client with no credential at all, and a
-        # recognisable word is what appears in that server's logs.
-        defaults={"LOCAL_OPENAI_API_KEY": "local"},
-        tokens_param="max_tokens",
-    ),
+    name: row
+    for name, row in hosts.for_sdk("openai").items()
+    if isinstance(row, hosts.OpenAIHost)
 }
 
 #: The reference row: the API this protocol is named after, reachable with one variable.

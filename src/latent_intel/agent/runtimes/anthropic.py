@@ -7,13 +7,14 @@ not only the ones that can be served as an MCP subprocess. A `files` directory a
 `vector` index are tools here and were invisible there.
 
 **A host is a row, not a module.** A host serves this protocol, and the rows are
-Foundry and the Anthropic API: they differ in which client class the SDK builds and
-which environment variables name the endpoint, and in nothing else about a turn.
-Bedrock and Vertex are future rows. The row *type* is `agent/hosts.py`, shared with the
-OpenAI runtime — every rule about variables, reasons and construction lived here and
-there at once, and had already drifted. A second *protocol* is a new runtime module
-instead, reusing `agent/turn.py`, which is where the vendor-neutral half of this loop
-already lives.
+Foundry's Anthropic surface and the Anthropic API: they differ in which client class the
+SDK builds and which environment variables name the endpoint, and in nothing else about
+a turn. Bedrock and Vertex are future rows. The rows themselves are `hosts.HOSTS` —
+every endpoint this build can reach, whichever runtime dials it — and this module reads
+the subset naming the `anthropic` SDK. Every rule about variables, reasons and
+construction lived in two places at once before that and had already drifted. A second
+*protocol* is a new runtime module instead, reusing `agent/turn.py`, which is where the
+vendor-neutral half of this loop already lives.
 
 **The SDK is imported inside the turn, never at module scope.** `available_kinds()`
 loads every registered runtime, so an import here would make a base install without the
@@ -43,45 +44,23 @@ from ... import events as ev
 from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
 from .. import hosts, turn
 
-#: Every host reachable through the Anthropic SDK. A new one is a row.
-HOSTS: dict[str, hosts.Host] = {
-    "foundry": hosts.Host(
-        client="AsyncAnthropicFoundry",
-        key="ANTHROPIC_FOUNDRY_API_KEY",
-        # Both at once is refused: the SDK raises `base_url and resource are mutually
-        # exclusive`, and reporting ✓ here would move that failure to the first
-        # question and strip the variable names off it on the way.
-        endpoint=("ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_FOUNDRY_BASE_URL"),
-        required=(
-            "ANTHROPIC_FOUNDRY_API_KEY",
-            ("ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_FOUNDRY_BASE_URL"),
-        ),
-        remedy_404=(
-            "Foundry resolves deployment names, not dated model ids — try "
-            "`claude-sonnet-5` rather than a name with a date on the end, and check "
-            "the deployment exists on this resource"
-        ),
-        # No `url`, and no constructor of its own: a resource name is passed to this
-        # client by leaving `base_url` alone and letting the SDK read the variable it
-        # already knows. Passing the pair ourselves meant handing it an empty resource
-        # it then refused as mutually exclusive with the base URL beside it.
-    ),
-    "anthropic": hosts.Host(
-        client="AsyncAnthropic",
-        key="ANTHROPIC_API_KEY",
-        endpoint=("ANTHROPIC_BASE_URL",),
-        required=("ANTHROPIC_API_KEY",),
-        remedy_404="check the model id against the ones the API publishes",
-    ),
-}
+#: Every host reachable through the Anthropic SDK: the rows of `hosts.HOSTS` that name
+#: this SDK. A new one is a row there, not a line here.
+HOSTS = hosts.for_sdk("anthropic")
 
 #: Foundry first: the deployment this was written for runs on Azure, and a default that
 #: is right for the common case beats one that is right for nobody.
-DEFAULT_HOST = "foundry"
+DEFAULT_HOST = "foundry-anthropic"
 ENV_HOST = "LATENT_INTEL_ANTHROPIC_HOST"
 
-#: Undated on purpose — see `HOSTS["foundry"].remedy_404`.
-DEFAULT_MODEL = "claude-sonnet-5"
+#: Undated on purpose — see `hosts.HOSTS["foundry-anthropic"].remedy_404`. Taken from
+#: the default host's row rather than written again here: a model default is the row's
+#: to declare now that it is a field, and two places saying it are two places to
+#: disagree. Every row on this protocol declares one — `tests/test_hosts.py` is what
+#: holds that — and the assert is what tells mypy so without a second literal.
+_default_model = HOSTS[DEFAULT_HOST].default_model
+assert _default_model is not None
+DEFAULT_MODEL: str = _default_model
 
 DEFAULT_MAX_TOKENS = 16384
 

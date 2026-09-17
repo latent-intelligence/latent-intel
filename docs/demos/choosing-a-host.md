@@ -14,20 +14,20 @@ Everything below is captured output, not an illustration, except where it says s
 $ intel hosts
 
 anthropic
-  ! foundry    ← configured  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
-  ! anthropic  set ANTHROPIC_API_KEY for host 'anthropic'
+  ! anthropic          set ANTHROPIC_API_KEY for host 'anthropic'
+  ! foundry-anthropic  ← configured  set ANTHROPIC_FOUNDRY_API_KEY,
+ANTHROPIC_FOUNDRY_RESOURCE or ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
 
 claude-cli — no hosts
 
 openai
-  ! openai        ← configured  set OPENAI_API_KEY for host 'openai'
-  ! foundry       set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
-ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
-  ! openrouter    set OPENROUTER_API_KEY for host 'openrouter'
-  ! azure-openai  set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+  ! openai          ← configured  set OPENAI_API_KEY for host 'openai'
+  ! foundry-openai  set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE
+(or ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
+  ! openrouter      set OPENROUTER_API_KEY for host 'openrouter'
+  ! azure-openai    set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
 OPENAI_API_VERSION for host 'azure-openai'
-  ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
+  ! local           set LOCAL_OPENAI_BASE_URL for host 'local'
 
 Names of variables, never values — safe to paste. Set them in a `.env` beside the
 project file, or export them.
@@ -58,13 +58,13 @@ $ export OPENROUTER_API_KEY=…
 $ intel hosts
 
 openai
-  ! openai        ← configured  set OPENAI_API_KEY for host 'openai'
-  ! foundry       set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
-ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
+  ! openai          ← configured  set OPENAI_API_KEY for host 'openai'
+  ! foundry-openai  set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE
+(or ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
   ✓ openrouter
-  ! azure-openai  set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+  ! azure-openai    set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
 OPENAI_API_VERSION for host 'azure-openai'
-  ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
+  ! local           set LOCAL_OPENAI_BASE_URL for host 'local'
 ```
 
 The row it was asked for is the row that flipped. A host is ready when its own
@@ -115,24 +115,24 @@ its models differently and there is no default
 $ intel hosts
 
 openai
-  ! openai        set OPENAI_API_KEY for host 'openai'
-  ! foundry       set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE (or
-ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry'
-  ✓ openrouter    ← configured
-  ! azure-openai  set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
+  ! openai          set OPENAI_API_KEY for host 'openai'
+  ! foundry-openai  set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY), FOUNDRY_RESOURCE
+(or ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
+  ✓ openrouter      ← configured
+  ! azure-openai    set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
 OPENAI_API_VERSION for host 'azure-openai'
-  ! local         set LOCAL_OPENAI_BASE_URL for host 'local'
+  ! local           set LOCAL_OPENAI_BASE_URL for host 'local'
 
 $ intel doctor
 
 runtimes
   custom loop
     · anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
     ✓ openai ← configured
   sdk runner
     · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
   delegated
     ✓ claude-cli
   model: anthropic/claude-sonnet-4.5
