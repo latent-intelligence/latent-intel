@@ -126,10 +126,15 @@ OPENAI_API_VERSION for host 'azure-openai'
 $ intel doctor
 
 runtimes
-  ! anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+  custom loop
+    · anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
 ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
-  ✓ claude-cli
-  ✓ openai ← configured
+    ✓ openai ← configured
+  sdk runner
+    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
+  delegated
+    ✓ claude-cli
   model: anthropic/claude-sonnet-4.5
 ```
 

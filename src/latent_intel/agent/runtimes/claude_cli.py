@@ -234,6 +234,11 @@ class ClaudeCliRuntime:
     def available(self) -> bool:
         return resolve_command(self.command) is not None
 
+    def family(self) -> str:
+        """Another harness on this machine owns the loop, the tools and the
+        permissions. See `agent/base.Owned`."""
+        return "delegated"
+
     async def stream(
         self,
         messages: list[Message],

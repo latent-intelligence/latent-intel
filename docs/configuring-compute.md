@@ -17,7 +17,10 @@ the one to use when the deployment has its own Anthropic account, and the shorte
 to a capable model that handles a long tool loop well.
 
 Unlike OpenRouter, this is the **`anthropic` runtime** — a different protocol, not just a
-different endpoint. The runtime is the protocol; the host says which endpoint on it.
+different endpoint. A runtime is **who owns the agent loop**; the custom-loop ones are
+named for the protocol they speak, and the host says which endpoint on that protocol.
+`sdk-anthropic` is the SDK-run sibling of `anthropic`: same protocol, same hosts, same
+variables, so everything on this page applies to it unchanged.
 
 ### 1. Set one variable
 
@@ -232,9 +235,13 @@ config and a different pair of variables.
 $ intel doctor
 
 runtimes
-  ✓ anthropic ← configured
-  ✓ claude-cli
-  · openai — set OPENAI_API_KEY for host 'openai'
+  custom loop
+    ✓ anthropic ← configured
+    · openai — set OPENAI_API_KEY for host 'openai'
+  sdk runner
+    ✓ sdk-anthropic
+  delegated
+    ✓ claude-cli
   model: claude-sonnet-5
 ```
 
@@ -315,9 +322,10 @@ runtimes:
     model: poolside/laguna-s-2.1:free
 ```
 
-**Why `openai` and not `anthropic`?** The runtime is the *protocol*, not the vendor.
-OpenRouter speaks the OpenAI-compatible one, so `runtime: openai` is right even when the
-model you pick is `anthropic/claude-sonnet-4.5`.
+**Why `openai` and not `anthropic`?** A runtime is who owns the loop, and the custom-loop
+ones are named for the *protocol* they speak, not the vendor. OpenRouter speaks the
+OpenAI-compatible one, so `runtime: openai` is right even when the model you pick is
+`anthropic/claude-sonnet-4.5`.
 
 **Model ids are `<vendor>/<model>`**, listed at
 [openrouter.ai/models](https://openrouter.ai/models). A `:free` suffix is a free tier of
@@ -330,10 +338,15 @@ throughout this section.
 
 ```
 runtimes
-  · anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+  custom loop
+    · anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
 ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
-  ✓ claude-cli
-  ✓ openai ← configured
+    ✓ openai ← configured
+  sdk runner
+    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry'
+  delegated
+    ✓ claude-cli
   model: poolside/laguna-s-2.1:free
 ```
 

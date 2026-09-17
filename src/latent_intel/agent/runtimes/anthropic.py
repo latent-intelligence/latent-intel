@@ -92,7 +92,7 @@ DEFAULT_MAX_TOOL_ROUNDS = 10
 #: Stop reasons that end a turn without an answer, each with what to do about it. A
 #: reason absent from here and not in the completing set is reported under its own name
 #: rather than guessed at — a vocabulary this build does not know is not a success.
-_STOP_FAILURES: dict[str, tuple[str, str]] = {
+STOP_FAILURES: dict[str, tuple[str, str]] = {
     "max_tokens": (
         "the model reached its output limit before finishing",
         "raise `max_tokens` under this runtime, or ask a narrower question",
@@ -108,7 +108,7 @@ _STOP_FAILURES: dict[str, tuple[str, str]] = {
 }
 
 #: Stop reasons that mean the model finished saying what it had to say.
-_STOP_DONE = frozenset({"end_turn", "stop_sequence"})
+STOP_DONE = frozenset({"end_turn", "stop_sequence"})
 
 
 class AnthropicRuntime:
@@ -340,7 +340,7 @@ class AnthropicRuntime:
                     continue  # a long-running turn the API asks us to resume
 
                 elapsed = int((time.monotonic() - began) * 1000)
-                if stop in _STOP_DONE:
+                if stop in STOP_DONE:
                     yield emitter.emit(
                         ev.AgentCompleted,
                         text="".join(answer),
@@ -361,7 +361,7 @@ class AnthropicRuntime:
                     )
                     return
 
-                message, remedy = _STOP_FAILURES.get(
+                message, remedy = STOP_FAILURES.get(
                     str(stop), (f"the model stopped: {stop}", "")
                 )
                 yield emitter.emit(
@@ -402,5 +402,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "ENV_HOST",
     "HOSTS",
+    "STOP_DONE",
+    "STOP_FAILURES",
     "AnthropicRuntime",
 ]

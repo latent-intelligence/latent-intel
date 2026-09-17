@@ -56,6 +56,7 @@ from .models import (
     HostReport,
     Message,
     Ref,
+    RuntimeReport,
     RuntimeUnavailable,
     SessionError,
     SourceRequest,
@@ -273,7 +274,20 @@ class Session:
         Names of environment variables, never values: this string is printed by
         `intel doctor`, whose output has to stay safe to paste into a support thread.
         """
-        return {name: Session.runtime_reason(name) for name in agent.available_kinds()}
+        return {
+            name: report.reason for name, report in Session.runtime_reports().items()
+        }
+
+    @staticmethod
+    def runtime_reports() -> dict[str, RuntimeReport]:
+        """Installed runtime kinds, each with its verdict and who owns its loop.
+
+        One build per kind answering both questions, for the reason `host_report`
+        gives: a family read off a runtime built a moment after the verdict can
+        describe a different object than the verdict does. `runtime_status` derives
+        from this rather than building everything a second time.
+        """
+        return {name: Session._report(name) for name in agent.available_kinds()}
 
     @staticmethod
     def runtime_reason(kind: str) -> str | None:
@@ -294,11 +308,40 @@ class Session:
         Names of environment variables, never values: this string is printed by
         `intel doctor`, whose output has to stay safe to paste into a support thread.
         """
+        return Session._report(kind).reason
+
+    @staticmethod
+    def _report(kind: str) -> RuntimeReport:
+        """One build of one runtime, read for everything a report carries.
+
+        Split out so `runtime_reason` and `runtime_reports` cannot arrive at a verdict
+        two ways, and so grouping every installed runtime by family costs one build
+        each rather than two.
+        """
         try:
             runtime = agent.build(kind, **Session._runtime_options(kind))
         except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
-            return str(exc) or "could not be built"
-        return Session._verdict(runtime)
+            return RuntimeReport(reason=str(exc) or "could not be built")
+        return RuntimeReport(
+            reason=Session._verdict(runtime), family=Session._family(runtime)
+        )
+
+    @staticmethod
+    def _family(runtime: agent.Runtime) -> str:
+        """Who owns one built runtime's loop, as it declares it.
+
+        Declared, never inferred, and never guessed at either: a runtime that declares
+        nothing, raises, or names a family this build does not know reads as the
+        default. A frontend groups by these names, and inventing a group for a word we
+        cannot place would put a runtime somewhere nobody looks.
+        """
+        if not isinstance(runtime, agent.Owned):
+            return agent.DEFAULT_FAMILY
+        try:
+            family = runtime.family()
+        except Exception:  # noqa: BLE001 — a broken runtime is not fatal
+            return agent.DEFAULT_FAMILY
+        return family if family in agent.FAMILIES else agent.DEFAULT_FAMILY
 
     @staticmethod
     def _verdict(runtime: agent.Runtime) -> str | None:

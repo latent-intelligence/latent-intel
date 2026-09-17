@@ -482,12 +482,15 @@ a search prints.
 
 ### Choosing a runtime
 
-A **runtime** is who runs the agent loop and which protocol it speaks. A **host** is who
-serves the endpoint — one row in that runtime's table, differing in credentials and
-model names and in nothing else.
+A **runtime** is **who owns the agent loop** — who decides when the model is asked again
+and who runs the tools it asked for. A **host** is who serves the endpoint — one row in
+that runtime's table, differing in credentials and model names and in nothing else.
+`intel doctor` groups the installed runtimes by loop owner, because that is the
+difference that decides what a runtime can reach and what you can configure about it.
 
-`ask` needs a backend. Three ship: one shells out to a binary that owns its own agent
-loop, and two run the turn in this process — one per wire protocol.
+`ask` needs a backend. Four ship: one delegates the loop to a binary on your machine,
+two run a loop we wrote — named for the protocol each speaks — and one hands the loop to
+a vendor's SDK while tools stay ours.
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
@@ -502,6 +505,13 @@ loop, and two run the turn in this process — one per wire protocol.
   `foundry`, `openrouter`, `azure-openai` and `local`. Same `api` extra — one install
   carries both SDKs — and it has **no default model**, because every host names its
   models differently.
+- **`sdk-anthropic`** is `anthropic` with the loop run by the Anthropic SDK's tool
+  runner instead of by us. Same protocol, same two hosts, same credentials and the same
+  options, and tools are still routed through our router, so it sees every attached
+  source too. What it adds is what the SDK maintains: prompt caching is on, and the
+  round-trip bound is the runner's. Its host override is
+  `LATENT_INTEL_SDK_ANTHROPIC_HOST`, separate from `anthropic`'s, so one machine can
+  point the two at different endpoints while comparing them.
 
 ```
 latent › /runtime anthropic
@@ -529,6 +539,9 @@ runtimes:
     model: claude-sonnet-5
     max_tokens: 16384
     max_tool_rounds: 10      # how many model round-trips one question may take
+  sdk-anthropic:             # the same options, and the same two hosts
+    host: foundry
+    model: claude-sonnet-5
   openai:
     host: foundry            # or `openai`, `openrouter`, `azure-openai`, `local`
     model: my-gpt-deployment # required, and a deployment name, not a catalogue id
@@ -552,15 +565,16 @@ stale. An unknown name fails when you ask, with the runtime's own message.
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
 MCP servers, so under `claude-cli` only `mcp` and `wiki` sources are visible to it —
 `files` and `vector` run in this process and have no server to point at. `intel doctor`
-marks the difference under `attached`. Under `anthropic` and `openai` the distinction
-does not apply: the loop is ours, so everything attached is a tool.
+marks the difference under `attached`. Under `anthropic`, `openai` and `sdk-anthropic`
+the distinction does not apply: the tool router is ours either way — whoever drives the
+loop — so everything attached is a tool.
 
 **Credentials for the in-process runtimes.** Names only, always in the environment,
 never in a config file.
 A project's `.env` is loaded before the runtime is built, so deployment credentials live
 there.
 
-`anthropic`:
+`anthropic` and `sdk-anthropic` (one table: the same rows, read by both):
 
 | host | needs | optional |
 |---|---|---|
@@ -614,9 +628,13 @@ one setting and the environment is the machine-by-machine fallback beneath both.
 
 ```
 runtimes
-  ! anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry'
-  ✓ claude-cli
-  ! openai — set OPENAI_API_KEY for host 'openai'
+  custom loop
+    ! anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry'
+    · openai — set OPENAI_API_KEY for host 'openai'
+  sdk runner
+    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY for host 'foundry'
+  delegated
+    ✓ claude-cli
 ```
 
 **`intel hosts` asks the same question of every host instead**, which is the one a

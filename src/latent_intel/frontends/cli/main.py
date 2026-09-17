@@ -33,6 +33,16 @@ from .._shared import (
     stream,
 )
 
+#: How `doctor` heads each loop-owner group, in the order they are printed. The keys are
+#: the families `Session.runtime_reports()` returns; the wording is this frontend's,
+#: because `sdk runner` is a phrase for a reader and `sdk` is a value in a Protocol.
+_FAMILY_HEADINGS = {
+    "custom": "custom loop",
+    "sdk": "sdk runner",
+    "delegated": "delegated",
+    "managed": "managed",
+}
+
 app = typer.Typer(
     name="intel",
     help=__doc__,
@@ -304,26 +314,38 @@ async def _doctor() -> None:
             console.print(f"  [dim]·[/] [dim]{name} — not installed[/]")
 
     console.print("\n[accent.strong]runtimes[/]")
-    runtimes = Session.runtime_status()
+    runtimes = Session.runtime_reports()
     resolved = settings_module.load()
     configured = resolved.runtime
-    for name, reason in sorted(runtimes.items()):
-        # `!` only where it is in the way. A runtime nobody chose and nobody set up is
-        # not a fault, and flagging it made a healthy machine print warnings about
-        # backends its owner had deliberately ignored — with the one that mattered
-        # indistinguishable among them. `·` is the mark the connector block above
-        # already uses for "present, not set up".
-        if reason is None:
-            mark = "[ok]✓[/]"
-        elif name == configured:
-            mark = "[warn]![/]"
-        else:
-            mark = "[dim]·[/]"
-        # The reason, not "cannot run here": four environment variables could each be
-        # the missing one, and the difference is the whole value of running doctor.
-        note = "" if reason is None else f" [dim]— {escape(reason)}[/]"
-        chosen = " [dim]← configured[/]" if name == configured else ""
-        console.print(f"  {mark} [source]{name}[/]{note}{chosen}")
+    # Grouped by who owns the agent loop, because the flat list blended two different
+    # things: a `custom` runtime's orchestration is ours to configure, a `delegated`
+    # one's belongs to another harness, and a reader discovered that only by noticing
+    # which rows `intel hosts` had nothing to say about. Empty groups are not printed —
+    # a machine with one runtime installed does not need a taxonomy.
+    for family, heading in _FAMILY_HEADINGS.items():
+        group = sorted(n for n, r in runtimes.items() if r.family == family)
+        if not group:
+            continue
+        console.print(f"  [dim]{heading}[/]")
+        for name in group:
+            reason = runtimes[name].reason
+            # `!` only where it is in the way. A runtime nobody chose and nobody set up
+            # is not a fault, and flagging it made a healthy machine print warnings
+            # about backends its owner had deliberately ignored — with the one that
+            # mattered indistinguishable among them. `·` is the mark the connector
+            # block above already uses for "present, not set up".
+            if reason is None:
+                mark = "[ok]✓[/]"
+            elif name == configured:
+                mark = "[warn]![/]"
+            else:
+                mark = "[dim]·[/]"
+            # The reason, not "cannot run here": four environment variables could each
+            # be the missing one, and the difference is the whole value of running
+            # doctor.
+            note = "" if reason is None else f" [dim]— {escape(reason)}[/]"
+            chosen = " [dim]← configured[/]" if name == configured else ""
+            console.print(f"    {mark} [source]{name}[/]{note}{chosen}")
     # A runtime named in config that no entry point provides — a stale kind from an
     # older build, a typo, a plugin whose extra is missing — has no row above, so
     # doctor looked healthy while `ask` failed and pointed back here.
