@@ -143,7 +143,7 @@ the agent cannot use its tools without it. An unrecognized mode is reported by
 `intel project validate` and read as `append`.
 
 A skill is named by the filename, or by a `name:` in its frontmatter when you want
-another name:
+another name: A leading `---` block counts as frontmatter only when it is a mapping with a `name:`; otherwise the file is prose from its first line, and nothing is consumed.
 
 ```markdown
 ---

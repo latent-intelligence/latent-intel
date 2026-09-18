@@ -328,3 +328,41 @@ def test_a_reserved_name_is_refused(tmp_path: Path) -> None:
 def test_a_file_that_is_not_a_mapping_raises(tmp_path: Path) -> None:
     with pytest.raises(project.ProjectError):
         project.load(write(tmp_path, "bad", "- just\n- a list\n"))
+
+
+def test_a_skill_opening_with_a_thematic_break_keeps_its_first_paragraph(
+    tmp_path: Path,
+) -> None:
+    """Frontmatter is optional for a skill, so a prose file that opens with `---` is
+    prose. Consuming its first paragraph as metadata handed the model a skill quietly
+    missing a sentence its author wrote — and a block that parsed as a scalar dropped
+    the whole file with a message about mappings."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "rule.md").write_text(
+        "---\nRule: cite the earlier page when two agree\n---\nEverything after.\n"
+    )
+    (skills / "prose.md").write_text("---\nHow this corpus is organised.\n---\nrest\n")
+    (tmp_path / "p.yaml").write_text("schema_version: 1\nname: p\nskills: ./skills\n")
+
+    loaded = project.load(tmp_path / "p.yaml")
+
+    assert loaded.problems == []
+    by_name = dict(loaded.skills)
+    assert by_name["rule"].startswith("---\nRule: cite the earlier page")
+    assert by_name["prose"].startswith("---\nHow this corpus")
+
+
+def test_a_persona_that_is_not_utf8_is_a_problem_not_a_crash(tmp_path: Path) -> None:
+    """`UnicodeDecodeError` is a `ValueError`, not an `OSError`: a persona saved from a
+    word processor in cp1252 took every command down, `doctor` included — the one
+    command that has to work on the machine whose project is malformed."""
+    (tmp_path / "persona.md").write_bytes("caf\xe9 au lait".encode("cp1252"))
+    (tmp_path / "p.yaml").write_text(
+        "schema_version: 1\nname: p\nagent: {persona: ./persona.md}\n"
+    )
+
+    loaded = project.load(tmp_path / "p.yaml")
+
+    assert loaded.persona == ""
+    assert any(problem.startswith("persona:") for problem in loaded.problems)

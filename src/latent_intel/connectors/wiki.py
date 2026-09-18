@@ -336,8 +336,8 @@ class WikiConnector:
             detail={
                 # What the store is *about*, as the manifest states it. Asked the topic
                 # of an attached wiki, a model made no tool call and said it could not
-                # tell — nothing in its prompt said. An unpublished store has no
-                # manifest and so declares none, which is honest rather than empty.
+                # tell — nothing in its prompt said. A store that declares none
+                # gives an empty string, and the prompt prints nothing for it.
                 "description": str(self.manifest.get("description") or ""),
                 "root": str(self.root),
                 "pack": str(self.manifest.get("pack") or ""),

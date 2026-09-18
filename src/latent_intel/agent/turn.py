@@ -164,7 +164,9 @@ def system_prompt(
             caps = ", ".join(sorted(str(c) for c in descriptor.capabilities))
             lines.append(f"  {descriptor.id} ({descriptor.kind}) — {caps}")
             detail = descriptor.detail or {}
-            description = str(detail.get("description") or "").strip()
+            # One line, whatever the manifest wrapped it to: a continuation at column
+            # zero would sit between the inventory and the posture as an instruction.
+            description = " ".join(str(detail.get("description") or "").split())
             if description:
                 lines.append(f"    {description}")
 
@@ -174,7 +176,7 @@ def system_prompt(
     if persona:
         lines += ["", persona] if lines else [persona]
     for name, body in skills:
-        lines += ["", f"## {name}", "", body.strip()]
+        lines += ([""] if lines else []) + [f"## {name}", "", body.strip()]
     return "\n".join(lines)
 
 

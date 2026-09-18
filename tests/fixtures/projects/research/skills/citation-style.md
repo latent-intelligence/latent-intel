@@ -1,6 +1,5 @@
 ---
 name: citation-style
-description: How this deployment writes a citation.
 ---
 Cite a single page inline as `source:key`, in the sentence that uses it, never in a
 footnote and never collected at the end.

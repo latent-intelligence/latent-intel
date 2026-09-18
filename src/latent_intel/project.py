@@ -152,7 +152,9 @@ def _persona(
         return "", mode
     try:
         text = Path(_resolve(str(value), base, variables)).read_text(encoding="utf-8")
-    except (UnsetVariable, OSError) as exc:
+    except (UnsetVariable, OSError, UnicodeDecodeError) as exc:
+        # `UnicodeDecodeError` is a `ValueError`, not an `OSError`: a persona saved
+        # from a word processor in cp1252 would otherwise take every command down.
         problems.append(f"persona: {exc}")
         return "", mode
     return text.strip(), mode
@@ -166,6 +168,11 @@ def _skills(directory: Path | None, problems: list[str]) -> list[tuple[str, str]
     otherwise — a skill is prose, and requiring a header to have any would be a
     ceremony with no reader. One unreadable file is reported and skipped rather than
     costing a deployment its other four.
+
+    A leading block counts as frontmatter only when it is a mapping with a `name:`.
+    Frontmatter is optional here, so a prose file that opens with a thematic break —
+    `---` above a rule, say — is prose, and consuming its first paragraph as metadata
+    would hand the model a skill quietly missing a sentence its author wrote.
     """
     found: list[tuple[str, str]] = []
     if directory is None:
@@ -173,21 +180,21 @@ def _skills(directory: Path | None, problems: list[str]) -> list[tuple[str, str]
     for path in sorted(directory.glob("*.md")):
         try:
             text = path.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             problems.append(f"skills: {exc}")
             continue
         block, body = procedures.split_frontmatter(text)
         name = path.stem
         if block is not None:
             try:
-                meta = yaml.safe_load(block) or {}
+                meta = yaml.safe_load(block)
             except yaml.YAMLError as exc:
                 problems.append(f"skills: {path.name}: {exc}")
                 continue
-            if not isinstance(meta, dict):
-                problems.append(f"skills: {path.name}: frontmatter must be a mapping")
-                continue
-            name = str(meta.get("name") or path.stem)
+            if isinstance(meta, dict) and meta.get("name"):
+                name = str(meta["name"])
+            else:
+                body = text  # a thematic break, not a header — see the docstring
         found.append((name, body.strip()))
     return found
 

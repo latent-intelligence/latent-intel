@@ -227,6 +227,32 @@ def test_every_skill_arrives_whole_under_a_heading_that_names_it() -> None:
     assert prompt.index("archivist") < prompt.index("## citation-style")
 
 
+def test_a_persona_with_no_sources_is_the_whole_prompt() -> None:
+    """With nothing attached there is no inventory and nothing to cite, so the persona
+    stands alone rather than silently doing nothing — the "reject what you cannot
+    honour" rule, read the other way: honour what you can."""
+    assert turn.system_prompt([], persona="Be brief.") == "Be brief."
+    assert turn.system_prompt([], persona="Be brief.", persona_mode="replace") == (
+        "Be brief."
+    )
+    assert turn.system_prompt([], skills=[("a", "body")]) == "## a\n\nbody"
+    assert turn.system_prompt([]) == ""
+
+
+def test_a_wrapped_description_is_one_indented_line() -> None:
+    """A manifest may wrap its description; a continuation at column zero would sit
+    between the inventory and the posture line and read as another instruction."""
+    source = Descriptor(
+        id="design",
+        kind="wiki",
+        capabilities=[],
+        detail={"description": "AI engineering\nand knowledge\n  systems."},
+    )
+    lines = turn.system_prompt([source]).splitlines()
+    assert "    AI engineering and knowledge systems." in lines
+    assert not any(line.startswith("and knowledge") for line in lines)
+
+
 # -- dispatching one call ---------------------------------------------------
 
 
