@@ -547,3 +547,93 @@ def test_hosts_takes_no_argument() -> None:
     assert result.action == "hosts" and result.argument == ""
 
     assert isinstance(parse("/hosts openrouter"), Invalid)
+
+
+# -- recording a session ----------------------------------------------------
+
+
+def test_record_parses_bare_with_a_file_and_with_off() -> None:
+    """One command with three moods, the way `/runtime` and `/project` already are."""
+    for line, argument in (
+        ("/record", ""),
+        ("/record run.jsonl", "run.jsonl"),
+        ("/record off", "off"),
+    ):
+        result = parse(line)
+        assert isinstance(result, Local)
+        assert result.action == "record" and result.argument == argument
+
+
+def test_record_tees_the_session_and_off_reports_what_it_wrote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A session is where experimentation actually happens, so remembering to have
+    started the CLI with a flag is not a workflow.
+
+    The recording is session state: it says where this shell sends its events, not
+    anything about the machine, so the config file must come out byte for byte as it
+    went in — unlike `/connect` or `/runtime`, which persist on purpose.
+    """
+    import anyio
+
+    from latent_intel import config as config_module
+    from latent_intel import events as ev
+    from latent_intel.commands import Find
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    config_module.save(config_module.load())
+    before = config_module.config_path().read_bytes()
+
+    console = _shell(monkeypatch)
+    recording = repl.Recording()
+    path = tmp_path / "session.jsonl"
+    repl._record(recording, str(path))
+
+    async def search() -> None:
+        session = Session()
+        await session.connect(str(corpus), kind="files", source_id="c")
+        completer = repl.ShellCompleter(session)
+        await repl._dispatch(session, Find(query="retrieval"), completer, recording)
+        await session.aclose()
+
+    anyio.run(search)
+    repl._record(recording, "off")
+
+    written = path.read_text().splitlines()
+    assert written
+    for line in written:
+        assert not isinstance(ev.parse_event(line), ev.UnknownEvent)
+
+    printed = console.export_text()
+    text = " ".join(printed.split())
+    # Whitespace removed rather than squeezed for the path: a long one wraps at the
+    # console width, and where it wraps is not what this test is about.
+    assert str(path) in "".join(printed.split())
+    assert "c:note.md" in text  # teed: the terminal still saw the run
+    assert f"{len(written)} events written to" in text
+    assert config_module.config_path().read_bytes() == before
+
+
+def test_bare_record_says_whether_anything_is_being_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The state has to be askable, or the only way to find out is to stop it."""
+    from latent_intel.frontends.shell import repl
+
+    console = _shell(monkeypatch)
+    recording = repl.Recording()
+
+    repl._record(recording, "")
+    path = tmp_path / "session.jsonl"
+    repl._record(recording, str(path))
+    repl._record(recording, "")
+
+    printed = console.export_text()
+    assert "not recording" in printed
+    assert str(path) in "".join(printed.split())
+    assert "(0 events)" in " ".join(printed.split())
+    assert recording.path == path

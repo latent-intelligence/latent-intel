@@ -54,16 +54,39 @@ async def open_session() -> tuple[Session, list[str]]:
     return session, await session.connect_many(requests)
 
 
-async def stream(session: Session, command: Command, *, as_json: bool = False) -> bool:
-    """Run one command, rendering or dumping as it goes. True when nothing failed."""
+async def stream(
+    session: Session,
+    command: Command,
+    *,
+    as_json: bool = False,
+    record_to: Path | None = None,
+) -> bool:
+    """Run one command, rendering or dumping as it goes. True when nothing failed.
+
+    `record_to` tees rather than forks: the run still renders to the terminal, and one
+    JSON line — the same line `--json` prints — is appended per event. Appended and
+    flushed as it happens, so an interrupted run replays up to the interruption, which
+    is the common case rather than the exotic one.
+
+    `record_to`, not `record`: `record` in this module writes a source to the config,
+    and one name for two unrelated things is how a later reader loses an afternoon.
+    """
     ok = True
-    async for event in session.run(command):
-        if isinstance(event, ev.AgentFailed):
-            ok = False
-        if as_json:
-            print(ev.dump_event(event))
-        else:
-            render_module.render(console, event)
+    recording = record_to.open("a", encoding="utf-8") if record_to else None
+    try:
+        async for event in session.run(command):
+            if isinstance(event, ev.AgentFailed):
+                ok = False
+            if as_json:
+                print(ev.dump_event(event))
+            else:
+                render_module.render(console, event)
+            if recording is not None:
+                recording.write(ev.dump_event(event) + "\n")
+                recording.flush()
+    finally:
+        if recording is not None:
+            recording.close()
     return ok
 
 

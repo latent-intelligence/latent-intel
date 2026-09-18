@@ -19,6 +19,7 @@ never inside the install directory.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,20 @@ from .._shared import (
     session_scope,
 )
 from .parse import SLASH, Invalid, Local, Procedure, parse
+
+
+@dataclass
+class Recording:
+    """Where this session is teeing its events, and how many have gone there.
+
+    Session state and nothing else: a recording is about this run, not about this
+    machine, so it is never written to config — a shell that remembered one would
+    quietly append tomorrow's session to yesterday's file.
+    """
+
+    path: Path | None = None
+    count: int = 0
+
 
 #: Matches the `prompt` token in the rich theme, so the input line and the output agree.
 #: Derived from the rich theme rather than copied out of it. prompt_toolkit cannot read
@@ -170,6 +185,7 @@ async def _loop(session: Session, problems: list[str]) -> None:
     console.print()
 
     completer = ShellCompleter(session)
+    recording = Recording()
     prompt: PromptSession[str] = PromptSession(
         history=FileHistory(str(_history_path())),
         completer=completer,
@@ -197,14 +213,14 @@ async def _loop(session: Session, problems: list[str]) -> None:
                 console.print(f"  [dim]{escape(parsed.hint)}[/]")
             continue
         if isinstance(parsed, Local):
-            if _local(session, parsed, catalogue):
+            if _local(session, parsed, recording, catalogue):
                 break
             continue
         if isinstance(parsed, Procedure):
             for command in _compile(catalogue, parsed, project_name):
-                await _dispatch(session, command, completer)
+                await _dispatch(session, command, completer, recording)
             continue
-        await _dispatch(session, parsed, completer)
+        await _dispatch(session, parsed, completer, recording)
 
 
 def _compile(
@@ -231,7 +247,10 @@ def _compile(
 
 
 async def _dispatch(
-    session: Session, command: Command, completer: ShellCompleter
+    session: Session,
+    command: Command,
+    completer: ShellCompleter,
+    recording: Recording,
 ) -> None:
     """Run one command, render it, and learn from what came back.
 
@@ -239,19 +258,33 @@ async def _dispatch(
     feed completion, and a successful attach is written to the same config the CLI
     reads — so attaching here and running `intel search` in another terminal cannot
     disagree about what is connected.
+
+    The tee is the third, and it is the same one `_shared.stream` does for the CLI —
+    the same line `--json` prints, appended and flushed per event, so an interrupted
+    session replays up to the interruption. This loop cannot call `stream` itself: the
+    two side effects above need every event as it passes.
     """
     refs: list[str] = []
-    async for event in session.run(command):
-        if isinstance(event, ev.RetrievalResult):
-            refs.extend(hit.ref for hit in event.hits)
-        # Guarded on the *command*, not the event: `/sources` also emits
-        # SourceConnected for everything already attached, and treating that as an
-        # attach would rewrite the config on every listing.
-        elif isinstance(event, ev.SourceConnected) and isinstance(command, Connect):
-            _persist(event.descriptor, command)
-        elif isinstance(event, ev.SourceDisconnected):
-            _forget(event.source_id)
-        render_module.render(console, event)
+    handle = recording.path.open("a", encoding="utf-8") if recording.path else None
+    try:
+        async for event in session.run(command):
+            if isinstance(event, ev.RetrievalResult):
+                refs.extend(hit.ref for hit in event.hits)
+            # Guarded on the *command*, not the event: `/sources` also emits
+            # SourceConnected for everything already attached, and treating that as an
+            # attach would rewrite the config on every listing.
+            elif isinstance(event, ev.SourceConnected) and isinstance(command, Connect):
+                _persist(event.descriptor, command)
+            elif isinstance(event, ev.SourceDisconnected):
+                _forget(event.source_id)
+            render_module.render(console, event)
+            if handle is not None:
+                handle.write(ev.dump_event(event) + "\n")
+                handle.flush()
+                recording.count += 1
+    finally:
+        if handle is not None:
+            handle.close()
     if refs:
         completer.recent = refs
     console.print()
@@ -274,7 +307,10 @@ def _forget(source_id: str) -> None:
 
 
 def _local(
-    session: Session, local: Local, procedures: dict[str, Any] | None = None
+    session: Session,
+    local: Local,
+    recording: Recording,
+    procedures: dict[str, Any] | None = None,
 ) -> bool:
     """Handle a shell-side command. True means leave."""
     match local.action:
@@ -295,6 +331,8 @@ def _local(
                 )
                 if tool.description:
                     console.print(f"    [dim]{escape(tool.description[:100])}[/]")
+        case "record":
+            _record(recording, local.argument)
         case "use":
             _use(session, local.argument)
         case "runtime":
@@ -331,6 +369,55 @@ def _project(session: Session, name: str) -> None:
     settings_module.invalidate()
     console.print(f"[dim]project[/] [source]{escape(name)}[/]")
     console.print("[dim]restart the shell to attach its sources[/]")
+
+
+def _record(recording: Recording, argument: str) -> None:
+    """Start, stop, or report this session's recording.
+
+    Nothing is persisted: `/record` changes what this shell does with its events, not
+    what the machine is configured to do, so unlike `/connect` or `/runtime` it writes
+    no config at all.
+
+    A file the person chose and nothing beside it — no manifest, no index, no directory
+    convention. Anything more is a store, and this is not the package that owns one.
+    """
+    if not argument:
+        if recording.path is None:
+            console.print("[dim]not recording[/] [dim]— /record <file> to start[/]")
+            return
+        console.print(
+            f"[dim]recording to[/] [source]{escape(str(recording.path))}[/] "
+            f"[dim]({recording.count} events)[/]"
+        )
+        return
+
+    if argument in {"off", "none"}:
+        if recording.path is None:
+            console.print("[dim]not recording[/]")
+            return
+        console.print(
+            f"[dim]stopped —[/] {recording.count} [dim]events written to[/] "
+            f"[source]{escape(str(recording.path))}[/]"
+        )
+        recording.path = None
+        recording.count = 0
+        return
+
+    path = Path(argument).expanduser()
+    try:
+        # Opened now rather than at the next command: a mistyped directory is a
+        # diagnosis here and a traceback out of the loop there, which would take the
+        # session with it.
+        path.open("a", encoding="utf-8").close()
+    except OSError as exc:
+        console.print(f"[fail]✗[/] {escape(str(exc))}")
+        return
+    recording.path = path
+    recording.count = 0
+    console.print(
+        f"[dim]recording to[/] [source]{escape(str(path))}[/] "
+        "[dim]— /record off to stop[/]"
+    )
 
 
 def _use(session: Session, source_id: str) -> None:

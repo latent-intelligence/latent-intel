@@ -215,6 +215,7 @@ once it has chosen…
 | `/disconnect <id>` | detach one |
 | `/use [id]` | which source a bare key resolves against |
 | `/tools` | what the router exposes, and each tool's declared effect |
+| `/record <file>` | tee every event to a file — `/record off` stops and says how many |
 | `/runtime [name]` `/model [name]` `/host [name]` | which backend answers `ask`, which model it uses, which host it talks to |
 | `/hosts` | every host either runtime can reach, and what each one needs |
 | `/clear` `/exit` | clear the screen · leave (Ctrl-D also leaves) |
@@ -326,6 +327,28 @@ provenance is a required field rather than a convention.
 
 Errors go to stderr, so stdout stays machine-readable. A command that emits a failure
 event exits 1.
+
+### Recording a run
+
+`--json` sends events to stdout *instead of* rendering, which is wrong for a person: you
+lose the live view precisely when you most want to keep it. `--record` tees — the run
+renders as usual, and every event is appended to the file as it happens:
+
+```bash
+intel search "disclosure" --record run.jsonl   # also on get, ask and run
+intel replay run.jsonl                         # the run, as it looked
+intel replay run.jsonl --since 12              # skip ahead in a long one
+intel replay run.jsonl --json | jq -c .type    # or pipe it onward
+```
+
+A recorded file is the `--json` stream, appended as it happens — no manifest, no index,
+no directory convention. So an interrupted run still replays up to the interruption, and
+a run recorded by a newer build replays here too: a line this one cannot read renders as
+the unknown-event line rather than refusing the file. A missing file is the only thing
+that exits 1.
+
+In the shell, `/record <file>` starts and `/record off` stops — session state, and
+nothing about it is written to your config.
 
 ---
 
