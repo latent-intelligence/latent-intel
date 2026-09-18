@@ -637,3 +637,24 @@ def test_bare_record_says_whether_anything_is_being_recorded(
     assert str(path) in "".join(printed.split())
     assert "(0 events)" in " ".join(printed.split())
     assert recording.path == path
+
+
+def test_the_prompt_takes_a_theme_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The one token a project could not retheme. `use_brand` pushes the merged theme
+    onto the console's own stack and leaves the module's `SEMANTIC` alone, so a prompt
+    style built at import from the default palette ignored every override while every
+    other token took."""
+    from rich.console import Console
+
+    from latent_intel.frontends.shell import repl
+    from latent_intel.ui import theme as theme_module
+
+    default = repl._prompt_style().style_rules
+
+    themed, unknown = theme_module.build_theme({"prompt": "bold #000000"})
+    assert unknown == []
+    monkeypatch.setattr(repl, "console", Console(theme=themed))
+
+    rules = repl._prompt_style().style_rules
+    assert rules != default
+    assert any("#000000" in rule for _, rule in rules)

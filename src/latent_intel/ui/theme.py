@@ -62,20 +62,12 @@ def build_theme(overrides: dict[str, str] | None = None) -> tuple[Theme, list[st
 
     Returns the theme and the names it did not recognise, so a caller can report them.
     Retheming stays this file plus data — there is no second palette anywhere, which is
-    what the module docstring promises and what `PROMPT_STYLE` used to quietly break.
+    what the module docstring promises. The shell's prompt used to break it by holding a
+    style built from `SEMANTIC` at import; it now asks the console, which is where the
+    merged theme lives.
     """
     if not overrides:
         return THEME, []
     unknown = sorted(set(overrides) - TOKENS)
     merged = {**SEMANTIC, **{k: v for k, v in overrides.items() if k in TOKENS}}
     return Theme(merged), unknown
-
-
-def prompt_style(theme: Theme | None = None) -> str:
-    """The `prompt` token, as a string prompt_toolkit understands.
-
-    `repl.py` used to carry a copy of the accent hex, because prompt_toolkit cannot
-    read a rich `Theme`. It can read what a rich `Style` stringifies to, so the bridge
-    is one expression rather than a second palette that drifts.
-    """
-    return str((theme or THEME).styles["prompt"])

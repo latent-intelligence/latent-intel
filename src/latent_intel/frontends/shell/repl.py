@@ -41,7 +41,6 @@ from ...models import Descriptor, RuntimeUnavailable
 from ...session import Session
 from ...ui import banner
 from ...ui import render as render_module
-from ...ui import theme as theme_module
 from .._shared import (
     active_brand,
     console,
@@ -67,11 +66,17 @@ class Recording:
     count: int = 0
 
 
-#: Matches the `prompt` token in the rich theme, so the input line and the output agree.
-#: Derived from the rich theme rather than copied out of it. prompt_toolkit cannot read
-#: a `Theme`, but it reads what a rich `Style` stringifies to — so there is one palette,
-#: not two that drift.
-PROMPT_STYLE = Style.from_dict({"prompt": theme_module.prompt_style()})
+def _prompt_style() -> Style:
+    """The `prompt` token as prompt_toolkit wants it, resolved when the shell starts.
+
+    Read off the console rather than the module's default palette, and at call time
+    rather than at import. This was a module-level constant built from `THEME`, which
+    made it the one thing a project could not retheme: `use_brand` pushes the merged
+    theme onto the console's own stack and leaves `THEME` alone, so a `prompt:` override
+    changed every other token and never this one. The console is where the resolved
+    theme actually lives, so asking it keeps the single palette the helper promised.
+    """
+    return Style.from_dict({"prompt": str(console.get_style("prompt"))})
 
 
 def help_text(procedures: dict[str, Any] | None = None) -> str:
@@ -191,7 +196,7 @@ async def _loop(session: Session, problems: list[str]) -> None:
         history=FileHistory(str(_history_path())),
         completer=completer,
         complete_while_typing=False,
-        style=PROMPT_STYLE,
+        style=_prompt_style(),
     )
 
     while True:
