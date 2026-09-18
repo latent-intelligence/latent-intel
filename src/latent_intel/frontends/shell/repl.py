@@ -50,6 +50,7 @@ from .._shared import (
     report,
     session_scope,
 )
+from .._shared import recording as open_recording
 from .parse import SLASH, Invalid, Local, Procedure, parse
 
 
@@ -259,14 +260,13 @@ async def _dispatch(
     reads — so attaching here and running `intel search` in another terminal cannot
     disagree about what is connected.
 
-    The tee is the third, and it is the same one `_shared.stream` does for the CLI —
-    the same line `--json` prints, appended and flushed per event, so an interrupted
-    session replays up to the interruption. This loop cannot call `stream` itself: the
-    two side effects above need every event as it passes.
+    The tee is the third, and it is `_shared.recording` — the one the CLI opens too, so
+    a session's file and a `--record` file are written by the same three lines. This
+    loop cannot call `stream` itself: the two side effects above need every event as it
+    passes.
     """
     refs: list[str] = []
-    handle = recording.path.open("a", encoding="utf-8") if recording.path else None
-    try:
+    with open_recording(recording.path) as tee:
         async for event in session.run(command):
             if isinstance(event, ev.RetrievalResult):
                 refs.extend(hit.ref for hit in event.hits)
@@ -278,13 +278,9 @@ async def _dispatch(
             elif isinstance(event, ev.SourceDisconnected):
                 _forget(event.source_id)
             render_module.render(console, event)
-            if handle is not None:
-                handle.write(ev.dump_event(event) + "\n")
-                handle.flush()
+            tee(event)
+            if recording.path is not None:
                 recording.count += 1
-    finally:
-        if handle is not None:
-            handle.close()
     if refs:
         completer.recent = refs
     console.print()

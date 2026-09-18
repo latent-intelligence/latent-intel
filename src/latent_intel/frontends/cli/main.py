@@ -11,6 +11,7 @@ scripting path, and it is also how a web client will eventually be fed.
 from __future__ import annotations
 
 import os
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ from .._shared import (
     console,
     err_console,
     record,
+    recording,
     report,
     session_scope,
     stream,
@@ -242,9 +244,18 @@ async def _stream(
     as_json: bool,
     record_to: Path | None = None,
 ) -> None:
-    async with session_scope() as (session, problems):
-        report(problems)
-        ok = await stream(session, command, as_json=as_json, record_to=record_to)
+    # The recording is opened *outside* the session, so a path that cannot be written —
+    # a directory, a read-only volume, a typo'd parent — is one `✗` line and exit 1
+    # before a single source is attached, rather than a traceback after the work.
+    with ExitStack() as stack:
+        try:
+            tee = stack.enter_context(recording(record_to))
+        except OSError as exc:
+            err_console.print(f"[fail]✗[/] {escape(str(exc))}")
+            raise typer.Exit(1) from exc
+        async with session_scope() as (session, problems):
+            report(problems)
+            ok = await stream(session, command, as_json=as_json, tee=tee)
     if not ok:
         raise typer.Exit(1)
 
@@ -310,7 +321,9 @@ def run(
 def replay(
     file: Path = typer.Argument(..., help="A file written by --record or by --json."),
     as_json: bool = typer.Option(False, "--json", help="Re-emit raw events."),
-    since: int = typer.Option(0, "--since", help="Skip events below this sequence."),
+    since: int = typer.Option(
+        1, "--since", help="Start at this line of the file (1-based)."
+    ),
 ) -> None:
     """Render a recorded run, as it looked when it ran."""
     # The same renderer the live path uses, never a summary: a replay that abbreviated
@@ -326,13 +339,37 @@ def replay(
         err_console.print(f"[fail]✗[/] {escape(str(exc))}")
         raise typer.Exit(1) from exc
 
-    for event in ev.read_stream(text):
-        if event.sequence < since:
+    # `--since` counts physical lines, not `sequence`: sequence is monotonic within an
+    # operation and restarts, so two runs recorded to one file — or an `ask` inside a
+    # `run` — give it several line 3s. A line number is what a person reading the file
+    # in an editor already has in the gutter.
+    newest = ev.SCHEMA_VERSION
+    for number, line in enumerate(text.splitlines(), start=1):
+        if number < since or not line.strip():
             continue
+        event = ev.parse_event(line)
+        newest = max(newest, event.schema_version)
         if as_json:
-            print(ev.dump_event(event))
+            # The original line, byte for byte. Re-dumping the parsed event would
+            # reorder fields and rewrite timestamps, so `replay --json` would not agree
+            # with the `--json` run that produced the file.
+            print(line)
+        elif isinstance(event, ev.UserMessage):
+            # The live renderer drops this one, because the frontend that caused it has
+            # already echoed it. On replay nothing has, so the question would be missing
+            # from the answer.
+            console.print(f"[prompt]›[/] {escape(event.text)}")
         else:
             render_module.render(console, event)
+
+    if newest > ev.SCHEMA_VERSION:
+        # Named once rather than per line, and after the render rather than instead of
+        # it: the stream still reads, and a field this build ignores is not a reason to
+        # withhold the run. Saying nothing is what would let it be misread quietly.
+        err_console.print(
+            f"[warn]![/] [dim]recorded at schema_version {newest}; this build reads "
+            f"{ev.SCHEMA_VERSION} — some lines may be misread.[/]"
+        )
 
 
 # -- diagnosis --------------------------------------------------------------
