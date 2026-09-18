@@ -122,6 +122,36 @@ def test_the_model_is_passed_only_when_chosen() -> None:
     assert "--model" in build_argv(["claude"], model="sonnet")
 
 
+@pytest.mark.anyio
+async def test_a_persona_and_its_skills_reach_the_shelled_out_binary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The composed prompt goes out as `--append-system-prompt`, so a deployment's voice
+    reaches the runtime that owns its own loop as well as the three that do not."""
+    from latent_intel.models import Descriptor
+
+    seen: dict[str, object] = {}
+    real = claude_cli.build_argv
+
+    def record(command: list[str], **options: object) -> list[str]:
+        seen.update(options)
+        return real(command, **options)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(claude_cli, "build_argv", record)
+    await collect(
+        "text",
+        sources=[Descriptor(id="design", kind="wiki")],
+        persona="You are an archivist.",
+        skills=[("citation-style", "Cite inline.")],
+    )
+
+    prompt = seen["system_prompt"]
+    assert isinstance(prompt, str)
+    assert "design (wiki)" in prompt
+    assert "You are an archivist." in prompt
+    assert "## citation-style" in prompt
+
+
 # -- the allow-list, from declared effect -----------------------------------
 
 

@@ -265,7 +265,12 @@ class ClaudeCliRuntime:
             model=self.model,
             servers=servers,
             allow=allowed_tools(tools, servers, self.approval),
-            system_prompt=turn.system_prompt(sources),
+            system_prompt=turn.system_prompt(
+                sources,
+                persona=options.get("persona") or "",
+                persona_mode=options.get("persona_mode") or "append",
+                skills=options.get("skills") or (),
+            ),
         )
         declared = {(t.source_id, t.name): t for t in tools}
         by_server = {sanitise(s): s for s in servers}

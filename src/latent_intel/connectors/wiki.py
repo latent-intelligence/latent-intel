@@ -334,6 +334,11 @@ class WikiConnector:
             unit="pages",
             freshness=str(self.manifest.get("generated") or "") or None,
             detail={
+                # What the store is *about*, as the manifest states it. Asked the topic
+                # of an attached wiki, a model made no tool call and said it could not
+                # tell — nothing in its prompt said. A store that declares none
+                # gives an empty string, and the prompt prints nothing for it.
+                "description": str(self.manifest.get("description") or ""),
                 "root": str(self.root),
                 "pack": str(self.manifest.get("pack") or ""),
                 "store_id": str(self.manifest.get("store_id") or ""),

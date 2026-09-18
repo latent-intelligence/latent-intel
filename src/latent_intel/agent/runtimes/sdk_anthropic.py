@@ -249,7 +249,12 @@ class SdkAnthropicRuntime:
             )
             for name, spec in wired
         ]
-        system = turn.system_prompt(sources)
+        system = turn.system_prompt(
+            sources,
+            persona=options.get("persona") or "",
+            persona_mode=options.get("persona_mode") or "append",
+            skills=options.get("skills") or (),
+        )
         # Text only. A prior turn's tool blocks are not replayed: they refer to
         # `tool_use_id`s from a request this one never made.
         #

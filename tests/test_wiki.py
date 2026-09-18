@@ -125,6 +125,28 @@ def test_reads_a_published_store_without_latent_wiki(
     assert Capability.SEARCH in descriptor.capabilities
 
 
+def test_the_manifest_s_description_reaches_the_descriptor(store: Path) -> None:
+    """What the store is *about*, which the system prompt prints under its inventory
+    line. Asked the topic of an attached wiki, a model made no tool call and said it
+    could not tell, because nothing in the prompt said."""
+    assert (
+        connect(store).describe().detail["description"]
+        == "AI engineering and knowledge systems."
+    )
+
+
+def test_a_store_that_declares_no_description_says_so_with_an_empty_one(
+    store: Path,
+) -> None:
+    """Absent, never guessed at from the title or the pack: a description invented here
+    would be printed to a model as though the store had stated it."""
+    data = json.loads((store / "manifest.json").read_text())
+    del data["description"]
+    (store / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+
+    assert connect(store).describe().detail["description"] == ""
+
+
 def test_an_unreadable_store_says_which_case_it_is(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

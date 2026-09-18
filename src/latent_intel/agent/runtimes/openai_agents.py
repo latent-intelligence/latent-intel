@@ -260,7 +260,12 @@ class OpenAIAgentsRuntime:
             )
             for name, spec in wired
         ]
-        system = turn.system_prompt(sources)
+        system = turn.system_prompt(
+            sources,
+            persona=options.get("persona") or "",
+            persona_mode=options.get("persona_mode") or "append",
+            skills=options.get("skills") or (),
+        )
         # Text only. A prior turn's tool items are not replayed: they refer to call ids
         # from a request this one never made.
         #

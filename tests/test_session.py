@@ -656,6 +656,48 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None
     settings_module.invalidate()
 
 
+@pytest.mark.anyio
+async def test_a_project_s_persona_and_skills_reach_the_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole path, end to end: a deployment's own files, through the resolved view,
+    into the options a runtime is handed. They travel beside `sources` rather than as
+    runtime options — they belong to the project, not to one runtime, and every runtime
+    would otherwise have to re-resolve them."""
+    directory = tmp_path / "projects"
+    (directory / "skills").mkdir(parents=True)
+    (directory / "persona.md").write_text("You are an archivist.\n", encoding="utf-8")
+    (directory / "skills" / "citing.md").write_text(
+        "---\nname: citation-style\n---\nCite inline.\n", encoding="utf-8"
+    )
+    _project(
+        tmp_path,
+        monkeypatch,
+        "agent: {persona: ./persona.md, persona_mode: replace}\nskills: ./skills\n",
+    )
+
+    runtime = FakeRuntime()
+    session = Session(runtime=runtime)
+    async for _ in session.ask("what is compaction?"):
+        pass
+
+    options = runtime.saw["options"]
+    assert options["persona"] == "You are an archivist."
+    assert options["persona_mode"] == "replace"
+    assert options["skills"] == [("citation-style", "Cite inline.")]
+
+
+def test_a_deployment_that_declares_neither_hands_the_runtime_the_defaults() -> None:
+    """An install with no project still resolves to something a runtime can read, so
+    forwarding them is never conditional."""
+    from latent_intel import settings as settings_module
+
+    resolved = settings_module.load()
+    assert resolved.persona == ""
+    assert resolved.persona_mode == "append"
+    assert resolved.skills == []
+
+
 def test_a_project_runtime_block_reaches_the_runtime_it_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

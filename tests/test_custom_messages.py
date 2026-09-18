@@ -290,6 +290,25 @@ async def test_attached_sources_reach_the_model_as_a_system_prompt(
 
 
 @pytest.mark.anyio
+async def test_a_persona_and_its_skills_reach_the_model_too(credentials: None) -> None:
+    """One function composes the prompt for all four runtimes; each one forwards the
+    three options it is handed. A runtime that dropped them would still answer, which
+    is why this is asserted rather than assumed."""
+    from latent_intel.models import Descriptor
+
+    client = FakeClient(Round(text=("hi",)))
+    await collect(
+        runtime(client_factory=client),
+        sources=[Descriptor(id="design", kind="wiki")],
+        persona="You are an archivist.",
+        skills=[("citation-style", "Cite inline.")],
+    )
+    system = client.requests[0]["system"]
+    assert "You are an archivist." in system
+    assert "## citation-style" in system
+
+
+@pytest.mark.anyio
 async def test_usage_is_summed_across_rounds_not_taken_from_the_last(
     credentials: None,
 ) -> None:

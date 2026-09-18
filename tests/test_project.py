@@ -167,7 +167,7 @@ def test_an_mcp_target_is_a_command_line_and_is_never_path_joined(
 ) -> None:
     """Joining a command to the project directory produced a path nothing could start.
 
-    A console script became `<project dir>/georecords-mcp`, and a multi-word command
+    A console script became `<project dir>/example-mcp`, and a multi-word command
     became one Path with spaces in it — on every platform, not just the Windows one
     where it was reported. Variables still substitute, because a project that names its
     server through `vars:` is the same portability argument as everywhere else.
@@ -176,9 +176,9 @@ def test_an_mcp_target_is_a_command_line_and_is_never_path_joined(
     path = write(
         home,
         "served",
-        "vars: {SERVER: georecords-mcp}\n"
+        "vars: {SERVER: example-mcp}\n"
         "sources:\n"
-        "  - {id: bare, kind: mcp, target: georecords-mcp}\n"
+        "  - {id: bare, kind: mcp, target: example-mcp}\n"
         '  - {id: words, kind: mcp, target: "npx -y @example/mcp"}\n'
         '  - {id: var, kind: mcp, target: "${SERVER} --stdio"}\n',
     )
@@ -186,9 +186,91 @@ def test_an_mcp_target_is_a_command_line_and_is_never_path_joined(
     monkeypatch.chdir(tmp_path)
     bare, words, var = project.load(path).sources
 
-    assert bare.target == "georecords-mcp"
+    assert bare.target == "example-mcp"
     assert words.target == "npx -y @example/mcp"
-    assert var.target == "georecords-mcp --stdio"
+    assert var.target == "example-mcp --stdio"
+
+
+# -- the persona and the skills ---------------------------------------------
+
+
+def test_a_persona_is_read_from_a_path_resolved_against_the_project_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The persona is a path like every other, so it obeys the path rule: a voice that
+    only resolves where it was authored is the failure that rule exists for."""
+    home = tmp_path / "elsewhere"
+    home.mkdir()
+    (home / "persona.md").write_text("You are a careful archivist.\n", encoding="utf-8")
+    path = write(home, "voiced", "agent: {persona: ./persona.md}\n")
+
+    monkeypatch.chdir(tmp_path)
+    loaded = project.load(path)
+
+    assert loaded.persona == "You are a careful archivist."
+    assert loaded.persona_mode == "append"
+    assert loaded.problems == []
+
+
+def test_a_persona_file_that_is_not_there_is_reported_not_fatal(tmp_path: Path) -> None:
+    """One missing file must not cost a deployment its sources, its commands and its
+    branding — the same non-fatal discipline a bad source gets."""
+    path = write(tmp_path, "absent", "agent: {persona: ./nowhere.md}\n")
+    loaded = project.load(path)
+
+    assert loaded.persona == ""
+    assert len(loaded.problems) == 1 and "persona" in loaded.problems[0]
+
+
+def test_a_mode_this_build_does_not_know_is_named_and_read_as_append(
+    tmp_path: Path,
+) -> None:
+    """A misspelled mode is worth saying out loud, and worth nothing else: the
+    deployment still sounds like itself."""
+    path = write(tmp_path, "typo", "agent: {persona_mode: replce}\n")
+    loaded = project.load(path)
+
+    assert loaded.persona_mode == "append"
+    assert any("replce" in problem for problem in loaded.problems), loaded.problems
+
+
+def test_skills_load_in_filename_order_and_name_themselves(tmp_path: Path) -> None:
+    """A skill is prose. Frontmatter names it when the author wants a name other than
+    the filename, and is not required for a file to be a skill at all."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "b-plain.md").write_text("No frontmatter here.\n", encoding="utf-8")
+    (skills / "a-named.md").write_text(
+        "---\nname: citation-style\n---\nCite inline.\n", encoding="utf-8"
+    )
+    path = write(tmp_path, "skilled", "skills: ./skills\n")
+
+    loaded = project.load(path)
+
+    assert loaded.skills == [
+        ("citation-style", "Cite inline."),
+        ("b-plain", "No frontmatter here."),
+    ]
+    assert loaded.problems == []
+
+
+def test_one_unreadable_skill_is_skipped_while_the_others_still_load(
+    tmp_path: Path,
+) -> None:
+    """One bad file must not cost a deployment its other four."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "good.md").write_text("Fine.\n", encoding="utf-8")
+    (skills / "broken.md").write_text(
+        "---\nname: [unclosed\n---\nbody\n", encoding="utf-8"
+    )
+    (skills / "later.md").write_text("Also fine.\n", encoding="utf-8")
+    path = write(tmp_path, "partial", "skills: ./skills\n")
+
+    loaded = project.load(path)
+
+    assert [name for name, _ in loaded.skills] == ["good", "later"]
+    assert len(loaded.problems) == 1 and "broken.md" in loaded.problems[0]
 
 
 # -- discovery --------------------------------------------------------------
@@ -246,3 +328,41 @@ def test_a_reserved_name_is_refused(tmp_path: Path) -> None:
 def test_a_file_that_is_not_a_mapping_raises(tmp_path: Path) -> None:
     with pytest.raises(project.ProjectError):
         project.load(write(tmp_path, "bad", "- just\n- a list\n"))
+
+
+def test_a_skill_opening_with_a_thematic_break_keeps_its_first_paragraph(
+    tmp_path: Path,
+) -> None:
+    """Frontmatter is optional for a skill, so a prose file that opens with `---` is
+    prose. Consuming its first paragraph as metadata handed the model a skill quietly
+    missing a sentence its author wrote — and a block that parsed as a scalar dropped
+    the whole file with a message about mappings."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "rule.md").write_text(
+        "---\nRule: cite the earlier page when two agree\n---\nEverything after.\n"
+    )
+    (skills / "prose.md").write_text("---\nHow this corpus is organised.\n---\nrest\n")
+    (tmp_path / "p.yaml").write_text("schema_version: 1\nname: p\nskills: ./skills\n")
+
+    loaded = project.load(tmp_path / "p.yaml")
+
+    assert loaded.problems == []
+    by_name = dict(loaded.skills)
+    assert by_name["rule"].startswith("---\nRule: cite the earlier page")
+    assert by_name["prose"].startswith("---\nHow this corpus")
+
+
+def test_a_persona_that_is_not_utf8_is_a_problem_not_a_crash(tmp_path: Path) -> None:
+    """`UnicodeDecodeError` is a `ValueError`, not an `OSError`: a persona saved from a
+    word processor in cp1252 took every command down, `doctor` included — the one
+    command that has to work on the machine whose project is malformed."""
+    (tmp_path / "persona.md").write_bytes("caf\xe9 au lait".encode("cp1252"))
+    (tmp_path / "p.yaml").write_text(
+        "schema_version: 1\nname: p\nagent: {persona: ./persona.md}\n"
+    )
+
+    loaded = project.load(tmp_path / "p.yaml")
+
+    assert loaded.persona == ""
+    assert any(problem.startswith("persona:") for problem in loaded.problems)

@@ -29,6 +29,13 @@ branding:
     accent: "#7aa2f7"
 
 commands: ./commands
+skills: ./skills
+
+agent:
+  # Voice and standing instructions, applied on every turn. `append` keeps our own
+  # posture line and adds this after it; `replace` puts it in place of that line.
+  persona: ./persona.md
+  persona_mode: append
 
 defaults:
   approval: ask

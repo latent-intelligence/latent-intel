@@ -71,13 +71,27 @@ class Procedure:
         return f"/{self.name} <{self.argument}>"
 
 
-def parse(text: str, name: str) -> Procedure:
-    """One file, as a procedure. Raises `ProcedureError` on anything unusable."""
+def split_frontmatter(text: str) -> tuple[str | None, str]:
+    """A markdown file as its YAML block and the body after it.
+
+    `None` for a file with no frontmatter, which is a different thing from an empty
+    one: a procedure requires it and says so, a skill does not and takes its name from
+    the filename instead. Shared so both read the same shape of file — the one parser,
+    in the module that already had the pattern.
+    """
     match = _FRONTMATTER.match(text)
     if match is None:
+        return None, text
+    return match.group(1), match.group(2)
+
+
+def parse(text: str, name: str) -> Procedure:
+    """One file, as a procedure. Raises `ProcedureError` on anything unusable."""
+    block, body = split_frontmatter(text)
+    if block is None:
         raise ProcedureError(f"{name}: no frontmatter — a procedure starts with `---`")
     try:
-        meta = yaml.safe_load(match.group(1)) or {}
+        meta = yaml.safe_load(block) or {}
     except yaml.YAMLError as exc:
         raise ProcedureError(f"{name}: {exc}") from exc
     if not isinstance(meta, dict):
@@ -95,7 +109,7 @@ def parse(text: str, name: str) -> Procedure:
         description=str(meta.get("description") or "").strip(),
         argument=str(meta.get("argument") or "").strip(),
         argument_required=bool(meta.get("argument_required")),
-        body=match.group(2).strip(),
+        body=body.strip(),
         query=str(meta.get("query") or "").strip(),
         source=str(meta["source"]) if meta.get("source") else None,
         limit=int(meta.get("limit") or 10),

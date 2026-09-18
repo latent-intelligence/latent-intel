@@ -15,7 +15,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel.agent import hosts, turn
-from latent_intel.models import Descriptor, Effect, ToolSpec
+from latent_intel.models import Capability, Descriptor, Effect, ToolSpec
 
 
 @pytest.fixture
@@ -146,6 +146,111 @@ def test_the_prompt_names_the_sources_and_asks_for_citations() -> None:
 
 def test_no_sources_means_no_prompt_rather_than_an_empty_preamble() -> None:
     assert turn.system_prompt([]) == ""
+
+
+def test_a_deployment_with_neither_persona_nor_skills_reads_exactly_as_before() -> None:
+    """The regression that matters most here: every install without these keys must get
+    the prompt it got yesterday, byte for byte."""
+    sources = [Descriptor(id="design", kind="wiki", capabilities=[Capability.SEARCH])]
+    assert turn.system_prompt(sources) == (
+        "You are answering over attached context sources, reachable as tools.\n"
+        "Attached:\n"
+        "  design (wiki) — search\n"
+        "Cite what you use as `source:key`. Say when the sources do not answer."
+    )
+
+
+def test_a_source_says_what_it_is_about_when_it_declares_a_description() -> None:
+    """Asked the topic of an attached store, every model answered that it could not
+    tell — and made no tool call, because nothing in the prompt said there was one."""
+    prompt = turn.system_prompt(
+        [
+            Descriptor(
+                id="design",
+                kind="wiki",
+                detail={"description": "AI engineering and knowledge systems."},
+            )
+        ]
+    )
+    assert "  design (wiki) — \n    AI engineering and knowledge systems." in prompt
+
+
+def test_a_source_that_declares_none_prints_the_line_it_printed_before() -> None:
+    """Generic, and optional with it: a connector that says nothing about itself must
+    not gain a blank line where another source's description would go."""
+    prompt = turn.system_prompt([Descriptor(id="notes", kind="files")])
+    assert "  notes (files) — \nCite what you use" in prompt
+
+
+def test_a_persona_is_added_after_our_own_block() -> None:
+    prompt = turn.system_prompt(
+        [Descriptor(id="design", kind="wiki")], persona="You are a careful archivist."
+    )
+    assert turn.POSTURE in prompt
+    assert prompt.endswith("\n\nYou are a careful archivist.")
+
+
+def test_replace_substitutes_the_posture_line_and_keeps_the_inventory() -> None:
+    """The test that stops the footgun. A mode that could drop the inventory would look
+    like a preference and leave the agent unable to use its own tools."""
+    prompt = turn.system_prompt(
+        [Descriptor(id="design", kind="wiki")],
+        persona="You are a careful archivist.",
+        persona_mode="replace",
+    )
+    assert turn.POSTURE not in prompt
+    assert "design (wiki)" in prompt
+    assert "You are a careful archivist." in prompt
+
+
+def test_a_mode_this_build_does_not_know_appends_rather_than_failing() -> None:
+    """A misspelled mode costs a deployment nothing: it still sounds like itself, and
+    `intel doctor` is where the spelling is reported."""
+    prompt = turn.system_prompt(
+        [Descriptor(id="design", kind="wiki")],
+        persona="You are a careful archivist.",
+        persona_mode="rplace",
+    )
+    assert turn.POSTURE in prompt and "careful archivist" in prompt
+
+
+def test_every_skill_arrives_whole_under_a_heading_that_names_it() -> None:
+    """Injected whole in v1: there is no built-in tool mechanism for a `skill_read`,
+    and the deployments in front of us cost less than a page of a wiki result."""
+    prompt = turn.system_prompt(
+        [Descriptor(id="design", kind="wiki")],
+        persona="You are a careful archivist.",
+        skills=[("citation-style", "Cite inline."), ("corpus-map", "Two directories.")],
+    )
+    assert "## citation-style\n\nCite inline." in prompt
+    assert "## corpus-map\n\nTwo directories." in prompt
+    assert prompt.index("archivist") < prompt.index("## citation-style")
+
+
+def test_a_persona_with_no_sources_is_the_whole_prompt() -> None:
+    """With nothing attached there is no inventory and nothing to cite, so the persona
+    stands alone rather than silently doing nothing — the "reject what you cannot
+    honour" rule, read the other way: honour what you can."""
+    assert turn.system_prompt([], persona="Be brief.") == "Be brief."
+    assert turn.system_prompt([], persona="Be brief.", persona_mode="replace") == (
+        "Be brief."
+    )
+    assert turn.system_prompt([], skills=[("a", "body")]) == "## a\n\nbody"
+    assert turn.system_prompt([]) == ""
+
+
+def test_a_wrapped_description_is_one_indented_line() -> None:
+    """A manifest may wrap its description; a continuation at column zero would sit
+    between the inventory and the posture line and read as another instruction."""
+    source = Descriptor(
+        id="design",
+        kind="wiki",
+        capabilities=[],
+        detail={"description": "AI engineering\nand knowledge\n  systems."},
+    )
+    lines = turn.system_prompt([source]).splitlines()
+    assert "    AI engineering and knowledge systems." in lines
+    assert not any(line.startswith("and knowledge") for line in lines)
 
 
 # -- dispatching one call ---------------------------------------------------

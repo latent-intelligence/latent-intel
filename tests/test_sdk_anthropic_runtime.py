@@ -273,6 +273,24 @@ async def test_attached_sources_reach_the_model_as_a_system_prompt(
 
 
 @pytest.mark.anyio
+async def test_a_persona_and_its_skills_reach_the_model_too(credentials: None) -> None:
+    """This runtime forwards the three options like the other three; a runtime that
+    dropped them would still answer, which is why it is asserted."""
+    from latent_intel.models import Descriptor
+
+    client = FakeClient(Round(text=("hi",)))
+    await collect(
+        SdkAnthropicRuntime(client_factory=client),
+        sources=[Descriptor(id="design", kind="wiki")],
+        persona="You are an archivist.",
+        skills=[("citation-style", "Cite inline.")],
+    )
+    system = client.requests[0]["system"]
+    assert "You are an archivist." in system
+    assert "## citation-style" in system
+
+
+@pytest.mark.anyio
 async def test_caching_is_on_and_the_ceiling_is_the_runner_s(credentials: None) -> None:
     """The two parameters this runtime exists to get for free: an ephemeral cache
     breakpoint, which is the largest cost lever here, and a bound the runner enforces
