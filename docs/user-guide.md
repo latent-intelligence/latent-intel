@@ -215,6 +215,7 @@ once it has chosen…
 | `/disconnect <id>` | detach one |
 | `/use [id]` | which source a bare key resolves against |
 | `/tools` | what the router exposes, and each tool's declared effect |
+| `/record [file]` `/record off` | tee every event to a file · stop and say how many · bare, what is being recorded |
 | `/runtime [name]` `/model [name]` `/host [name]` | which backend answers `ask`, which model it uses, which host it talks to |
 | `/hosts` | every host either runtime can reach, and what each one needs |
 | `/clear` `/exit` | clear the screen · leave (Ctrl-D also leaves) |
@@ -326,6 +327,35 @@ provenance is a required field rather than a convention.
 
 Errors go to stderr, so stdout stays machine-readable. A command that emits a failure
 event exits 1.
+
+### Recording a run
+
+`--json` sends events to stdout *instead of* rendering, which is wrong for a person: you
+lose the live view precisely when you most want to keep it. `--record` tees — the run
+renders as usual, and every event is appended to the file as it happens:
+
+```bash
+intel search "disclosure" --record run.jsonl   # also on get, ask and run
+intel replay run.jsonl                         # the run, as it looked
+intel replay run.jsonl --since 12              # start at line 12 of the file
+intel replay run.jsonl --json | jq -c .type    # or pipe it onward
+```
+
+A recorded file is the `--json` stream, appended — two runs recorded to one file replay
+as one, with no seam — and nothing beside it: no manifest, no index, no directory
+convention. So an interrupted run still replays up to the interruption, and a run
+recorded by a newer build replays here too: a line this one cannot read renders as the
+unknown-event line rather than refusing the file, and a newer `schema_version` is named
+on stderr rather than read silently.
+
+`--since` is a line of the file, 1-based, because that is the number your editor shows
+in the gutter — `sequence` restarts within one file, so it cannot address a position in
+it. A file that cannot be read exits 1, and so does a `--record` target that cannot be
+opened, before anything runs.
+
+In the shell, `/record <file>` starts and `/record off` stops, reporting how many events
+it wrote; bare `/record` says which file is being written, or that none is. Session
+state, and nothing about it is written to your config.
 
 ---
 

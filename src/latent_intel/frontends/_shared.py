@@ -8,8 +8,8 @@ are looking at the same thing — and `--json` doubles as the serialization proo
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -54,8 +54,48 @@ async def open_session() -> tuple[Session, list[str]]:
     return session, await session.connect_many(requests)
 
 
-async def stream(session: Session, command: Command, *, as_json: bool = False) -> bool:
-    """Run one command, rendering or dumping as it goes. True when nothing failed."""
+@contextmanager
+def recording(path: Path | None) -> Iterator[Callable[[ev.BaseEvent], None]]:
+    """A tee: yields a callable that appends one JSON line per event to `path`.
+
+    Tees rather than forks — the caller still renders — and appends and flushes as it
+    happens, so an interrupted run replays up to the interruption, which is the common
+    case rather than the exotic one. `None` yields a no-op, so a caller never branches
+    on whether a recording is in force.
+
+    Entered by the caller rather than by `stream`, because a path that cannot be opened
+    has to be a clean error *before* a single source is attached.
+
+    `recording`, not `record`: `record` in this module writes a source to the config,
+    and one name for two unrelated things is how a later reader loses an afternoon.
+    """
+    if path is None:
+        yield lambda event: None
+        return
+    handle = path.open("a", encoding="utf-8")
+    try:
+
+        def write(event: ev.BaseEvent) -> None:
+            handle.write(ev.dump_event(event) + "\n")
+            handle.flush()
+
+        yield write
+    finally:
+        handle.close()
+
+
+async def stream(
+    session: Session,
+    command: Command,
+    *,
+    as_json: bool = False,
+    tee: Callable[[ev.BaseEvent], None] | None = None,
+) -> bool:
+    """Run one command, rendering or dumping as it goes. True when nothing failed.
+
+    `tee` — from `recording` — receives every event as well, so `--record` adds a file
+    without taking the live view away.
+    """
     ok = True
     async for event in session.run(command):
         if isinstance(event, ev.AgentFailed):
@@ -64,6 +104,8 @@ async def stream(session: Session, command: Command, *, as_json: bool = False) -
             print(ev.dump_event(event))
         else:
             render_module.render(console, event)
+        if tee is not None:
+            tee(event)
     return ok
 
 

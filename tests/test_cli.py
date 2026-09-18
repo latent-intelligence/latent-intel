@@ -652,3 +652,188 @@ def test_doctor_reports_the_env_by_name_and_never_by_value(
     assert "no .env" not in result.stdout
     assert "AWS_SECRET_ACCESS_KEY" in result.stdout
     assert secret not in result.stdout
+
+
+# -- record and replay ------------------------------------------------------
+
+
+def printed(text: str) -> list[str]:
+    """Rendered output as comparable lines — trailing spaces are not the subject."""
+    return [line.rstrip() for line in text.splitlines()]
+
+
+@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
+def test_replay_renders_exactly_what_the_live_renderer_renders(path: Path) -> None:
+    """A replay is the run as it looked, not a summary of it. `replay` therefore calls
+    the same renderer the live path does — checked against every shipped stream, so a
+    second renderer cannot appear here without this failing.
+
+    One event diverges on purpose. The live renderer drops `UserMessage`, because the
+    frontend that caused it has already echoed it; on replay nothing has, so `replay`
+    prints it as the prompt line. That one line is reproduced here rather than waved
+    through, so a second divergence cannot arrive unnoticed.
+    """
+    result = runner.invoke(app, ["replay", str(path)])
+    assert result.exit_code == 0
+
+    console = capture(width=80)
+    for event in ev.read_stream(path.read_text()):
+        if isinstance(event, ev.UserMessage):
+            console.print(f"[prompt]›[/] {event.text}")
+        else:
+            render.render(console, event)
+
+    assert printed(result.stdout) == printed(console.export_text())
+
+
+def test_a_replayed_ask_shows_the_question_that_was_asked() -> None:
+    """An answer without its question is half a record. Nothing echoed the prompt on
+    this side, so `replay` is the one place that prints `UserMessage`."""
+    result = runner.invoke(app, ["replay", str(STREAMS / "agent_turn.jsonl")])
+    assert result.exit_code == 0
+    assert "which sources disagree about context compaction?" in result.stdout
+
+
+def test_a_type_this_build_never_heard_of_replays_as_a_line(tmp_path: Path) -> None:
+    """Invariant 3, end to end rather than at the parser: a run recorded by a newer
+    build replays on an older one instead of refusing it."""
+    recording = tmp_path / "from-the-future.jsonl"
+    recording.write_text(
+        json.dumps(
+            {
+                "type": "invented_later",
+                "schema_version": 99,
+                "session_id": "00000000-0000-4000-8000-000000000000",
+                "operation_id": "00000000-0000-4000-8000-000000000001",
+                "sequence": 1,
+                "shape": {"nobody": "knows"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["replay", str(recording)])
+    assert result.exit_code == 0
+    assert "invented_later" in result.stdout
+
+    # And a type nothing can parse into an event still comes back out unchanged: the
+    # re-emitted line is the recorded line, not a re-serialisation of what was salvaged.
+    piped = runner.invoke(app, ["replay", str(recording), "--json"])
+    assert piped.stdout.splitlines() == recording.read_text().splitlines()
+
+
+def test_record_tees_the_run_and_replays_identically(tmp_path: Path) -> None:
+    """The whole feature in one test: `--record` does not replace the live view, what
+    it wrote is events this build understands, and reading it back gives the run."""
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
+
+    recording = tmp_path / "run.jsonl"
+    live = runner.invoke(app, ["search", "retrieval", "--record", str(recording)])
+    assert live.exit_code == 0
+    assert "c:note.md" in live.stdout  # teed, not diverted
+
+    lines = recording.read_text().splitlines()
+    assert lines
+    for line in lines:
+        # The acceptance criterion a web client will depend on, asserted against a
+        # recording rather than a fixture: what was written is what this build reads.
+        assert not isinstance(ev.parse_event(line), ev.UnknownEvent)
+
+    replayed = runner.invoke(app, ["replay", str(recording)])
+    assert replayed.exit_code == 0
+    assert printed(replayed.stdout) == printed(live.stdout)
+
+
+def test_a_run_cut_off_partway_replays_up_to_the_cut(tmp_path: Path) -> None:
+    """An interrupted run is the common case, which is why the file is appended and
+    flushed per event. The half-written last line renders as the unknown line rather
+    than losing everything before it."""
+    whole = (STREAMS / "search.jsonl").read_text()
+    cut = tmp_path / "interrupted.jsonl"
+    cut.write_text(whole[: whole.index("\n", whole.index("\n") + 1) + 60])
+
+    result = runner.invoke(app, ["replay", str(cut)])
+    assert result.exit_code == 0
+    assert "searching" in result.stdout  # the complete events are all there
+    assert "unparseable" in result.stdout  # and the truncation says so
+
+
+def test_since_starts_at_that_line_of_the_file() -> None:
+    """`--since` is a line number, not a `sequence`: sequence is monotonic within an
+    operation and restarts, so two runs appended to one file give it several line 3s.
+    A line number is what the person reading the file already has in the gutter."""
+    path = STREAMS / "search.jsonl"
+    lines = path.read_text().splitlines()
+
+    whole = runner.invoke(app, ["replay", str(path), "--json", "--since", "1"])
+    tail = runner.invoke(app, ["replay", str(path), "--json", "--since", "3"])
+
+    assert whole.exit_code == 0 and tail.exit_code == 0
+    assert whole.stdout.splitlines() == lines
+    assert tail.stdout.splitlines() == lines[2:]  # inclusive of line 3
+
+
+@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
+def test_replay_json_re_emits_the_recorded_lines_byte_for_byte(path: Path) -> None:
+    """`--json` is what makes a recording pipeable onward, so what comes out has to be
+    what went in. Re-dumping the parsed event instead would reorder fields and rewrite
+    timestamps, and `replay --json` would disagree with the run that recorded it."""
+    result = runner.invoke(app, ["replay", str(path), "--json"])
+    assert result.exit_code == 0
+    assert result.stdout.splitlines() == [
+        line for line in path.read_text().splitlines() if line.strip()
+    ]
+
+
+def test_a_stream_from_a_newer_schema_is_named_once_and_still_rendered(
+    tmp_path: Path,
+) -> None:
+    """Named rather than refused: the run still reads, and a version this build does
+    not know about is a caveat on stderr rather than a silent misreading."""
+    line = json.loads((STREAMS / "search.jsonl").read_text().splitlines()[1])
+    line["schema_version"] = ev.SCHEMA_VERSION + 1
+    path = tmp_path / "from-a-newer-build.jsonl"
+    path.write_text(json.dumps(line) + "\n" + json.dumps(line) + "\n")
+
+    result = runner.invoke(app, ["replay", str(path)])
+    assert result.exit_code == 0
+    assert "searching" in result.stdout  # still rendered
+    assert result.stderr.count("schema_version") == 1  # two lines, one warning
+    assert str(ev.SCHEMA_VERSION + 1) in result.stderr
+
+
+def test_replaying_a_file_that_is_not_there_says_so_and_exits_nonzero(
+    tmp_path: Path,
+) -> None:
+    result = runner.invoke(app, ["replay", str(tmp_path / "never-written.jsonl")])
+    assert result.exit_code == 1
+    assert "never-written.jsonl" in result.stderr
+
+
+def test_a_record_target_that_cannot_be_opened_is_a_line_not_a_traceback(
+    tmp_path: Path,
+) -> None:
+    """The file is opened before any source is attached, so a mistyped path fails
+    before the work rather than after it — and as one line, not a stack trace."""
+    result = runner.invoke(app, ["search", "anything", "--record", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "✗" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_record_on_get_writes_the_document_it_fetched(tmp_path: Path) -> None:
+    """`--record` is on every command that streams, not on `search` alone."""
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
+
+    recording = tmp_path / "fetch.jsonl"
+    result = runner.invoke(app, ["get", "c:note.md", "--record", str(recording)])
+    assert result.exit_code == 0
+    assert "document_fetched" in recording.read_text()
