@@ -106,7 +106,7 @@ def _target(kind: str, value: str, base: Path, variables: dict[str, str]) -> str
     """A source's `target:`, resolved — unless it is a command line rather than a place.
 
     An `mcp` target is argv. Joining it to the project directory turned a console script
-    into `<project dir>/georecords-mcp`, which nothing can start, and `npx -y @x/mcp`
+    into `<project dir>/example-mcp`, which nothing can start, and `npx -y @x/mcp`
     into a single Path with spaces in it. Resolution and a shlex split are incompatible
     operations on one string; a relative executable is what `cwd` is for, and that still
     resolves.

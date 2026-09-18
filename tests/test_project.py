@@ -167,7 +167,7 @@ def test_an_mcp_target_is_a_command_line_and_is_never_path_joined(
 ) -> None:
     """Joining a command to the project directory produced a path nothing could start.
 
-    A console script became `<project dir>/georecords-mcp`, and a multi-word command
+    A console script became `<project dir>/example-mcp`, and a multi-word command
     became one Path with spaces in it — on every platform, not just the Windows one
     where it was reported. Variables still substitute, because a project that names its
     server through `vars:` is the same portability argument as everywhere else.
@@ -176,9 +176,9 @@ def test_an_mcp_target_is_a_command_line_and_is_never_path_joined(
     path = write(
         home,
         "served",
-        "vars: {SERVER: georecords-mcp}\n"
+        "vars: {SERVER: example-mcp}\n"
         "sources:\n"
-        "  - {id: bare, kind: mcp, target: georecords-mcp}\n"
+        "  - {id: bare, kind: mcp, target: example-mcp}\n"
         '  - {id: words, kind: mcp, target: "npx -y @example/mcp"}\n'
         '  - {id: var, kind: mcp, target: "${SERVER} --stdio"}\n',
     )
@@ -186,9 +186,9 @@ def test_an_mcp_target_is_a_command_line_and_is_never_path_joined(
     monkeypatch.chdir(tmp_path)
     bare, words, var = project.load(path).sources
 
-    assert bare.target == "georecords-mcp"
+    assert bare.target == "example-mcp"
     assert words.target == "npx -y @example/mcp"
-    assert var.target == "georecords-mcp --stdio"
+    assert var.target == "example-mcp --stdio"
 
 
 # -- the persona and the skills ---------------------------------------------
