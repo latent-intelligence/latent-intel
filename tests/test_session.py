@@ -701,6 +701,75 @@ def test_a_deployment_that_declares_neither_hands_the_runtime_the_defaults() -> 
     assert resolved.skills == []
 
 
+def _agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tools: str) -> None:
+    """A project declaring one subagent with `tools`, active."""
+    agents = tmp_path / "projects" / "agents"
+    agents.mkdir(parents=True)
+    (agents / "reviewer.md").write_text(
+        f"---\nname: reviewer\ndescription: Reviews.\ntools: {tools}\n---\nReview.\n",
+        encoding="utf-8",
+    )
+    _project(tmp_path, monkeypatch, "agents: ./agents\n")
+
+
+@pytest.mark.anyio
+async def test_a_project_s_subagents_reach_the_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Beside persona and skills, for the same reason: they belong to the project."""
+    _agents(tmp_path, monkeypatch, "design.search")
+    runtime = FakeRuntime()
+    session = Session(runtime=runtime)
+    async for _ in session.ask("what is compaction?"):
+        pass
+    [agent] = runtime.saw["options"]["agents"]
+    assert agent.name == "reviewer" and agent.tools == ("design.search",)
+
+
+def test_a_subagent_tool_the_runtime_cannot_give_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Asked of the configured runtime, because only it knows what it offers: a tool
+    not attached, a writing tool withheld under `ask`, a built-in not opted into."""
+    from latent_intel import config as config_module
+
+    _agents(
+        tmp_path,
+        monkeypatch,
+        "design.search, design.delete, WebSearch, WebFetch, nope.tool",
+    )
+    config = config_module.load()
+    config.runtime = "claude-agent-sdk"
+    config.runtimes = {"claude-agent-sdk": {"builtin_tools": ["WebSearch"]}}
+    config_module.save(config)
+
+    session = Session()
+    attached = [
+        ToolSpec(name="search", source_id="design", effect="external_read"),
+        ToolSpec(name="delete", source_id="design", effect="destructive"),
+    ]
+    monkeypatch.setattr(session, "tools", lambda: attached)
+
+    named = "\n".join(session.subagent_problems())
+    assert "`design.delete`" in named
+    assert "`WebFetch`" in named
+    assert "`nope.tool`" in named
+    assert "`design.search`" not in named and "`WebSearch`" not in named
+
+
+def test_no_subagent_problems_where_the_runtime_does_not_run_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`doctor`'s runtime block says that once; a line per tool would say it again."""
+    from latent_intel import config as config_module
+
+    _agents(tmp_path, monkeypatch, "nope.tool")
+    config = config_module.load()
+    config.runtime = "custom"
+    config_module.save(config)
+    assert Session().subagent_problems() == []
+
+
 def test_a_project_runtime_block_reaches_the_runtime_it_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -13,13 +13,18 @@ the scope is entered in one task's context and exited in another's. A list appen
 by the SDK's task and drained by ours needs none of that, and the events are already
 stamped, so nothing about their order depends on when they are read.
 
-**Buffered, not live.** `ToolStarted` therefore renders when the tool *finishes* and
-the next request opens, not when it starts. Ordering is still correct — `Emitter`
-stamps `sequence` at emit time, and the relay is drained before the next round's tokens
-are yielded — so the cost is latency in the display, not a scrambled stream. Sources
-answer in milliseconds today. The trigger for making it live, the same one ADR-001 set
-for parallel dispatch, is a slow tool showing up in a trace: at that point the relay
-becomes a memory channel the runtime selects on, and nothing outside this file moves.
+**Buffered, but in stamp order.** A tool's `ToolStarted` goes into the relay the moment
+it is stamped, not together with its result: a runner that runs tools side by side —
+the Agents SDK, Claude Code's harness — would otherwise hand over a slow tool's start
+after the pairs of faster tools stamped later, and the stream would run backwards. The
+relay is drained before the runtime stamps anything of its own, so what it yields is in
+`sequence` order. What remains buffered is the display: a start renders when the
+runtime next drains, not when the tool begins. The trigger for making that live, the
+same one ADR-001 set for parallel dispatch, is a slow tool showing up in a trace.
+
+**A start is never left open.** When a turn ends before a tool it started reports —
+the runner raised, the turn was cut short — `abandon` closes each open start with a
+failed result, so no renderer waits on a tool that will not answer.
 """
 
 from __future__ import annotations
@@ -52,15 +57,37 @@ class Relay:
 
     def __init__(self) -> None:
         self._events: list[ev.AgentEvent] = []
+        self._open: dict[str, ev.ToolStarted] = {}
 
     def push(self, *events: ev.AgentEvent) -> None:
-        """Hold events until the next drain."""
+        """Hold events until the next drain, noting which starts await a result."""
+        for event in events:
+            if isinstance(event, ev.ToolStarted):
+                self._open[str(event.event_id)] = event
+            elif isinstance(event, ev.ToolResult):
+                self._open.pop(str(event.parent_id), None)
         self._events.extend(events)
 
     def drain(self) -> list[ev.AgentEvent]:
         """Everything held since the last call, in order, and clear."""
         held, self._events = self._events, []
         return held
+
+    def abandon(self, emitter: ev.Emitter, reason: str) -> list[ev.AgentEvent]:
+        """A failed result for every start still open, in the order they started. For
+        a turn that is ending: a tool that has not answered by now will not."""
+        closed = [
+            emitter.nested(started).emit(
+                ev.ToolResult,
+                tool=started.tool,
+                source_id=started.source_id,
+                ok=False,
+                error=reason,
+            )
+            for started in self._open.values()
+        ]
+        self._open.clear()
+        return closed
 
 
 async def run(
@@ -86,8 +113,9 @@ async def run(
         name=spec.name,
         arguments=arguments,
         emitter=emitter,
+        announce=relay.push,
     )
-    relay.push(started, result)
+    relay.push(result)
     if not result.ok:
         raise BridgeError(result.error)
     return result.output

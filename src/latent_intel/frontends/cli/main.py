@@ -455,6 +455,17 @@ async def _doctor() -> None:
         )
     if configured and (model := resolved.model_for(configured)):
         console.print(f"  [dim]model:[/] [source]{model}[/]")
+    # A project that declares delegates, answered by a runtime that cannot run them,
+    # answers questions it believes it handed off.
+    runs_them = {name for name, entry in runtimes.items() if entry.subagents}
+    if resolved.agents and configured in runtimes and configured not in runs_them:
+        able = sorted(runs_them)
+        console.print(
+            f"  [warn]![/] [dim]this project declares {len(resolved.agents)} "
+            f"subagent(s), and {escape(configured)} does not run them"
+            + (f" — runtimes that do: {', '.join(able)}" if able else "")
+            + "[/]"
+        )
 
     # Names only, never values: this is the one place a credential's presence is
     # reported, and it must stay safe to paste into a chat. "Is my .env picked up?"
@@ -504,6 +515,12 @@ async def _doctor() -> None:
             )
             for tool in undeclared:
                 console.print(f"  [warn]![/] [tool]{tool.qualified}[/]")
+
+        unresolved = session.subagent_problems()
+        if unresolved:
+            console.print("\n[warn]subagent tools that resolve to nothing[/]")
+            for line in unresolved:
+                console.print(f"  [warn]![/] {escape(line)}")
 
     console.print(f"\n[dim]config  {escape(str(config_module.config_path()))}[/]")
     console.print(f"[dim]data    {escape(str(config_module.data_home()))}[/]")

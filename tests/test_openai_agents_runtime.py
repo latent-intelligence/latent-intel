@@ -189,9 +189,9 @@ def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:
 async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
     monkeypatch: pytest.MonkeyPatch, credentials: None
 ) -> None:
-    """The guarantee for an install without `[agents]`: `find_spec` answers first, so
-    the framework is never reached. `openai` is present in this case, which is what
-    makes the reason name the right one of the two extras."""
+    """The guarantee for an install without `[openai-agents]`: `find_spec` answers
+    first, so the framework is never reached. `openai` is present in this case,
+    which is what makes the reason name the extra rather than a reinstall."""
     import builtins
 
     real_import = builtins.__import__
@@ -211,15 +211,16 @@ async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
     failed = terminal(await collect(runtime()))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "runtime_unavailable"
-    assert "latent-intel[agents]" in failed.message
+    assert "latent-intel[openai-agents]" in failed.message
 
 
 @pytest.mark.anyio
-async def test_a_missing_client_sdk_names_the_other_extra(
+async def test_a_missing_client_sdk_names_a_reinstall_not_the_extra(
     monkeypatch: pytest.MonkeyPatch, credentials: None
 ) -> None:
-    """Two packages, two extras: a reason naming `[agents]` when `openai` is what is
-    missing sends someone to install the thing they already have."""
+    """Two packages, two remedies: a reason naming `[openai-agents]` when `openai` is
+    what is missing sends someone to install the thing they already have — the
+    client SDK ships with the base install."""
     real_find_spec = importlib.util.find_spec
 
     def no_spec(name: str, package: str | None = None) -> Any:
@@ -228,7 +229,8 @@ async def test_a_missing_client_sdk_names_the_other_extra(
     monkeypatch.setattr(importlib.util, "find_spec", no_spec)
     failed = terminal(await collect(runtime()))
     assert isinstance(failed, ev.AgentFailed)
-    assert "latent-intel[api]" in failed.message
+    assert "reinstall `latent-intel`" in failed.message
+    assert "openai-agents]" not in failed.message
 
 
 @pytest.mark.anyio
@@ -575,7 +577,7 @@ async def test_a_tool_the_model_invented_is_told_to_the_model_and_never_routed(
     credentials: None,
 ) -> None:
     """The SDK resolves the name itself, so an invented one never reaches our router
-    and no pair is emitted — the `sdk_anthropic.py` shape. Its default would raise and
+    and no pair is emitted — the `anthropic_sdk.py` shape. Its default would raise and
     end the turn; the run is configured to hand the model the error instead, because
     one bad call must not end a turn and a model told nothing repeats the call."""
     called: list[str] = []

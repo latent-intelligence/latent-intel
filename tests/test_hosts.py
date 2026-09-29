@@ -384,7 +384,7 @@ def test_every_row_declares_one_sdk_and_one_protocol_and_the_right_row_type() ->
         assert host.sdk in hosts.SDKS, name
         assert host.protocol in hosts.PROTOCOLS, name
         assert isinstance(host, hosts.OpenAIHost) == (host.protocol == "chat"), name
-        # What `runtimes/sdk_anthropic.py` derives `DEFAULT_MODEL` from rather than
+        # What `runtimes/anthropic_sdk.py` derives `DEFAULT_MODEL` from rather than
         # restating it, and what `custom` applies when a deployment names no model: a
         # row on this protocol that declared none would leave both with nothing.
         if host.protocol == "messages":

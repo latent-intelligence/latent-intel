@@ -18,9 +18,12 @@ to a capable model that handles a long tool loop well.
 
 Unlike OpenRouter, this is the **`anthropic` host row** — a different protocol, not just
 a different endpoint. A runtime is **who owns the agent loop**, and `custom` owns ours
-for every row; the row says which endpoint and which protocol. `sdk-anthropic` is the
+for every row; the row says which endpoint and which protocol. `anthropic-sdk` is the
 SDK-run sibling for this row: same protocol, same hosts, same variables, so everything on
-this page applies to it unchanged.
+this page applies to it unchanged. So does `claude-agent-sdk`, which hands the loop to
+Claude Code's harness: it reads the same variables and passes them to the binary it
+runs, and nothing else — an exported bearer token, OAuth token or other provider's
+switch is blanked, so it never falls back to a claude.ai login.
 
 ### 1. Set one variable
 
@@ -222,6 +225,11 @@ runtimes:
     model: claude-sonnet-5
 ```
 
+`claude-agent-sdk` takes the same row and the same two variables, and turns on the
+binary's own Foundry support (`CLAUDE_CODE_USE_FOUNDRY`) for you. It has not yet been run
+against a Foundry resource here; the binary's background calls go to the same deployment
+unless `ANTHROPIC_DEFAULT_HAIKU_MODEL` names a smaller one.
+
 The OpenAI-compatible surface, for the same resource — the same runtime, a different row:
 
 ```yaml
@@ -258,8 +266,8 @@ runtimes
   custom loop
     ✓ custom ← configured
   sdk runner
+    ✓ anthropic-sdk
     · openai-agents — set OPENAI_API_KEY for host 'openai'
-    ✓ sdk-anthropic
   delegated
     ✓ claude-cli
   model: claude-sonnet-5
@@ -354,7 +362,7 @@ comes from — `anthropic/claude-sonnet-4.5` included.
 
 `openai-agents` is the SDK-run sibling for the chat rows: the same protocol, the same
 hosts and the same variables, so everything in this section applies to it unchanged once
-the `agents` extra is installed.
+the `openai-agents` extra is installed.
 
 **Model ids are `<vendor>/<model>`**, listed at
 [openrouter.ai/models](https://openrouter.ai/models). A `:free` suffix is a free tier of
@@ -370,9 +378,9 @@ runtimes
   custom loop
     ✓ custom ← configured
   sdk runner
-    · openai-agents — set OPENAI_API_KEY for host 'openai'
-    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+    · anthropic-sdk — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
 ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+    · openai-agents — set OPENAI_API_KEY for host 'openai'
   delegated
     ✓ claude-cli
   model: poolside/laguna-s-2.1:free

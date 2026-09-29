@@ -38,10 +38,10 @@ the event is built.
   the agent's tools, so a name the model invented never reaches our router. Its default
   is to raise and end the turn; this runtime sets `tool_not_found_behavior` to return
   the error to the model instead, so the model is told and the turn carries on — the
-  same shape as `sdk_anthropic.py`, and the rule `turn.dispatch` states: one bad call
+  same shape as `anthropic_sdk.py`, and the rule `turn.dispatch` states: one bad call
   must not end a turn. `custom.py` reports such a call as a failed pair.
 - *The ceiling is raised, not silent.* The Anthropic runner exits without a signal when
-  `max_iterations` is reached, so `sdk_anthropic.py` reads the ceiling off a last
+  `max_iterations` is reached, so `anthropic_sdk.py` reads the ceiling off a last
   message still asking for tools. This runner raises `MaxTurnsExceeded` instead, which
   is caught by name — there is no silent stop to reconstruct.
 
@@ -138,11 +138,14 @@ class OpenAIAgentsRuntime:
         if host is None:
             return hosts.unknown(self.host, HOSTS)
         if importlib.util.find_spec("openai") is None:
-            return "the openai SDK is not installed — install `latent-intel[api]`"
+            return (
+                "the openai SDK is not installed — reinstall `latent-intel`, "
+                "which includes it"
+            )
         if importlib.util.find_spec("agents") is None:
             return (
                 "the openai-agents SDK is not installed — install "
-                "`latent-intel[agents]`"
+                "`latent-intel[openai-agents]`"
             )
         if (reason := hosts.diagnose(host, name=self.host)) is not None:
             return reason
@@ -185,7 +188,7 @@ class OpenAIAgentsRuntime:
 
         # `find_spec` said both are there; a half-installed one can still fail here,
         # and that failure has to be an event like every other. Two imports and two
-        # remedies, because they come from two extras.
+        # remedies: one ships with the base install, the other is an extra.
         try:
             import openai
         except ImportError as exc:
@@ -193,7 +196,7 @@ class OpenAIAgentsRuntime:
                 ev.AgentFailed,
                 message=f"the openai SDK could not be imported: {exc}",
                 kind="runtime_unavailable",
-                remedy="reinstall `latent-intel[api]`",
+                remedy="reinstall `latent-intel`",
             )
             return
         try:
@@ -203,7 +206,7 @@ class OpenAIAgentsRuntime:
                 ev.AgentFailed,
                 message=f"the openai-agents SDK could not be imported: {exc}",
                 kind="runtime_unavailable",
-                remedy="reinstall `latent-intel[agents]`",
+                remedy="reinstall `latent-intel[openai-agents]`",
             )
             return
 

@@ -18,12 +18,12 @@ or `uv tool install .` from a clone if you are working on the engine itself.
 intel doctor                     # what is installed, what is reachable, what is not
 ```
 
-For `intel ask` — an agent answering over your sources — add the extras for the runtimes
-you want. `api` brings the Anthropic and OpenAI SDKs that `custom` and `sdk-anthropic` run
-on; `agents` adds the OpenAI Agents SDK for `openai-agents`:
+`intel ask` — an agent answering over your sources — works from that install through
+`claude-cli`, `custom` and `anthropic-sdk`. The two other runtimes are extras named after
+themselves, `openai-agents` and `claude-agent-sdk`, and `all` is both:
 
 ```bash
-uv tool install "latent-intel[api,agents] @ git+https://github.com/latent-intelligence/latent-intel"
+uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
 ```
 
 ## Attach context 
@@ -97,16 +97,20 @@ deployment repo stays clean on first use.
 ├── corpus/                      material this deployment ships, if any
 │   └── notes/
 ├── .env                         optional credentials — git-ignored, never committed
-├── skills/                      PLANNED — bodies offered to the agent
+├── skills/                      name.md or name/SKILL.md  →  loaded when a question needs one
 │   └── methodology.md
-└── persona.md                   PLANNED — voice and standing instructions
+├── agents/                      one .md per subagent  →  delegates, claude-agent-sdk only
+│   └── reviewer.md
+└── persona.md                   voice and standing instructions, on every turn
 ```
 
 **Saved commands** are one markdown file each — a frontmatter block naming a `search`,
 `prompt` or `sequence`, and a body. They compose what the engine already does, which is
-why they need no code and no release. `skills/` and `persona.md` are marked PLANNED
-deliberately: the keys parse today but nothing consumes them yet, and a directory that
-looks live and does nothing is worse than one that says so.
+why they need no code and no release.
+
+**Context engineering** is the rest: `persona.md`, `skills/` and `agents/` shape what the
+agent knows and how it behaves, in markdown, per deployment. They follow Claude Code's
+file conventions, so one folder serves this engine, Claude Code and the Agent SDK.
 
 **Add custom branding .** The wordmark, tagline, prompt and palette all come from
 the project:
@@ -139,11 +143,12 @@ Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
 
 ## Configure compute
 
-Sources say where context comes from; a **runtime** says where answers come from. Four
+Sources say where context comes from; a **runtime** says where answers come from. Five
 ship: `claude-cli`, which shells to the `claude` binary; `custom`, which runs our own loop
 against a **host** — an endpoint declared as a row, and the row says which protocol it
-speaks; and `sdk-anthropic` and `openai-agents`, which hand the loop to the Anthropic
-SDK's tool runner and the OpenAI Agents SDK over the same rows, while tools stay ours.
+speaks; and `anthropic-sdk`, `openai-agents` and `claude-agent-sdk`, which hand the loop
+to the Anthropic SDK's tool runner, the OpenAI Agents SDK and Claude Code's harness over
+the same rows, while tools stay ours.
 Seven hosts ship, including Azure AI Foundry on both its surfaces, classic Azure OpenAI,
 OpenRouter and any OpenAI-compatible server on your own machine.
 
@@ -192,9 +197,9 @@ register through the same ones a third party would use — see
 ## Contributing
 
 ```bash
-uv sync --extra dev              # the venv, with test and lint tooling
-just check                       # ruff · mypy --strict · import contracts · pytest
-uv tool install . --reinstall    # put your build on PATH
+just install                          # the venv: every runtime, plus test and lint tooling
+just check                            # ruff · mypy --strict · import contracts · pytest
+uv tool install ".[all]" --reinstall  # put your build on PATH
 ```
 
 `just check` is what CI runs, and it passes on a fresh clone with nothing beside it — no
@@ -209,5 +214,5 @@ If you are also *authoring* a wiki, add your wiki compiler alongside the engine:
 ## Status
 
 Early, but usable. Both terminal frontends work over the `files`, `wiki` and `mcp`
-connectors, and `intel ask` runs against every runtime above — the `api` extra installs
-the two in-process SDKs, and `agents` adds the OpenAI Agents SDK.
+connectors, and `intel ask` runs against every runtime above — three from the base
+install, and `openai-agents` and `claude-agent-sdk` from the extras named after them.

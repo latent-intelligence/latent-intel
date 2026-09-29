@@ -58,14 +58,15 @@ USAGE_KEYS = (
 )
 
 
-def wire_name(spec: ToolSpec) -> str:
+def wire_name(spec: ToolSpec, limit: int = _MAX_NAME) -> str:
     """The name one tool is offered under, folded to what a wire format accepts.
 
     Not invertible, for the same reason `claude_cli.sanitise` is not: two source ids can
     fold to one. A caller keeps `{wire_name(spec): spec}` and looks the call back up,
-    rather than trying to split the name apart again.
+    rather than trying to split the name apart again. `limit` is shorter where
+    something else prefixes the name on the wire.
     """
-    return _UNSAFE.sub("_", spec.qualified)[:_MAX_NAME]
+    return _UNSAFE.sub("_", spec.qualified)[:limit]
 
 
 def offered(tools: Sequence[ToolSpec], approval: str) -> list[ToolSpec]:
@@ -93,7 +94,9 @@ class ToolNameCollision(ValueError):
     """
 
 
-def wired(tools: Sequence[ToolSpec], approval: str) -> list[tuple[str, ToolSpec]]:
+def wired(
+    tools: Sequence[ToolSpec], approval: str, *, limit: int = _MAX_NAME
+) -> list[tuple[str, ToolSpec]]:
     """The tools this turn offers, each paired with the name it goes out under.
 
     The one place `offered` and `wire_name` are composed, so both runtimes get the
@@ -104,7 +107,7 @@ def wired(tools: Sequence[ToolSpec], approval: str) -> list[tuple[str, ToolSpec]
     pairs: list[tuple[str, ToolSpec]] = []
     taken: dict[str, ToolSpec] = {}
     for spec in offered(tools, approval):
-        name = wire_name(spec)
+        name = wire_name(spec, limit)
         first = taken.get(name)
         if first is not None:
             raise ToolNameCollision(
@@ -245,6 +248,35 @@ def status_message(exc: Any) -> str:
     return f"the endpoint returned {exc.status_code}"
 
 
+def status_failure(
+    status: int | None, *, host: hosts.Host, name: str, model: str
+) -> dict[str, str] | None:
+    """The `AgentFailed` fields for an HTTP status with a remedy of its own, or None.
+
+    Shared by the exception ladder below and by a runtime that learns the status from a
+    result rather than an exception (`claude-agent-sdk`), so a remedy is written once.
+    """
+    if status in (401, 403):
+        return {
+            "message": f"the '{name}' endpoint rejected the credentials",
+            "kind": "auth",
+            "remedy": hosts.auth_remedy(host),
+        }
+    if status == 404:
+        return {
+            "message": f"'{model}' was not found on the '{name}' endpoint",
+            "kind": "model_not_found",
+            "remedy": host.remedy_404,
+        }
+    if status == 429:
+        return {
+            "message": "the endpoint is rate limiting this key",
+            "kind": "rate_limit",
+            "remedy": "wait and ask again, or raise the deployment's quota",
+        }
+    return None
+
+
 def failure(
     exc: BaseException, *, sdk: Any, host: hosts.Host, name: str, model: str
 ) -> dict[str, str]:
@@ -262,24 +294,15 @@ def failure(
     three. `name` is the host's name as configured, which is what a reader recognises;
     `host` is its row, which is what knows the remedy.
     """
-    if isinstance(exc, sdk.AuthenticationError):
-        return {
-            "message": f"the '{name}' endpoint rejected the credentials",
-            "kind": "auth",
-            "remedy": hosts.auth_remedy(host),
-        }
-    if isinstance(exc, sdk.NotFoundError):
-        return {
-            "message": f"'{model}' was not found on the '{name}' endpoint",
-            "kind": "model_not_found",
-            "remedy": host.remedy_404,
-        }
-    if isinstance(exc, sdk.RateLimitError):
-        return {
-            "message": "the endpoint is rate limiting this key",
-            "kind": "rate_limit",
-            "remedy": "wait and ask again, or raise the deployment's quota",
-        }
+    for cls, status in (
+        (sdk.AuthenticationError, 401),
+        (sdk.NotFoundError, 404),
+        (sdk.RateLimitError, 429),
+    ):
+        if isinstance(exc, cls):
+            fields = status_failure(status, host=host, name=name, model=model)
+            if fields is not None:
+                return fields
     if isinstance(exc, sdk.APIStatusError):
         return {
             "message": status_message(exc),
@@ -297,6 +320,18 @@ def failure(
         "kind": "runtime_error",
         "remedy": "",
     }
+
+
+def result_text(content: Any) -> str:
+    """A tool result's content as text — a string, or a list of content blocks. How
+    Claude Code's messages carry one, shared by the two runtimes that read them."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            str(block.get("text", "")) for block in content if isinstance(block, dict)
+        ).strip()
+    return ""
 
 
 async def invalid_arguments(
@@ -322,6 +357,7 @@ async def dispatch(
     name: str,
     arguments: dict[str, Any],
     emitter: ev.Emitter,
+    announce: Callable[[ev.ToolStarted], None] | None = None,
 ) -> tuple[ev.ToolStarted, ev.ToolResult]:
     """One tool call, as the pair of events a renderer already knows how to draw.
 
@@ -332,6 +368,11 @@ async def dispatch(
 
     The result is emitted on `emitter.nested(started)`, so its `parent_id` is the
     start's `event_id` and a renderer can nest the two without guessing from timing.
+
+    `announce` is handed the start the moment it is stamped, before the tool runs. A
+    runtime whose tools run beside other work (`agent/bridge.py`) needs it there: a
+    start that waited for its result would leave the stream behind events stamped
+    after it.
     """
     started = emitter.emit(
         ev.ToolStarted,
@@ -340,6 +381,8 @@ async def dispatch(
         arguments=arguments,
         effect=str(spec.effect) if spec else str(Effect.EXTERNAL_WRITE),
     )
+    if announce is not None:
+        announce(started)
     child = emitter.nested(started)
     began = time.monotonic()
 
@@ -412,6 +455,8 @@ __all__ = [
     "input_schema",
     "invalid_arguments",
     "offered",
+    "result_text",
+    "status_failure",
     "status_message",
     "system_prompt",
     "wire_name",

@@ -13,6 +13,11 @@ Everything below is captured output, not an illustration, except where it says s
 ```
 $ intel hosts
 
+anthropic-sdk
+  · anthropic          set ANTHROPIC_API_KEY for host 'anthropic'
+  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+
 claude-cli — no hosts
 
 custom
@@ -36,11 +41,6 @@ ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host 'foundry-openai'
   · azure-openai    set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN, AZURE_OPENAI_ENDPOINT,
 OPENAI_API_VERSION for host 'azure-openai'
   · local           set LOCAL_OPENAI_BASE_URL for host 'local'
-
-sdk-anthropic
-  · anthropic          set ANTHROPIC_API_KEY for host 'anthropic'
-  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
 
 Names of variables, never values — safe to paste. Set them in a `.env` beside the
 project file, or export them.
@@ -158,9 +158,9 @@ runtimes
   custom loop
     ✓ custom ← configured
   sdk runner
-    · openai-agents — set OPENAI_API_KEY for host 'openai'
-    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+    · anthropic-sdk — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
 ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+    · openai-agents — set OPENAI_API_KEY for host 'openai'
   delegated
     ✓ claude-cli
   model: anthropic/claude-sonnet-4.5

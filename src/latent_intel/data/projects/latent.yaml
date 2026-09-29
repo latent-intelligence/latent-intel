@@ -66,6 +66,7 @@ branding:
 
 # commands: ./commands        # *.md, one per command — live
 # skills:   ./skills          # RESERVED — resolves, nothing reads it yet
+# agents:   ./agents          # agents/<name>.md, Claude Code's format; run by claude-agent-sdk
 
 # defaults:
 #   approval: ask

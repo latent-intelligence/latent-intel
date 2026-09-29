@@ -202,9 +202,10 @@ def test_an_empty_resource_is_named_rather_than_read_as_unset(
 async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
     monkeypatch: pytest.MonkeyPatch, credentials: None
 ) -> None:
-    """The guarantee for an install without `[api]`: `find_spec` answers first, so the
-    SDK import in `stream` is never reached. Both halves are forced here, because the
-    extra *is* installed on a development machine."""
+    """The guarantee for an install whose SDK is missing — part of the base install
+    now, but a partial or broken install still happens: `find_spec` answers first, so
+    the SDK import in `stream` is never reached. Both halves are forced here, because
+    the SDK *is* installed wherever these tests run."""
     import builtins
 
     real_import = builtins.__import__
@@ -235,7 +236,7 @@ async def test_a_base_install_gets_an_event_naming_the_extra_not_an_ImportError(
     failed = terminal(await collect(runtime()))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "runtime_unavailable"
-    assert "latent-intel[api]" in failed.message
+    assert "reinstall `latent-intel`" in failed.message
 
 
 @pytest.mark.anyio

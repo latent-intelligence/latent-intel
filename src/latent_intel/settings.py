@@ -22,6 +22,7 @@ from typing import Any
 
 from . import config as config_module
 from . import project as project_module
+from . import subagents as subagents_module
 from .config import SourceSpec
 from .models import Skill
 
@@ -50,6 +51,9 @@ class Settings:
     persona: str = ""
     persona_mode: str = "append"
     skills: list[Skill] = field(default_factory=list)
+    #: The project's delegates, for a runtime that runs them. Project-only, like the
+    #: persona: composition has no user layer.
+    agents: list[subagents_module.Subagent] = field(default_factory=list)
     theme: dict[str, str] = field(default_factory=dict)
     registry_path: str | None = None
     #: key -> "engine" | "project" | "user", for `project show`.
@@ -178,6 +182,7 @@ def load(name: str | None = None) -> Settings:
     settings.persona = loaded.persona if loaded else ""
     settings.persona_mode = loaded.persona_mode if loaded else "append"
     settings.skills = list(loaded.skills) if loaded else []
+    settings.agents = list(loaded.agents) if loaded else []
 
     settings.registry_path = loaded.registry if loaded else None
 

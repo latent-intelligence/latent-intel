@@ -27,6 +27,14 @@ dependencies = [
     # Base, not an extra: the deployment case is a published wiki on object storage,
     # and "out of the box" cannot have an asterisk on exactly that case.
     "s3fs>=2024.0",
+    # Base, not an extra: `custom` and `anthropic-sdk` answer through these, and an
+    # install that could search but not answer made the commonest first run a
+    # reinstall. Plain HTTP clients with wheels for every platform, about 22 MB
+    # between them; `anthropic` ships `AnthropicFoundry` beside `Anthropic`, and
+    # `openai` reaches every OpenAI-compatible host. Still imported only inside a
+    # turn, so a command that never asks a question never loads them.
+    "anthropic>=0.87",
+    "openai>=1.60",
 ]
 
 [project.optional-dependencies]
@@ -41,25 +49,32 @@ dependencies = [
 #     uv tool install . --with ../latent-wiki
 #
 # Reading a published store never needed it. See `connectors/wiki.py`.
-api = [
-    # One extra installs every in-process runtime's SDK: `anthropic` ships
-    # `AnthropicFoundry` alongside `Anthropic`, and `openai` reaches every
-    # OpenAI-compatible host. An extra rather than a base dependency: a base install
-    # reads a published wiki and answers through `claude-cli` without ever importing
-    # either, and each runtime module imports its SDK lazily so the absence is a
-    # missing runtime rather than a start-up failure.
-    "anthropic>=0.87",
-    "openai>=1.60",
-]
-agents = [
+#
+# Each remaining extra is named after the one runtime it enables, so the remedy a
+# runtime prints and the extra that fixes it are the same word.
+openai-agents = [
     # The OpenAI Agents SDK, for the `openai-agents` runtime — a framework that owns
-    # the agent loop rather than a client that speaks a protocol. Its own extra rather
-    # than part of `api`: a framework in a base install is the kind of dependency a
-    # client's security review asks about, and nothing outside that one runtime needs
-    # it. Imported inside the turn like every other SDK, so its absence is a missing
-    # runtime rather than a start-up failure. It requires `openai`, which is why
-    # `[agents]` implies `[api]` in practice.
+    # the agent loop rather than a client that speaks a protocol. An extra rather than
+    # base: a framework is the kind of dependency a client's security review asks
+    # about, and nothing outside that one runtime needs it. Imported inside the turn
+    # like every other SDK, so its absence is a missing runtime rather than a start-up
+    # failure.
     "openai-agents>=0.22",
+]
+claude-agent-sdk = [
+    # The Claude Agent SDK, for the `claude-agent-sdk` runtime — Claude Code's harness
+    # driven from this process, with our tools served to it in-process. An extra for
+    # the reason `openai-agents` gives, and two more: its wheels bundle the Claude Code
+    # binary, about 200 MB and what a client's security review will ask about first,
+    # and no Windows wheel is published as of 0.2.161. Bounded below the next minor
+    # because that binary decides the tool names and message fields the runtime
+    # translates.
+    "claude-agent-sdk>=0.2.161,<0.3",
+]
+all = [
+    # Every runtime at once. The extras are named rather than their packages repeated,
+    # so a new runtime's extra is one more name here.
+    "latent-intel[openai-agents,claude-agent-sdk]",
 ]
 dev = [
     "pytest>=8.0",
@@ -91,8 +106,9 @@ vector = "latent_intel.connectors.vector:VectorConnector"
 [project.entry-points."latent_intel.runtimes"]
 claude-cli = "latent_intel.agent.runtimes.claude_cli:ClaudeCliRuntime"
 custom = "latent_intel.agent.runtimes.custom:CustomRuntime"
-sdk-anthropic = "latent_intel.agent.runtimes.sdk_anthropic:SdkAnthropicRuntime"
+anthropic-sdk = "latent_intel.agent.runtimes.anthropic_sdk:AnthropicSdkRuntime"
 openai-agents = "latent_intel.agent.runtimes.openai_agents:OpenAIAgentsRuntime"
+claude-agent-sdk = "latent_intel.agent.runtimes.claude_agent_sdk:ClaudeAgentSdkRuntime"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/latent_intel"]

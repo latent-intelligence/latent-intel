@@ -2,7 +2,7 @@
 
 No SDK here at all. The bridge is the half of the SDK runtimes that has nothing to do
 with a vendor, so it is tested without one — what a runner does with the raise is the
-runner's test, in `test_sdk_anthropic_runtime.py`.
+runner's test, in `test_anthropic_sdk_runtime.py`.
 """
 
 from __future__ import annotations
@@ -109,3 +109,50 @@ async def test_a_session_that_handed_over_no_router_fails_the_call_not_the_turn(
     with pytest.raises(bridge.BridgeError) as caught:
         await call({})
     assert "no tool router" in str(caught.value)
+
+
+@pytest.mark.anyio
+async def test_a_start_reaches_the_relay_before_the_tool_finishes() -> None:
+    """A runner that runs tools side by side drains between them. A start that waited
+    for its result would come out after the pairs of faster tools stamped later, and
+    the stream would run backwards."""
+    import anyio
+
+    relay = bridge.Relay()
+    release = anyio.Event()
+    seen_while_running: list[ev.AgentEvent] = []
+
+    async def slow(source_id: str, name: str, arguments: dict[str, Any]) -> str:
+        seen_while_running.extend(relay.drain())
+        await release.wait()
+        return "done"
+
+    call = bridge.bridged(
+        spec(), emitter=ev.Emitter(uuid4()), call_tool=slow, relay=relay
+    )
+    async with anyio.create_task_group() as tasks:
+        tasks.start_soon(call, {"key": "gist"})
+        await anyio.wait_all_tasks_blocked()
+        release.set()
+
+    assert [type(e).__name__ for e in seen_while_running] == ["ToolStarted"]
+    assert [type(e).__name__ for e in relay.drain()] == ["ToolResult"]
+
+
+def test_abandon_closes_every_start_still_open() -> None:
+    """A turn that ends before a tool answers must not leave a renderer waiting on it;
+    a start whose result arrived is not closed twice."""
+    relay = bridge.Relay()
+    emitter = ev.Emitter(uuid4())
+    answered = emitter.emit(ev.ToolStarted, tool="a", source_id="s", arguments={})
+    hanging = emitter.emit(ev.ToolStarted, tool="b", source_id="s", arguments={})
+    relay.push(answered, hanging)
+    relay.push(
+        emitter.nested(answered).emit(ev.ToolResult, tool="a", source_id="s", ok=True)
+    )
+
+    [closed] = relay.abandon(emitter, "the turn ended")
+    assert isinstance(closed, ev.ToolResult)
+    assert closed.parent_id == hanging.event_id
+    assert not closed.ok and closed.error == "the turn ended"
+    assert relay.abandon(emitter, "again") == []

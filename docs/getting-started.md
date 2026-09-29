@@ -22,8 +22,16 @@ uv tool install git+https://github.com/latent-intelligence/latent-intel --reinst
 
 From a clone instead — if you are working on the engine itself — `uv tool install .`.
 
-That is the whole install — no extras, no sibling package. Files, MCP servers and wikis,
-local or `s3://`, all work from it, because a published wiki store is a versioned format
+That is the whole install for sources, and for `intel ask` through `claude-cli`,
+`custom` and `anthropic-sdk`. The two other runtimes are extras named after themselves,
+and `[all]` is both:
+
+```bash
+uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
+```
+
+No sibling package is needed either way. Files, MCP servers and wikis, local or
+`s3://`, all work from it, because a published wiki store is a versioned format
 (`manifest.json` plus `pages/`) that the client reads directly. A wiki compiler is what
 you install to *build* a wiki, not to read one, and it is added alongside the engine
 (`--with <wiki-compiler>`) only on the machine that authors one.
@@ -78,8 +86,8 @@ select the active project either; that is `intel project use`, which persists.
 `intel` on your PATH moves when the repository does.
 
 ```bash
-uv tool install ".[api,agents]" --reinstall              # user build — a snapshot of the checkout
-uv tool install --editable ".[api,agents]" --reinstall   # dev build  — tracks the working tree
+uv tool install ".[all]" --reinstall              # user build — a snapshot of the checkout
+uv tool install --editable ".[all]" --reinstall   # dev build  — tracks the working tree
 ```
 
 A **user build** is copied at install time and stays put until you reinstall. A **dev
@@ -87,15 +95,17 @@ build** points at `src/`, so an edit is live — and so is a half-finished branc
 the cost: switch branches and the tool switches with you. Either way, a changed dependency
 or entry point still needs another reinstall.
 
-Two extras, by runtime. `[api]` adds the Anthropic and OpenAI SDKs, which `custom` and
-`sdk-anthropic` run on; `[agents]` adds the OpenAI Agents SDK for `openai-agents`, and
-implies `[api]`. Leave one out and `intel ask` reports that runtime as not installed
-however much else is configured, because `uv run` reads the project's own environment
-while a tool install does not. Quote the argument — an unquoted `.[api,agents]` is
-glob-expanded by the shell.
+The base install answers through `claude-cli`, `custom` and `anthropic-sdk` — the
+Anthropic and OpenAI SDKs are part of it. Two runtimes are extras, each named after the
+runtime it enables: `[openai-agents]` adds the OpenAI Agents SDK, and
+`[claude-agent-sdk]` the Claude Agent SDK with the Claude Code binary bundled — about
+200 MB, and not published for Windows yet. `[all]` is both. Leave one out and
+`intel ask` reports that runtime as not installed however much else is configured,
+because `uv run` reads the project's own environment while a tool install does not.
+Quote the argument — an unquoted `.[all]` is glob-expanded by the shell.
 
-To skip PATH entirely, `just install` (which is `uv sync --extra dev --extra api --extra
-agents`) and prefix everything below with `uv run`.
+To skip PATH entirely, `just install` (which is `uv sync --extra dev --extra all`) and
+prefix everything below with `uv run`.
 
 ---
 

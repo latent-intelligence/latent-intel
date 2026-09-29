@@ -395,7 +395,7 @@ class ClaudeCliRuntime:
                     str(block.get("use_id") or block.get("tool_use_id") or "")
                 )
                 child = emitter.nested(parent) if parent else emitter
-                text = _text_of(block.get("content"))
+                text = turn.result_text(block.get("content"))
                 failed = bool(block.get("is_error"))
                 out.append(
                     child.emit(
@@ -439,17 +439,6 @@ class ClaudeCliRuntime:
             server, _, bare = rest.partition("__")
             return by_server.get(server, server), bare or tool
         return "claude-cli", tool
-
-
-def _text_of(content: Any) -> str:
-    """Tool result content is a string or a list of blocks."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(
-            str(b.get("text", "")) for b in content if isinstance(b, dict)
-        ).strip()
-    return ""
 
 
 async def _lines(process: Process) -> AsyncIterator[str]:
