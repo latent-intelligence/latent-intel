@@ -16,7 +16,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel import registry
-from latent_intel.commands import Connect, Fetch, Find, ListSources
+from latent_intel.commands import Ask, Connect, Fetch, Find, ListSources
 from latent_intel.connectors import base as connectors
 from latent_intel.connectors.files import FilesConnector
 from latent_intel.models import (
@@ -28,6 +28,7 @@ from latent_intel.models import (
     Ref,
     RuntimeUnavailable,
     SessionError,
+    Skill,
     SourceRequest,
     ToolSpec,
 )
@@ -684,7 +685,9 @@ async def test_a_project_s_persona_and_skills_reach_the_runtime(
     options = runtime.saw["options"]
     assert options["persona"] == "You are an archivist."
     assert options["persona_mode"] == "replace"
-    assert options["skills"] == [("citation-style", "Cite inline.")]
+    assert options["skills"] == [
+        Skill(name="citation-style", body="Cite inline.", description="Cite inline.")
+    ]
 
 
 def test_a_deployment_that_declares_neither_hands_the_runtime_the_defaults() -> None:
@@ -805,10 +808,7 @@ def test_approval_nested_under_a_runtime_never_overrides_the_resolved_one(
     _project(
         tmp_path,
         monkeypatch,
-        "agent:\n"
-        "  runtime: custom\n"
-        "  runtimes:\n"
-        "    custom: {approval: auto}\n",
+        "agent:\n  runtime: custom\n  runtimes:\n    custom: {approval: auto}\n",
     )
     config = config_module.load()
     config.approval = "never"
@@ -994,3 +994,141 @@ def test_an_uninstalled_runtime_reports_the_reason_it_could_not_be_built() -> No
     assert report.hosts == {}
     assert report.reason is not None
     assert "no runtime of kind 'nonsense'" in report.reason
+
+
+@pytest.mark.anyio
+async def test_load_skill_is_a_session_tool_and_routes_to_the_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first engine tool: in the namespace beside connector tools, and reachable
+    through the same router an in-process runtime uses."""
+    directory = tmp_path / "projects"
+    (directory / "skills" / "citing").mkdir(parents=True)
+    (directory / "skills" / "citing" / "SKILL.md").write_text(
+        "---\nname: citation-style\ndescription: How to cite.\n---\nCite inline.\n"
+    )
+    _project(tmp_path, monkeypatch, "skills: ./skills\n")
+
+    session = Session()
+    assert [t.qualified for t in session.tools()] == ["engine.load_skill"]
+    body = await session.call_tool("engine", "load_skill", {"name": "citation-style"})
+    assert body == "Cite inline."
+
+
+def test_a_session_with_no_skills_offers_no_engine_tool() -> None:
+    assert Session().tools() == []
+
+
+@pytest.mark.anyio
+async def test_a_source_may_not_take_the_engine_s_id(tmp_path: Path) -> None:
+    """A source under `engine` would shadow `load_skill`, or be shadowed by it."""
+    session = Session()
+    with pytest.raises(ConnectError, match="reserved"):
+        await session.connect(str(tmp_path), kind="files", source_id="engine")
+    failures = await session.connect_many(
+        [SourceRequest(spec=str(tmp_path), kind="files", source_id="engine")]
+    )
+    assert len(failures) == 1 and "reserved" in failures[0]
+    assert session.sources() == []
+
+
+def _skills_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    directory = tmp_path / "projects"
+    (directory / "skills").mkdir(parents=True)
+    (directory / "skills" / "cite.md").write_text("Cite inline.\n")
+    (directory / "skills" / "deploy.md").write_text(
+        "---\ndisable-model-invocation: true\n---\nShip it.\n"
+    )
+    (directory / "skills" / "lore.md").write_text(
+        "---\nuser-invocable: false\n---\nOld system.\n"
+    )
+    _project(tmp_path, monkeypatch, "skills: ./skills\n")
+
+
+@pytest.mark.anyio
+async def test_a_skill_run_by_hand_stays_for_the_session_and_leaves_the_listing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _skills_project(tmp_path, monkeypatch)
+    runtime = FakeRuntime()
+    session = Session(runtime=runtime)
+
+    async for _ in session.ask("ship?", skills={"deploy": ""}):
+        pass
+    async for _ in session.ask("and now?"):
+        pass
+
+    options = runtime.saw["options"]
+    assert [s.name for s in options["invoked"]] == ["deploy"]
+    assert [s.name for s in options["skills"]] == ["cite", "lore"]
+
+
+@pytest.mark.anyio
+async def test_a_skill_that_cannot_be_run_by_hand_fails_as_an_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unknown, or `user-invocable: false`: refused before the turn, and in-band."""
+    _skills_project(tmp_path, monkeypatch)
+    session = Session(runtime=FakeRuntime())
+
+    for name in ("nope", "lore"):
+        events = [e async for e in session.run(Ask(prompt="q", skills={name: ""}))]
+        failed = [e for e in events if isinstance(e, ev.AgentFailed)]
+        assert len(failed) == 1 and "runnable: /cite, /deploy" in failed[0].message
+    assert session._invoked == {}
+
+
+def test_an_ask_from_an_older_producer_still_parses() -> None:
+    """`skills` is additive: a payload written before it existed reads as none."""
+    from pydantic import TypeAdapter
+
+    from latent_intel.commands import Command
+
+    adapter: TypeAdapter[Command] = TypeAdapter(Command)
+    assert adapter.validate_json('{"type": "ask", "prompt": "q"}') == Ask(prompt="q")
+    command = Ask(prompt="q", skills={"cite": "x"})
+    assert adapter.validate_json(command.model_dump_json()) == command
+
+
+@pytest.mark.anyio
+async def test_arguments_fill_the_invoked_body_and_the_message_records_the_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`$ARGUMENTS` is filled from what followed `/name`; and the user message says
+    which skill ran, or a recording could not show why the prompt changed."""
+    directory = tmp_path / "projects"
+    (directory / "skills").mkdir(parents=True)
+    (directory / "skills" / "review.md").write_text("Review paper $ARGUMENTS.\n")
+    _project(tmp_path, monkeypatch, "skills: ./skills\n")
+    runtime = FakeRuntime()
+    session = Session(runtime=runtime)
+
+    command = Ask(prompt="Follow the review skill.", skills={"review": "2401.01234"})
+    events = [e async for e in session.run(command)]
+
+    (invoked,) = runtime.saw["options"]["invoked"]
+    assert invoked.body == "Review paper 2401.01234."
+    assert isinstance(events[0], ev.UserMessage) and events[0].skills == ["review"]
+
+
+@pytest.mark.anyio
+async def test_a_project_switch_drops_the_skills_run_under_the_last_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A same-named skill in the new project must not arrive unrun."""
+    _skills_project(tmp_path, monkeypatch)
+    runtime = FakeRuntime()
+    session = Session(runtime=runtime)
+    async for _ in session.ask("ship?", skills={"deploy": ""}):
+        pass
+
+    other = tmp_path / "projects" / "other.yaml"
+    other.write_text("skills: ./skills\n", encoding="utf-8")
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "other")
+    from latent_intel import settings as settings_module
+
+    settings_module.invalidate()
+    async for _ in session.ask("and now?"):
+        pass
+
+    assert runtime.saw["options"]["invoked"] == []

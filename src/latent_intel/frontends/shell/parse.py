@@ -119,7 +119,20 @@ def parse(
     return _bare(text, limit)
 
 
+def builtin(name: str) -> bool:
+    """Whether `/name` is the shell's own. `get` is an alias of the bare verb `open`,
+    not of a `/` command, so it is not."""
+    return name in SLASH or ALIASES.get(name) in SLASH
+
+
 def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
+    # A project's own commands and skills are looked up after the built-ins, never
+    # before: the engine's grammar is identical on every deployment, and a project
+    # cannot shadow `/exit`. Their argument is the raw rest of the line — it is a
+    # question, and `what's` is not an unclosed quote.
+    head, _, rest = text.strip().partition(" ")
+    if procedures is not None and head in procedures and not builtin(head):
+        return Procedure(head, rest.strip())
     try:
         parts = shlex.split(text)
     except ValueError as exc:
@@ -130,11 +143,6 @@ def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
     name = ALIASES.get(parts[0], parts[0])
     spec = SLASH.get(parts[0]) or SLASH.get(name)
     if spec is None:
-        # A project's own commands are looked up after the built-ins, never before: the
-        # engine's grammar is identical on every deployment, and a project cannot
-        # shadow `/exit`.
-        if procedures is not None and parts[0] in procedures:
-            return Procedure(parts[0], " ".join(parts[1:]))
         close = [c for c in SLASH if c.startswith(parts[0][:2])]
         return Invalid(
             f"no command /{parts[0]}",

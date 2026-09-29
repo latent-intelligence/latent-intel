@@ -36,8 +36,8 @@ from ... import config as config_module
 from ... import events as ev
 from ... import procedures as procedures_module
 from ... import settings as settings_module
-from ...commands import Command, Connect
-from ...models import Descriptor, RuntimeUnavailable
+from ...commands import Ask, Command, Connect
+from ...models import Descriptor, RuntimeUnavailable, Skill
 from ...session import Session
 from ...ui import banner
 from ...ui import render as render_module
@@ -50,7 +50,7 @@ from .._shared import (
     session_scope,
 )
 from .._shared import recording as open_recording
-from .parse import SLASH, Invalid, Local, Procedure, parse
+from .parse import SLASH, Invalid, Local, Procedure, builtin, parse
 
 
 @dataclass
@@ -187,7 +187,19 @@ async def _loop(session: Session, problems: list[str]) -> None:
         hints=("/help", "/connect", "/sources", "/exit"),
         brand=brand,
     )
-    report(problems + command_problems)
+    # One `/name` namespace, in the order `parse` reads it: built-ins, then the
+    # project's skills, then its commands — a skill wins over a command, as in Claude
+    # Code. A skill a built-in hides is reported here, since the built-ins are this
+    # shell's, and left out of `/help`; one that hides a command, by the loader.
+    runnable_skills = [s for s in resolved.skills if s.user_invocable]
+    hidden = [
+        f"skills: /{s.name} is also a built-in, which wins"
+        for s in runnable_skills
+        if builtin(s.name)
+    ]
+    skills = {s.name: s for s in runnable_skills if not builtin(s.name)}
+    runnable: dict[str, Any] = {**catalogue, **skills}
+    report(problems + command_problems + hidden)
     console.print()
 
     completer = ShellCompleter(session)
@@ -210,7 +222,7 @@ async def _loop(session: Session, problems: list[str]) -> None:
         except EOFError:
             break
 
-        parsed = parse(line, procedures=dict(catalogue))
+        parsed = parse(line, procedures=runnable)
         if parsed is None:
             continue
         if isinstance(parsed, Invalid):
@@ -219,14 +231,32 @@ async def _loop(session: Session, problems: list[str]) -> None:
                 console.print(f"  [dim]{escape(parsed.hint)}[/]")
             continue
         if isinstance(parsed, Local):
-            if _local(session, parsed, recording, catalogue):
+            if _local(session, parsed, recording, runnable):
                 break
+            continue
+        if isinstance(parsed, Procedure) and parsed.name in skills:
+            await _dispatch(
+                session, _skill(parsed, skills[parsed.name]), completer, recording
+            )
             continue
         if isinstance(parsed, Procedure):
             for command in _compile(catalogue, parsed, project_name):
                 await _dispatch(session, command, completer, recording)
             continue
         await _dispatch(session, parsed, completer, recording)
+
+
+def _skill(parsed: Procedure, skill: Skill) -> Ask:
+    """`/name [question]` for a project skill, its body held for the rest of the
+    session. The text after the name fills `$ARGUMENTS` in the body; a body without one
+    takes it as the question instead. Otherwise the agent is asked to follow the skill.
+    """
+    fills = "$ARGUMENTS" in skill.body
+    prompt = parsed.argument if parsed.argument and not fills else ""
+    return Ask(
+        prompt=prompt or f"Follow the {parsed.name} skill.",
+        skills={parsed.name: parsed.argument},
+    )
 
 
 def _compile(

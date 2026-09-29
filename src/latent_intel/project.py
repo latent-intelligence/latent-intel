@@ -31,6 +31,7 @@ import yaml
 
 from . import procedures
 from .config import SourceSpec
+from .models import Skill
 
 #: How a persona meets our own prompt. `append` adds it after ours; `replace` puts it
 #: in place of the posture line — and of that line only, never the sources inventory,
@@ -160,43 +161,175 @@ def _persona(
     return text.strip(), mode
 
 
-def _skills(directory: Path | None, problems: list[str]) -> list[tuple[str, str]]:
-    """Every `*.md` in a project's skills directory, as `(name, body)`.
+def _skills(directory: Path | None, problems: list[str]) -> list[Skill]:
+    """Every skill in a project's skills directory, in name order.
 
-    Filename order, so what the model is given is what the directory listing says.
-    `name` comes from a frontmatter `name:` when there is one and from the filename
-    otherwise — a skill is prose, and requiring a header to have any would be a
-    ceremony with no reader. One unreadable file is reported and skipped rather than
-    costing a deployment its other four.
+    Two layouts, freely mixed: a flat `name.md`, and the Agent Skills layout
+    `name/SKILL.md` that Claude Code, the Agent SDK and MCP-served skills all read — so
+    one skills directory serves every one of them. Name order, so what the model is
+    given is what the directory listing says. One unreadable skill is reported and
+    skipped rather than costing a deployment its other four.
 
-    A leading block counts as frontmatter only when it is a mapping with a `name:`.
-    Frontmatter is optional here, so a prose file that opens with a thematic break —
-    `---` above a rule, say — is prose, and consuming its first paragraph as metadata
-    would hand the model a skill quietly missing a sentence its author wrote.
+    Both failures this used to be silent about are problems now: a subdirectory with
+    no `SKILL.md` loaded nothing and said nothing, and two skills with one name would
+    make `load_skill` return whichever came first. The first in name order is kept.
+    Only `SKILL.md` is read from a skill directory; its other files are not served.
     """
-    found: list[tuple[str, str]] = []
+    found: list[Skill] = []
     if directory is None:
         return found
-    for path in sorted(directory.glob("*.md")):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            problems.append(f"skills: {exc}")
+    seen: set[str] = set()
+    for path in sorted(directory.iterdir(), key=lambda p: p.name):
+        if path.name.startswith("."):
             continue
-        block, body = procedures.split_frontmatter(text)
-        name = path.stem
-        if block is not None:
-            try:
-                meta = yaml.safe_load(block)
-            except yaml.YAMLError as exc:
-                problems.append(f"skills: {path.name}: {exc}")
+        if path.is_dir():
+            source, fallback = path / "SKILL.md", path.name
+            if not source.is_file():
+                problems.append(f"skills: {path.name}/ has no SKILL.md")
                 continue
-            if isinstance(meta, dict) and meta.get("name"):
-                name = str(meta["name"])
-            else:
-                body = text  # a thematic break, not a header — see the docstring
-        found.append((name, body.strip()))
+        elif path.suffix == ".md":
+            source, fallback = path, path.stem
+        else:
+            continue
+        label = source.relative_to(directory).as_posix()
+        skill = _skill(source, fallback, label, problems)
+        if skill is None:
+            continue
+        if skill.name in seen:
+            problems.append(
+                f"skills: {label}: a skill named '{skill.name}' already loaded"
+            )
+            continue
+        seen.add(skill.name)
+        found.append(skill)
     return found
+
+
+def _skill(path: Path, fallback: str, label: str, problems: list[str]) -> Skill | None:
+    """One skill file, read with Claude Code's frontmatter and Claude Code's defaults.
+
+    A skill is prose, and requiring a header to have any would be a ceremony with no
+    reader. A leading block counts as frontmatter only when it is a mapping with one of
+    the skill keys. Frontmatter is optional here, so a prose file that opens with a
+    thematic break — `---` above a rule, say — is prose, and consuming its first
+    paragraph as metadata would hand the model a skill quietly missing a sentence its
+    author wrote.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        problems.append(f"skills: {exc}")
+        return None
+    block, body = procedures.split_frontmatter(text)
+    meta: dict[str, Any] = {}
+    if block is not None:
+        try:
+            parsed = yaml.safe_load(block)
+        except yaml.YAMLError as exc:
+            problems.append(f"skills: {label}: {exc}")
+            return None
+        if isinstance(parsed, dict) and _SKILL_KEYS & set(parsed):
+            meta = parsed
+        else:
+            body = text  # a thematic break, not a header — see the docstring
+    body = body.strip()
+    skill = Skill(
+        name=str(meta.get("name") or fallback),
+        body=body,
+        description=_description(meta, body),
+        model_invocable=not _flag(meta.get("disable-model-invocation"), False),
+        user_invocable=_flag(meta.get("user-invocable"), True),
+    )
+    problems += [f"skills: {label}: {issue}" for issue in _unhonoured(skill, meta)]
+    return skill
+
+
+def _unhonoured(skill: Skill, meta: dict[str, Any]) -> list[str]:
+    """What this skill asks for that this build will not do — said, not dropped.
+
+    A key Claude Code acts on and we ignore (a model override, a forked context, a tool
+    grant) would otherwise do nothing while the file says it is on.
+    """
+    issues: list[str] = []
+    if ignored := sorted(_IGNORED_KEYS & set(meta)):
+        issues.append(f"ignores {', '.join(ignored)} — this build does not act on them")
+    if any(c.isspace() for c in skill.name):
+        issues.append(f"'{skill.name}' has a space in it, so /name cannot run it")
+    if not skill.model_invocable and not skill.user_invocable:
+        issues.append(
+            "disable-model-invocation and user-invocable: false together leave nobody "
+            "to run it"
+        )
+    if _POSITIONAL.search(skill.body):
+        issues.append(
+            "uses $N or $ARGUMENTS[N], which this build does not substitute — "
+            "only $ARGUMENTS"
+        )
+    return issues
+
+
+#: The frontmatter keys this build acts on.
+_HONOURED_KEYS = frozenset(
+    {"name", "description", "when_to_use", "disable-model-invocation", "user-invocable"}
+)
+
+#: Claude Code's other keys. They still make a block frontmatter; those that change
+#: behaviour are reported. `argument-hint`, `metadata`, `license` and `compatibility`
+#: change nothing, so ignoring them is not a problem.
+_IGNORED_KEYS = frozenset(
+    {
+        "arguments",
+        "allowed-tools",
+        "disallowed-tools",
+        "model",
+        "effort",
+        "context",
+        "agent",
+        "background",
+        "hooks",
+        "paths",
+        "shell",
+    }
+)
+
+#: The frontmatter keys that make a leading block a skill header rather than prose.
+_SKILL_KEYS = _HONOURED_KEYS | _IGNORED_KEYS | {
+    "argument-hint",
+    "metadata",
+    "license",
+    "compatibility",
+}
+
+#: Claude Code's positional forms. Only `$ARGUMENTS` itself is substituted here.
+_POSITIONAL = re.compile(r"\$ARGUMENTS\[\d+\]|\$\d+\b")
+
+#: Claude Code truncates `description` plus `when_to_use` here in its skill listing.
+DESCRIPTION_LIMIT = 1536
+
+
+def _description(meta: dict[str, Any], body: str) -> str:
+    """What the model reads to decide whether to load a skill, as Claude Code builds it.
+
+    `description`, else the body's first non-empty line; `when_to_use` appended; one
+    line, whatever the author wrapped it to, since it becomes one line of the listing.
+    """
+    first = next((line for line in body.splitlines() if line.strip()), "")
+    parts = [str(meta.get("description") or first.lstrip("#")), meta.get("when_to_use")]
+    text = " ".join(" ".join(str(part).split()) for part in parts if part)
+    return text[:DESCRIPTION_LIMIT]
+
+
+def _flag(value: Any, default: bool) -> bool:
+    """A frontmatter boolean, read as Claude Code reads one: `true`/`false`, `yes`/`no`,
+    `on`/`off`, `1`/`0`, any case. Anything else is the default."""
+    if isinstance(value, bool):
+        return value
+    word = str(value).strip().lower()
+    if word in {"true", "yes", "on", "1"}:
+        return True
+    if word in {"false", "no", "off", "0"}:
+        return False
+    return default
 
 
 @dataclass
@@ -219,8 +352,10 @@ class Project:
     #: reader of it wants the text and only this module knows where the file was.
     persona: str = ""
     persona_mode: str = "append"
-    #: `(name, body)` per skill, in filename order — what a turn is given whole.
-    skills: list[tuple[str, str]] = field(default_factory=list)
+    #: In name order. Listed for the model to load on demand unless marked
+    #: `disable-model-invocation`; runnable by hand as `/name` unless `user-invocable:
+    #: false`.
+    skills: list[Skill] = field(default_factory=list)
     defaults: dict[str, Any] = field(default_factory=dict)
     #: Validation complaints. Non-fatal by design: a project with one bad source should
     #: still attach the other four, and `doctor` is where you go to find out why.
@@ -301,6 +436,16 @@ def load(path: Path | str) -> Project:
     agent = dict(raw.get("agent") or {})
     persona, persona_mode = _persona(agent, base, variables, problems)
     skills_dir = directory("skills")
+    commands_dir = directory("commands")
+    skills = _skills(skills_dir, problems)
+    # One `/name` namespace: a skill wins over a project command of the same name, as
+    # in Claude Code, and saying so is the difference between a shadow and a mystery.
+    commands, _ = procedures.discover(commands_dir)
+    problems += [
+        f"skills: /{s.name} is also a project command; the skill wins"
+        for s in skills
+        if s.user_invocable and s.name in commands
+    ]
 
     registry: str | None = None
     if registry_value := raw.get("registry"):
@@ -319,11 +464,11 @@ def load(path: Path | str) -> Project:
         sources=sources,
         branding=dict(raw.get("branding") or {}),
         agent=agent,
-        commands_dir=directory("commands"),
+        commands_dir=commands_dir,
         skills_dir=skills_dir,
         persona=persona,
         persona_mode=persona_mode,
-        skills=_skills(skills_dir, problems),
+        skills=skills,
         defaults=dict(raw.get("defaults") or {}),
         problems=problems,
     )

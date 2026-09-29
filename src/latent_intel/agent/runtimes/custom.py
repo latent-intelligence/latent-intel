@@ -249,6 +249,8 @@ class CustomRuntime:
             persona=options.get("persona") or "",
             persona_mode=options.get("persona_mode") or "append",
             skills=options.get("skills") or (),
+            loader=turn.loader(wired),
+            invoked=options.get("invoked") or (),
         )
         transcript = adapter.transcript(messages, system)
         # The runtime's override, then the row's, then whatever the adapter defaults

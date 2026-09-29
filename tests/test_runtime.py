@@ -24,7 +24,7 @@ from latent_intel.agent.runtimes.claude_cli import (
     build_argv,
     sanitise,
 )
-from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
+from latent_intel.models import Effect, Message, RuntimeUnavailable, Skill, ToolSpec
 
 FAKE = Path(__file__).parent / "fixtures" / "fake_claude.py"
 
@@ -142,7 +142,7 @@ async def test_a_persona_and_its_skills_reach_the_shelled_out_binary(
         "text",
         sources=[Descriptor(id="design", kind="wiki")],
         persona="You are an archivist.",
-        skills=[("citation-style", "Cite inline.")],
+        skills=[Skill(name="citation-style", body="Cite inline.")],
     )
 
     prompt = seen["system_prompt"]
@@ -330,3 +330,34 @@ async def test_an_unfindable_command_fails_as_an_event_not_an_exception() -> Non
     assert len(events) == 1
     assert isinstance(events[0], ev.AgentFailed)
     assert events[0].kind == "runtime_error"
+
+
+@pytest.mark.anyio
+async def test_claude_cli_gets_skill_bodies_and_never_the_engine_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Engine tools are in-process only, so the delegated runtime is given the bodies
+    — and `load_skill` must not reach its allow-list, where nothing could serve it."""
+    from latent_intel.agent import tools as engine_tools
+
+    seen: dict[str, object] = {}
+    real = claude_cli.build_argv
+
+    def record(command: list[str], **options: object) -> list[str]:
+        seen.update(options)
+        return real(command, **options)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(claude_cli, "build_argv", record)
+    skills = [Skill(name="citation-style", body="Cite inline.", description="d")]
+    await collect(
+        "text",
+        tools=engine_tools.specs(skills),
+        skills=skills,
+        invoked=[Skill(name="deploy", body="Ship it.")],
+    )
+
+    prompt = seen["system_prompt"]
+    assert isinstance(prompt, str)
+    assert "## citation-style\n\nCite inline." in prompt
+    assert "## deploy\n\nShip it." in prompt
+    assert seen["allow"] == []

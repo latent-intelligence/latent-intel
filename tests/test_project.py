@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from latent_intel import project
+from latent_intel.models import Skill
 
 
 def write(directory: Path, name: str, body: str) -> Path:
@@ -248,10 +249,97 @@ def test_skills_load_in_filename_order_and_name_themselves(tmp_path: Path) -> No
     loaded = project.load(path)
 
     assert loaded.skills == [
-        ("citation-style", "Cite inline."),
-        ("b-plain", "No frontmatter here."),
+        Skill(name="citation-style", body="Cite inline.", description="Cite inline."),
+        Skill(
+            name="b-plain",
+            body="No frontmatter here.",
+            description="No frontmatter here.",
+        ),
     ]
     assert loaded.problems == []
+
+
+def test_the_standard_layout_and_flat_files_load_together_in_name_order(
+    tmp_path: Path,
+) -> None:
+    """`name/SKILL.md` is what Claude Code, the Agent SDK and MCP-served skills read,
+    so one skills directory can serve all of them and this engine. It used to load
+    nothing, silently."""
+    skills = tmp_path / "skills"
+    (skills / "b-outline").mkdir(parents=True)
+    (skills / "b-outline" / "SKILL.md").write_text(
+        "---\nname: outline\ndescription: >\n  How to outline\n  a report.\n"
+        "---\nBody.\n",
+        encoding="utf-8",
+    )
+    (skills / "b-outline" / "reference.md").write_text("Not a skill.\n")
+    (skills / "c-store").mkdir()
+    (skills / "c-store" / "SKILL.md").write_text("Unnamed store notes.\n")
+    (skills / "a-flat.md").write_text("Flat.\n", encoding="utf-8")
+    (skills / "notes.txt").write_text("Not markdown.\n")
+    path = write(tmp_path, "mixed", "skills: ./skills\n")
+
+    loaded = project.load(path)
+
+    assert loaded.skills == [
+        Skill(name="a-flat", body="Flat.", description="Flat."),
+        Skill(name="outline", body="Body.", description="How to outline a report."),
+        Skill(
+            name="c-store",
+            body="Unnamed store notes.",
+            description="Unnamed store notes.",
+        ),
+    ]
+    assert loaded.problems == []
+
+
+def test_a_skill_directory_without_skill_md_is_a_problem(tmp_path: Path) -> None:
+    """The failure this layout used to have, made loud: a folder that loads nothing."""
+    skills = tmp_path / "skills"
+    (skills / "empty").mkdir(parents=True)
+    (skills / "empty" / "skill.markdown").write_text("Misnamed.\n")
+    (skills / "fine.md").write_text("Fine.\n")
+    path = write(tmp_path, "hollow", "skills: ./skills\n")
+
+    loaded = project.load(path)
+
+    assert [s.name for s in loaded.skills] == ["fine"]
+    assert loaded.problems == ["skills: empty/ has no SKILL.md"]
+
+
+def test_two_skills_with_one_name_keep_the_first_and_say_so(tmp_path: Path) -> None:
+    """A name is an address once skills load on demand; a silent shadow would hand the
+    model the wrong text."""
+    skills = tmp_path / "skills"
+    (skills / "cite").mkdir(parents=True)
+    (skills / "cite" / "SKILL.md").write_text("From the folder.\n")
+    (skills / "cite.md").write_text("From the flat file.\n")
+    path = write(tmp_path, "twice", "skills: ./skills\n")
+
+    loaded = project.load(path)
+
+    assert [(s.name, s.body) for s in loaded.skills] == [("cite", "From the folder.")]
+    assert len(loaded.problems) == 1 and "cite.md" in loaded.problems[0]
+
+
+def test_a_description_alone_is_frontmatter_and_the_filename_still_names(
+    tmp_path: Path,
+) -> None:
+    """A flat file can carry a description without having to rename itself."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "corpus-map.md").write_text(
+        "---\ndescription: What lives where.\n---\nTwo directories.\n"
+    )
+    path = write(tmp_path, "described", "skills: ./skills\n")
+
+    loaded = project.load(path)
+
+    assert loaded.skills == [
+        Skill(
+            name="corpus-map", body="Two directories.", description="What lives where."
+        )
+    ]
 
 
 def test_one_unreadable_skill_is_skipped_while_the_others_still_load(
@@ -269,7 +357,7 @@ def test_one_unreadable_skill_is_skipped_while_the_others_still_load(
 
     loaded = project.load(path)
 
-    assert [name for name, _ in loaded.skills] == ["good", "later"]
+    assert [s.name for s in loaded.skills] == ["good", "later"]
     assert len(loaded.problems) == 1 and "broken.md" in loaded.problems[0]
 
 
@@ -348,7 +436,7 @@ def test_a_skill_opening_with_a_thematic_break_keeps_its_first_paragraph(
     loaded = project.load(tmp_path / "p.yaml")
 
     assert loaded.problems == []
-    by_name = dict(loaded.skills)
+    by_name = {s.name: s.body for s in loaded.skills}
     assert by_name["rule"].startswith("---\nRule: cite the earlier page")
     assert by_name["prose"].startswith("---\nHow this corpus")
 
@@ -366,3 +454,90 @@ def test_a_persona_that_is_not_utf8_is_a_problem_not_a_crash(tmp_path: Path) -> 
 
     assert loaded.persona == ""
     assert any(problem.startswith("persona:") for problem in loaded.problems)
+
+
+def test_a_description_is_built_the_way_claude_code_builds_it(tmp_path: Path) -> None:
+    """`description`, else the body's first line; `when_to_use` appended; capped."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "a.md").write_text("\n# Release checklist\n\nBody.\n")
+    (skills / "b.md").write_text(
+        "---\ndescription: Outline a report.\n"
+        "when_to_use: >\n  Asked for\n  a summary.\n"
+        "---\nBody.\n"
+    )
+    (skills / "c.md").write_text(f"---\ndescription: {'x' * 2000}\n---\nBody.\n")
+    path = write(tmp_path, "described", "skills: ./skills\n")
+
+    by_name = {s.name: s.description for s in project.load(path).skills}
+
+    assert by_name["a"] == "Release checklist"
+    assert by_name["b"] == "Outline a report. Asked for a summary."
+    assert len(by_name["c"]) == project.DESCRIPTION_LIMIT
+
+
+def test_invocation_flags_are_read_as_claude_code_reads_them(tmp_path: Path) -> None:
+    """Its defaults and its spellings: `On` and `0` included."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "deploy.md").write_text("---\ndisable-model-invocation: On\n---\nShip.\n")
+    (skills / "lore.md").write_text("---\nuser-invocable: 0\n---\nOld system.\n")
+    (skills / "plain.md").write_text("Plain.\n")
+    path = write(tmp_path, "flags", "skills: ./skills\n")
+
+    loaded = project.load(path)
+    flags = {s.name: (s.model_invocable, s.user_invocable) for s in loaded.skills}
+
+    assert flags == {
+        "deploy": (False, True),
+        "lore": (True, False),
+        "plain": (True, True),
+    }
+    assert loaded.problems == []
+
+
+def test_a_skill_named_like_a_project_command_is_a_problem(tmp_path: Path) -> None:
+    """One `/name` space: the skill wins, as in Claude Code, and the loader says so."""
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "skills" / "brief.md").write_text("A skill.\n")
+    (tmp_path / "commands").mkdir()
+    (tmp_path / "commands" / "brief.md").write_text(
+        "---\nkind: prompt\ndescription: d\n---\nWrite a brief.\n"
+    )
+    path = write(tmp_path, "clash", "skills: ./skills\ncommands: ./commands\n")
+
+    assert project.load(path).problems == [
+        "skills: /brief is also a project command; the skill wins"
+    ]
+
+
+def test_what_a_skill_asks_for_and_this_build_will_not_do_is_said(
+    tmp_path: Path,
+) -> None:
+    """Claude Code's other keys still make a block frontmatter — a `SKILL.md` with only
+    `allowed-tools` used to be sent as body, listed as `- pdf — ---`. The ones that
+    change behaviour are reported rather than silently dropped; so are a name `/name`
+    cannot reach, a skill nobody may run, and positional arguments."""
+    skills = tmp_path / "skills"
+    (skills / "pdf").mkdir(parents=True)
+    (skills / "pdf" / "SKILL.md").write_text(
+        "---\nallowed-tools: Read\nargument-hint: [file]\n---\nRead the PDF.\n"
+    )
+    (skills / "spaced.md").write_text("---\nname: Report Outline\n---\nOutline it.\n")
+    (skills / "dead.md").write_text(
+        "---\ndisable-model-invocation: true\nuser-invocable: false\n---\nNobody.\n"
+    )
+    (skills / "positional.md").write_text("Compare $0 with $ARGUMENTS[1].\n")
+    (skills / "whole.md").write_text("Review $ARGUMENTS carefully.\n")
+    path = write(tmp_path, "asks", "skills: ./skills\n")
+
+    loaded = project.load(path)
+    pdf = next(s for s in loaded.skills if s.name == "pdf")
+
+    assert (pdf.description, pdf.body) == ("Read the PDF.", "Read the PDF.")
+    assert len(loaded.problems) == 4, loaded.problems
+    joined = "\n".join(loaded.problems)
+    assert "pdf/SKILL.md: ignores allowed-tools" in joined
+    assert "'Report Outline' has a space" in joined
+    assert "dead.md: disable-model-invocation and user-invocable: false" in joined
+    assert "positional.md: uses $N or $ARGUMENTS[N]" in joined

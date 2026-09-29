@@ -161,6 +161,22 @@ class ToolSpec(BaseModel):
         return f"{self.source_id}.{self.name}"
 
 
+class Skill(BaseModel):
+    """One project skill, as loaded.
+
+    `description` is the line a model reads to decide whether to load the body, built
+    the way Claude Code builds it. The two flags are Claude Code's frontmatter, with its
+    defaults: `model_invocable` is `disable-model-invocation` inverted, and
+    `user_invocable` is `user-invocable`.
+    """
+
+    name: str
+    body: str
+    description: str = ""
+    model_invocable: bool = True
+    user_invocable: bool = True
+
+
 class Artifact(BaseModel):
     """Something produced during a session that outlives the message it appeared in."""
 
@@ -302,6 +318,7 @@ __all__ = [
     "RuntimeReport",
     "RuntimeUnavailable",
     "SessionError",
+    "Skill",
     "SourceRequest",
     "ToolSpec",
 ]
