@@ -24,8 +24,9 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from .. import events as ev
-from ..models import Effect, ToolSpec
+from ..models import Effect, Skill, ToolSpec
 from . import hosts
+from . import tools as engine_tools
 
 #: What the router is, as a type. A `Session.call_tool` bound method satisfies it, and
 #: so does a test's lambda — a Protocol here would buy nothing over the signature.
@@ -92,9 +93,7 @@ class ToolNameCollision(ValueError):
     """
 
 
-def wired(
-    tools: Sequence[ToolSpec], approval: str
-) -> list[tuple[str, ToolSpec]]:
+def wired(tools: Sequence[ToolSpec], approval: str) -> list[tuple[str, ToolSpec]]:
     """The tools this turn offers, each paired with the name it goes out under.
 
     The one place `offered` and `wire_name` are composed, so both runtimes get the
@@ -137,7 +136,9 @@ def system_prompt(
     *,
     persona: str = "",
     persona_mode: str = "append",
-    skills: Sequence[tuple[str, str]] = (),
+    skills: Sequence[Skill] = (),
+    loader: str | None = None,
+    invoked: Sequence[Skill] = (),
 ) -> str:
     """Tell the agent what it is looking at, how to cite it, and who it is.
 
@@ -153,6 +154,12 @@ def system_prompt(
     A source's own `description` is printed under its line when it declares one: asked
     what a store was *about*, every model answered that it could not tell, because
     nothing in the prompt said. Generic — any connector may declare one.
+
+    Skills the model may use arrive one of two ways. With `loader` — the wire name
+    `load_skill` was offered under — each is one listing line and its body loads on
+    demand, as in Claude Code. Without one they are sent whole: `claude-cli` is never
+    offered engine tools. A skill marked `disable-model-invocation` is in neither.
+    A skill a person ran with `/name` is `invoked`, and always sent whole, last.
     """
     lines: list[str] = []
     if sources:
@@ -175,9 +182,42 @@ def system_prompt(
         lines.append(POSTURE)
     if persona:
         lines += ["", persona] if lines else [persona]
-    for name, body in skills:
-        lines += ([""] if lines else []) + [f"## {name}", "", body.strip()]
+    usable = [skill for skill in skills if skill.model_invocable]
+    listed = usable if loader else []
+    if listed:
+        lines += [""] if lines else []
+        lines += [
+            "## Skills",
+            "",
+            f"Load one with `{loader}` before answering a question it covers:",
+        ]
+        lines += [
+            f"- {skill.name} — {skill.description}"
+            if skill.description
+            else f"- {skill.name}"
+            for skill in listed
+        ]
+    whole = [*invoked] if listed else [*usable, *invoked]
+    for skill in whole:
+        lines += [""] if lines else []
+        lines += [f"## {skill.name}", "", skill.body.strip()]
     return "\n".join(lines)
+
+
+def loader(wired: Sequence[tuple[str, ToolSpec]]) -> str | None:
+    """The wire name `load_skill` goes out under this turn, or None when it is not
+    offered — which is what tells `system_prompt` to send skills whole.
+
+    Read off what was actually wired rather than assumed: a prompt naming a tool the
+    model was not given would send it looking for one that is not there.
+    """
+    for name, spec in wired:
+        if (
+            spec.source_id == engine_tools.ENGINE_ID
+            and spec.name == engine_tools.LOAD_SKILL
+        ):
+            return name
+    return None
 
 
 def status_message(exc: Any) -> str:

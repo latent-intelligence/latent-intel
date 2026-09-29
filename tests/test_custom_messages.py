@@ -24,7 +24,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel.agent.runtimes.custom import ENV_HOST, CustomRuntime
-from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
+from latent_intel.models import Effect, Message, RuntimeUnavailable, Skill, ToolSpec
 from tests.fixtures.fake_anthropic import FakeClient, Round, Usage
 
 try:  # the installed SDK (1.x) builds its errors from httpx2; the 0.x line used httpx
@@ -301,7 +301,7 @@ async def test_a_persona_and_its_skills_reach_the_model_too(credentials: None) -
         runtime(client_factory=client),
         sources=[Descriptor(id="design", kind="wiki")],
         persona="You are an archivist.",
-        skills=[("citation-style", "Cite inline.")],
+        skills=[Skill(name="citation-style", body="Cite inline.")],
     )
     system = client.requests[0]["system"]
     assert "You are an archivist." in system
@@ -870,3 +870,35 @@ def test_the_anthropic_row_is_built_with_no_base_url_at_all(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
     seen = built(monkeypatch, client="AsyncAnthropic", host="anthropic")
     assert seen == {"api_key": "k", "base_url": None}
+
+
+def _engine_tool() -> ToolSpec:
+    from latent_intel.agent import tools as engine_tools
+
+    return engine_tools.specs(
+        [Skill(name="citation-style", body="x", description="d")]
+    )[0]
+
+
+@pytest.mark.anyio
+async def test_with_load_skill_offered_skills_are_a_listing_not_bodies(
+    credentials: None,
+) -> None:
+    """The body loads when the model asks; the listing names the tool by the exact
+    name it was offered under."""
+    client = FakeClient(Round(text=("hi",)))
+    await collect(
+        runtime(client_factory=client),
+        tools=[_engine_tool()],
+        skills=[
+            Skill(
+                name="citation-style", body="Cite inline.", description="How to cite."
+            )
+        ],
+        invoked=[Skill(name="deploy", body="Ship it.")],
+    )
+    system = client.requests[0]["system"]
+    assert "- citation-style — How to cite." in system
+    assert "`engine_load_skill`" in system
+    assert "Cite inline." not in system
+    assert "## deploy\n\nShip it." in system

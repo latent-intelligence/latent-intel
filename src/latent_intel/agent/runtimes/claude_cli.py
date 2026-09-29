@@ -270,6 +270,7 @@ class ClaudeCliRuntime:
                 persona=options.get("persona") or "",
                 persona_mode=options.get("persona_mode") or "append",
                 skills=options.get("skills") or (),
+                invoked=options.get("invoked") or (),
             ),
         )
         declared = {(t.source_id, t.name): t for t in tools}

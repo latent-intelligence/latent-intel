@@ -55,6 +55,10 @@ class Fetch(BaseModel):
 class Ask(BaseModel):
     type: Literal["ask"] = "ask"
     prompt: str
+    #: Skills a person ran with `/name`, each with the text typed after it — which
+    #: fills `$ARGUMENTS` in its body. The bodies stay in the prompt for the rest of the
+    #: session, as an invoked skill stays in a Claude Code conversation.
+    skills: dict[str, str] = Field(default_factory=dict)
 
 
 Command = Annotated[

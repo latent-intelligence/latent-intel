@@ -36,6 +36,7 @@ from . import events as ev
 from . import registry
 from . import settings as settings_module
 from .agent import base as agent
+from .agent import tools as engine_tools
 from .commands import (
     Ask,
     Command,
@@ -59,6 +60,7 @@ from .models import (
     RuntimeReport,
     RuntimeUnavailable,
     SessionError,
+    Skill,
     SourceRequest,
     ToolSpec,
 )
@@ -104,6 +106,11 @@ class Session:
         #: Source id -> failure message, reset by each `find`. Read by `run` so a search
         #: that partly failed says which part, rather than looking like an empty corpus.
         self._failures: dict[str, str] = {}
+        #: Skills a person ran with `/name`, in order, each with its arguments. Held
+        #: for the session — and dropped when the project changes, or a new project's
+        #: skill of the same name would arrive without anyone having run it.
+        self._invoked: dict[str, str] = {}
+        self._invoked_in: str | None = None
 
     # -- typed API ------------------------------------------------------------
 
@@ -129,6 +136,7 @@ class Session:
             target = registry.expand(spec)
             source_id = source_id or _id_from(target)
 
+        _claim(source_id)
         if source_id in self._connectors:
             raise ConnectError(
                 f"'{source_id}' is already connected — disconnect it first, "
@@ -177,6 +185,7 @@ class Session:
                 else:
                     kind, target = request.kind, registry.expand(request.spec)
                     source_id = request.source_id or _id_from(target)
+                _claim(source_id)
                 opened[index] = (
                     source_id,
                     await connectors.open_connector(
@@ -479,15 +488,18 @@ class Session:
         return servers
 
     def tools(self) -> list[ToolSpec]:
-        """The router's namespace: every tool every connected source offers.
+        """The router's namespace: every tool every connected source offers, and the
+        engine's own.
 
         Names are qualified with the source id, so two sources may both offer `search`
-        without one shadowing the other.
+        without one shadowing the other. The engine's are under a reserved id — see
+        `agent/tools.py`.
         """
         specs: list[ToolSpec] = []
         for connector in self._connectors.values():
             if isinstance(connector, connectors.ToolProvider):
                 specs.extend(connector.tools())
+        specs.extend(engine_tools.specs(settings_module.load().skills))
         return specs
 
     async def call_tool(
@@ -499,6 +511,10 @@ class Session:
         into a `ToolResult` with `ok=False`, which is a different thing on the wire
         from output; a string would reach the model looking like an answer.
         """
+        if source_id == engine_tools.ENGINE_ID:
+            return await engine_tools.call(
+                settings_module.load().skills, name, arguments
+            )
         connector = self._connectors.get(source_id)
         if connector is None:
             raise SessionError(f"'{source_id}' is not connected")
@@ -552,7 +568,9 @@ class Session:
             )
         return await connector.fetch(parsed.key)
 
-    async def ask(self, prompt: str) -> AsyncIterator[ev.AgentEvent]:
+    async def ask(
+        self, prompt: str, *, skills: dict[str, str] | None = None
+    ) -> AsyncIterator[ev.AgentEvent]:
         """One turn through the configured runtime.
 
         The runtime is resolved on first use rather than in `__init__`: a `Session` is
@@ -562,9 +580,15 @@ class Session:
         Persona and skills travel beside `sources` rather than as runtime options: they
         are the project's, not one runtime's, and resolving them here is what stops
         every runtime re-reading the project to find them.
+
+        `skills` are the skills a person ran with `/name`, each with its arguments. Each
+        is checked before the turn starts, then held for the session: its body, with
+        `$ARGUMENTS` filled, is sent whole on this turn and every later one, and it
+        leaves the listing.
         """
         runtime = self._resolve_runtime()
         resolved = settings_module.load()
+        self._invoke(skills or {}, resolved.project_name, resolved.skills)
         emitter = ev.Emitter(self.session_id)
         self._history.append(Message(role="user", text=prompt))
         async for event in runtime.stream(
@@ -575,12 +599,36 @@ class Session:
             sources=self.sources(),
             persona=resolved.persona,
             persona_mode=resolved.persona_mode,
-            skills=resolved.skills,
+            skills=[s for s in resolved.skills if s.name not in self._invoked],
+            invoked=[
+                s.model_copy(
+                    update={"body": s.body.replace("$ARGUMENTS", self._invoked[s.name])}
+                )
+                for s in resolved.skills
+                if s.name in self._invoked
+            ],
             call_tool=self.call_tool,
         ):
             if isinstance(event, ev.AgentCompleted):
                 self._history.append(Message(role="assistant", text=event.text))
             yield event
+
+    def _invoke(
+        self, requested: dict[str, str], project: str | None, available: Sequence[Skill]
+    ) -> None:
+        """Record skills a person ran, refusing any they may not run.
+
+        All or none: a typo in the second name must not leave the first half-applied.
+        Running one again replaces its arguments.
+        """
+        if project != self._invoked_in:
+            self._invoked, self._invoked_in = {}, project
+        runnable = {s.name for s in available if s.user_invocable}
+        for name in requested:
+            if name not in runnable:
+                listed = ", ".join(f"/{n}" for n in sorted(runnable)) or "none"
+                raise SessionError(f"no skill /{name} to run — runnable: {listed}")
+        self._invoked.update(requested)
 
     def _resolve_runtime(self) -> agent.Runtime:
         """The configured runtime, or a failure naming what to do about it."""
@@ -676,8 +724,10 @@ class Session:
                 yield emit.emit(ev.DocumentFetched, doc=await self.fetch(command.ref))
 
             elif isinstance(command, Ask):
-                yield emit.emit(ev.UserMessage, text=command.prompt)
-                async for event in self.ask(command.prompt):
+                yield emit.emit(
+                    ev.UserMessage, text=command.prompt, skills=list(command.skills)
+                )
+                async for event in self.ask(command.prompt, skills=command.skills):
                     yield event
 
         except SessionError as exc:
@@ -704,6 +754,16 @@ class Session:
             for name, connector in self._connectors.items()
             if connector.describe().can(Capability.SEARCH)
         ]
+
+
+def _claim(source_id: str) -> None:
+    """Refuse the id the engine's own tools are qualified by. A source under it would
+    shadow `load_skill`, or have its tools shadowed by the engine's."""
+    if source_id == engine_tools.ENGINE_ID:
+        raise ConnectError(
+            f"'{source_id}' is reserved for the engine's own tools — attach it under "
+            f"another id"
+        )
 
 
 def _id_from(target: str) -> str:

@@ -219,6 +219,7 @@ once it has chosen…
 | `/runtime [name]` `/model [name]` `/host [name]` | which backend answers `ask`, which model it uses, which host it talks to |
 | `/hosts` | every host either runtime can reach, and what each one needs |
 | `/clear` `/exit` | clear the screen · leave (Ctrl-D also leaves) |
+| `/<skill> [question]` | run one of the project's skills; it stays for the session — see [skills](configuring-a-deployment.md#persona-and-skills) |
 | `search <query>` | every attached source, grouped |
 | `open <source:key>` | one document in full |
 | `ask <question>` | the agent — see [runtimes](#no-agent-runtime-configured) |

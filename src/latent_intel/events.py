@@ -75,6 +75,9 @@ class BaseEvent(BaseModel):
 class UserMessage(BaseEvent):
     type: Literal["user_message"] = "user_message"
     text: str
+    #: Skills this message ran with `/name`. Their bodies stay in the prompt for the
+    #: rest of the session, which a recording could not show without this.
+    skills: list[str] = Field(default_factory=list)
 
 
 # -- what the model said ----------------------------------------------------

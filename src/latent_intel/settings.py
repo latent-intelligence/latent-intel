@@ -23,6 +23,7 @@ from typing import Any
 from . import config as config_module
 from . import project as project_module
 from .config import SourceSpec
+from .models import Skill
 
 #: One resolved view per process. `config.load()` is called up to four times in a single
 #: `/runtime` keystroke and three times in `doctor`; this is the fix for all of them.
@@ -48,7 +49,7 @@ class Settings:
     #: config — so there is nothing here for a later layer to win over.
     persona: str = ""
     persona_mode: str = "append"
-    skills: list[tuple[str, str]] = field(default_factory=list)
+    skills: list[Skill] = field(default_factory=list)
     theme: dict[str, str] = field(default_factory=dict)
     registry_path: str | None = None
     #: key -> "engine" | "project" | "user", for `project show`.

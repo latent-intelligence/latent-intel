@@ -23,7 +23,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel.agent.runtimes.openai_agents import ENV_HOST, OpenAIAgentsRuntime
-from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
+from latent_intel.models import Effect, Message, RuntimeUnavailable, Skill, ToolSpec
 from tests.fixtures.fake_agents import (
     FakeRunner,
     InputTokensDetails,
@@ -317,7 +317,7 @@ async def test_a_persona_and_its_skills_reach_the_model_too(credentials: None) -
         runtime(fake),
         sources=[Descriptor(id="design", kind="wiki")],
         persona="You are an archivist.",
-        skills=[("citation-style", "Cite inline.")],
+        skills=[Skill(name="citation-style", body="Cite inline.")],
     )
     instructions = fake.runs[0]["agent"].instructions
     assert "You are an archivist." in instructions
@@ -824,3 +824,35 @@ def test_a_row_is_built_with_the_kwargs_it_declares(
     OpenAIAgentsRuntime(host="foundry-openai", model="m")._client()
     assert seen["api_key"] == "never-printed-key"
     assert "never-printed-resource" in str(seen["base_url"])
+
+
+def _engine_tool() -> ToolSpec:
+    from latent_intel.agent import tools as engine_tools
+
+    return engine_tools.specs(
+        [Skill(name="citation-style", body="x", description="d")]
+    )[0]
+
+
+@pytest.mark.anyio
+async def test_with_load_skill_offered_skills_are_a_listing_not_bodies(
+    credentials: None,
+) -> None:
+    """The body loads when the model asks; the listing names the tool by the exact
+    name it was offered under."""
+    fake = FakeRunner(Round(text=("hi",)))
+    await collect(
+        runtime(fake),
+        tools=[_engine_tool()],
+        skills=[
+            Skill(
+                name="citation-style", body="Cite inline.", description="How to cite."
+            )
+        ],
+        invoked=[Skill(name="deploy", body="Ship it.")],
+    )
+    system = fake.runs[0]["agent"].instructions
+    assert "- citation-style — How to cite." in system
+    assert "`engine_load_skill`" in system
+    assert "Cite inline." not in system
+    assert "## deploy\n\nShip it." in system

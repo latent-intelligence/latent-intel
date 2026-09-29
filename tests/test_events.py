@@ -174,3 +174,13 @@ def test_hit_requires_provenance() -> None:
         provenance=Provenance(source_id="a", method="search"),
     )
     assert ok.provenance.method == "search"
+
+
+def test_a_user_message_s_skills_round_trip_and_an_older_one_still_parses() -> None:
+    """`skills` is additive: recorded streams from before it read as none."""
+    message = ev.Emitter(uuid4()).emit(ev.UserMessage, text="q", skills=["review"])
+    assert ev.parse_event(message.model_dump_json()) == message
+    older = message.model_dump(mode="json")
+    del older["skills"]
+    parsed = ev.parse_event(json.dumps(older))
+    assert isinstance(parsed, ev.UserMessage) and parsed.skills == []

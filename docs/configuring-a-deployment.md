@@ -130,7 +130,7 @@ work on it, a method it should follow when asked for one.
 
 ```yaml
 # ~/deployments/research/research.yaml
-skills: ./skills                      # every *.md in it, in filename order
+skills: ./skills                      # name.md or name/SKILL.md, in name order
 agent:
   persona: ./persona.md               # resolved against this file, like every path
   persona_mode: append                # or: replace
@@ -142,8 +142,9 @@ not answer"* — and nothing else: the list of attached sources is never replace
 the agent cannot use its tools without it. An unrecognized mode is reported by
 `intel project validate` and read as `append`.
 
-A skill is named by the filename, or by a `name:` in its frontmatter when you want
-another name:
+A skill is either a flat `name.md` or a folder `name/SKILL.md` — the layout Claude Code
+and the Agent SDK read, so one skills folder serves both. Only `SKILL.md` is read from a
+folder. A skill is named by the file or folder, or by a `name:` in its frontmatter:
 
 ```markdown
 ---
@@ -152,12 +153,31 @@ name: citation-style
 Cite a single page inline as `source:key`, in the sentence that uses it.
 ```
 
-A leading `---` block counts as frontmatter only when it is a mapping with a `name:`.
-Otherwise the file is prose from its first line, and nothing is consumed.
+**Skills load on demand, as in Claude Code.** The agent sees one line per skill — its
+name and description — and loads the body with `load_skill` when a question needs it.
+The description is `description:`, else the body's first line, with `when_to_use:`
+appended. `claude-cli` cannot reach `load_skill`, so it is given the bodies instead.
 
-Skills are sent whole, so keep them to what earns its tokens. A missing persona file or
-a skill whose frontmatter will not parse is **reported and skipped** — one bad file does
-not cost a deployment its other four. `intel project validate` lists them.
+In the shell, **`/name [question]` runs a skill by hand**: its body stays in the prompt
+for the rest of the session, with `$ARGUMENTS` replaced by the text after the name. A
+built-in beats a skill and a skill beats a project command; either clash is reported.
+
+| Frontmatter | The agent may load it | `/name` runs it |
+|---|---|---|
+| *(none)* | yes | yes |
+| `disable-model-invocation: true` | no | yes |
+| `user-invocable: false` | yes | no |
+
+Two differences from Claude Code: a skill the agent loads itself is not carried into
+the next turn (it loads again when needed), and only `$ARGUMENTS` is substituted.
+Frontmatter this build does not act on — `allowed-tools`, `model`, `context` and the
+like — is reported, not silently dropped. A leading `---` block without any of Claude
+Code's skill keys is prose, not frontmatter.
+
+A missing persona file, a skill whose frontmatter will not parse, a folder with no
+`SKILL.md`, and a second skill with a name already taken are each **reported and
+skipped** — one bad file does not cost a deployment its other four. `intel project
+validate` lists them.
 
 ---
 

@@ -658,3 +658,62 @@ def test_the_prompt_takes_a_theme_override(monkeypatch: pytest.MonkeyPatch) -> N
     rules = repl._prompt_style().style_rules
     assert rules != default
     assert any("#000000" in rule for _, rule in rules)
+
+
+def test_a_skill_runs_as_slash_name_with_its_body_held_for_the_session() -> None:
+    """`/name`, as Claude Code does it: a skill joins the project's `/name` space, and
+    running it is a question with that skill attached."""
+    from latent_intel.frontends.shell.parse import Procedure
+    from latent_intel.frontends.shell.repl import _skill
+    from latent_intel.models import Skill
+
+    outline = Skill(name="outline", body="Outline the report.")
+    parsed = parse("/outline how should this be scoped?", procedures={"outline": 1})
+    assert parsed == Procedure("outline", "how should this be scoped?")
+    assert _skill(parsed, outline) == Ask(
+        prompt="how should this be scoped?",
+        skills={"outline": "how should this be scoped?"},
+    )
+    assert _skill(Procedure("outline"), outline).prompt == "Follow the outline skill."
+
+
+def test_arguments_fill_the_body_instead_of_becoming_the_question() -> None:
+    """A body that takes `$ARGUMENTS` consumes the text after the name, as in Claude
+    Code; the question becomes an instruction to follow the skill."""
+    from latent_intel.frontends.shell.parse import Procedure
+    from latent_intel.frontends.shell.repl import _skill
+    from latent_intel.models import Skill
+
+    review = Skill(name="review", body="Review paper $ARGUMENTS carefully.")
+    assert _skill(Procedure("review", "2401.01234"), review) == Ask(
+        prompt="Follow the review skill.", skills={"review": "2401.01234"}
+    )
+
+
+def test_a_project_command_or_skill_takes_the_rest_of_the_line_verbatim() -> None:
+    """A question is not shell arguments: `what's` is not an unclosed quote, and
+    quotes the person typed reach the agent."""
+    from latent_intel.frontends.shell.parse import Procedure
+
+    runnable = {"outline": 1}
+    assert parse("/outline what's the rule?", procedures=runnable) == Procedure(
+        "outline", "what's the rule?"
+    )
+    assert parse('/outline compare "a b" and c', procedures=runnable) == Procedure(
+        "outline", 'compare "a b" and c'
+    )
+
+
+def test_get_is_not_a_slash_built_in_so_a_skill_may_take_it() -> None:
+    """`get` aliases the bare verb `open`; reporting a skill named `get` as hidden
+    was wrong, since `/get` runs it."""
+    from latent_intel.frontends.shell.parse import Procedure, builtin
+
+    assert builtin("exit") and builtin("quit") and builtin("tools")
+    assert not builtin("get")
+    assert parse("/get", procedures={"get": 1}) == Procedure("get")
+
+
+def test_a_built_in_is_read_before_a_skill_of_the_same_name() -> None:
+    """A project cannot shadow `/exit`, whether it tries with a command or a skill."""
+    assert isinstance(parse("/exit", procedures={"exit": object()}), Local)

@@ -15,7 +15,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel.agent import hosts, turn
-from latent_intel.models import Capability, Descriptor, Effect, ToolSpec
+from latent_intel.models import Capability, Descriptor, Effect, Skill, ToolSpec
 
 
 @pytest.fixture
@@ -215,12 +215,15 @@ def test_a_mode_this_build_does_not_know_appends_rather_than_failing() -> None:
 
 
 def test_every_skill_arrives_whole_under_a_heading_that_names_it() -> None:
-    """Injected whole in v1: there is no built-in tool mechanism for a `skill_read`,
-    and the deployments in front of us cost less than a page of a wiki result."""
+    """With no loader offered — `claude-cli`, which cannot reach engine tools — each
+    skill arrives whole, under a heading that names it."""
     prompt = turn.system_prompt(
         [Descriptor(id="design", kind="wiki")],
         persona="You are a careful archivist.",
-        skills=[("citation-style", "Cite inline."), ("corpus-map", "Two directories.")],
+        skills=[
+            Skill(name="citation-style", body="Cite inline."),
+            Skill(name="corpus-map", body="Two directories."),
+        ],
     )
     assert "## citation-style\n\nCite inline." in prompt
     assert "## corpus-map\n\nTwo directories." in prompt
@@ -235,7 +238,9 @@ def test_a_persona_with_no_sources_is_the_whole_prompt() -> None:
     assert turn.system_prompt([], persona="Be brief.", persona_mode="replace") == (
         "Be brief."
     )
-    assert turn.system_prompt([], skills=[("a", "body")]) == "## a\n\nbody"
+    assert (
+        turn.system_prompt([], skills=[Skill(name="a", body="body")]) == "## a\n\nbody"
+    )
     assert turn.system_prompt([]) == ""
 
 
@@ -506,3 +511,53 @@ def test_an_exception_neither_sdk_defines_is_a_runtime_error_rather_than_a_crash
         "kind": "runtime_error",
         "remedy": "",
     }
+
+
+def test_with_a_loader_skills_are_listed_and_their_bodies_stay_out() -> None:
+    """Progressive disclosure, as Claude Code does it: a line each, bodies on demand."""
+    prompt = turn.system_prompt(
+        [],
+        skills=[
+            Skill(
+                name="citation-style", body="Cite inline.", description="How to cite."
+            ),
+            Skill(name="bare", body=""),
+        ],
+        loader="engine_load_skill",
+    )
+    assert "Load one with `engine_load_skill`" in prompt
+    assert "- citation-style — How to cite." in prompt
+    assert "- bare" in prompt
+    assert "Cite inline." not in prompt
+
+
+def test_a_skill_the_model_may_not_invoke_is_in_neither_form() -> None:
+    """`disable-model-invocation` keeps a skill from the model whether or not the
+    runtime can load on demand."""
+    hidden = Skill(
+        name="deploy", body="Ship it.", description="d", model_invocable=False
+    )
+    assert turn.system_prompt([], skills=[hidden], loader="engine_load_skill") == ""
+    assert turn.system_prompt([], skills=[hidden]) == ""
+
+
+def test_the_loader_is_read_off_what_was_wired() -> None:
+    """A prompt naming a tool the model was not given would send it looking."""
+    from latent_intel.agent import tools as engine_tools
+
+    specs = engine_tools.specs([Skill(name="a", body="b", description="c")])
+    assert turn.loader(turn.wired(specs, "ask")) == "engine_load_skill"
+    assert turn.loader(turn.wired([], "ask")) is None
+
+
+def test_a_skill_a_person_ran_is_sent_whole_beside_the_listing() -> None:
+    """Invoked by `/name`, so it is in context whatever the loader — including a
+    skill the model itself may not load."""
+    prompt = turn.system_prompt(
+        [],
+        skills=[Skill(name="cite", body="Cite inline.", description="How to cite.")],
+        loader="engine_load_skill",
+        invoked=[Skill(name="deploy", body="Ship it.", model_invocable=False)],
+    )
+    assert "- cite — How to cite." in prompt
+    assert prompt.endswith("## deploy\n\nShip it.")

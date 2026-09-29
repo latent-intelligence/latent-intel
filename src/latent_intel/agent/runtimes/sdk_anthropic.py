@@ -254,6 +254,8 @@ class SdkAnthropicRuntime:
             persona=options.get("persona") or "",
             persona_mode=options.get("persona_mode") or "append",
             skills=options.get("skills") or (),
+            loader=turn.loader(wired),
+            invoked=options.get("invoked") or (),
         )
         # Text only. A prior turn's tool blocks are not replayed: they refer to
         # `tool_use_id`s from a request this one never made.

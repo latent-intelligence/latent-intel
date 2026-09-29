@@ -265,6 +265,8 @@ class OpenAIAgentsRuntime:
             persona=options.get("persona") or "",
             persona_mode=options.get("persona_mode") or "append",
             skills=options.get("skills") or (),
+            loader=turn.loader(wired),
+            invoked=options.get("invoked") or (),
         )
         # Text only. A prior turn's tool items are not replayed: they refer to call ids
         # from a request this one never made.
