@@ -60,7 +60,11 @@ DEFAULT_HOST = "foundry-anthropic"
 
 #: Its own variable, not derived from the kind: a machine may well want the runner
 #: against Foundry and the custom loop against the public API while comparing them.
-ENV_HOST = "LATENT_INTEL_SDK_ANTHROPIC_HOST"
+ENV_HOST = "LATENT_INTEL_ANTHROPIC_SDK_HOST"
+
+#: Its name before the runtime was renamed. Still read — only to say so: an export
+#: that silently stopped choosing the host would send turns somewhere else unannounced.
+_OLD_ENV_HOST = "LATENT_INTEL_SDK_ANTHROPIC_HOST"
 
 #: Undated on purpose — see `hosts.HOSTS["foundry-anthropic"].remedy_404`. Taken from
 #: the default host's row rather than written again here: a model default is the row's
@@ -76,10 +80,10 @@ DEFAULT_MODEL: str = _default_model
 del _default_model
 
 
-class SdkAnthropicRuntime:
+class AnthropicSdkRuntime:
     """The Anthropic SDK's tool runner, behind the `Runtime` Protocol."""
 
-    id = "sdk-anthropic"
+    id = "anthropic-sdk"
 
     def __init__(
         self,
@@ -115,11 +119,16 @@ class SdkAnthropicRuntime:
         """Why this cannot run here, in the order someone would fix it. Same rows, same
         variables and same order as `custom.py` on a `messages` row — the two runtimes
         differ in who drives the loop, not in what a machine has to have."""
+        if os.environ.get(_OLD_ENV_HOST) and not os.environ.get(ENV_HOST):
+            return f"{_OLD_ENV_HOST} was renamed {ENV_HOST} — rename the export"
         host = HOSTS.get(self.host)
         if host is None:
             return hosts.unknown(self.host, HOSTS)
         if importlib.util.find_spec("anthropic") is None:
-            return "the anthropic SDK is not installed — install `latent-intel[api]`"
+            return (
+                "the anthropic SDK is not installed — reinstall `latent-intel`, "
+                "which includes it"
+            )
         return hosts.diagnose(host, name=self.host)
 
     def host_status(self) -> dict[str, HostStatus]:
@@ -160,7 +169,7 @@ class SdkAnthropicRuntime:
                 ev.AgentFailed,
                 message=f"the anthropic SDK could not be imported: {exc}",
                 kind="runtime_unavailable",
-                remedy="reinstall `latent-intel[api]`",
+                remedy="reinstall `latent-intel`",
             )
             return
 
@@ -394,4 +403,4 @@ class SdkAnthropicRuntime:
         )
 
 
-__all__ = ["ENV_HOST", "SdkAnthropicRuntime"]
+__all__ = ["ENV_HOST", "AnthropicSdkRuntime"]

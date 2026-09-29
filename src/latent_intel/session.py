@@ -332,7 +332,9 @@ class Session:
         except Exception as exc:  # noqa: BLE001 — a broken runtime is not fatal
             return RuntimeReport(reason=str(exc) or "could not be built")
         return RuntimeReport(
-            reason=Session._verdict(runtime), family=Session._family(runtime)
+            reason=Session._verdict(runtime),
+            family=Session._family(runtime),
+            subagents=isinstance(runtime, agent.Delegating),
         )
 
     @staticmethod
@@ -471,6 +473,35 @@ class Session:
         # layer beneath it. `settings.load()` reports that key rather than honouring it.
         return {**resolved.runtime_options(kind), "approval": resolved.approval}
 
+    def subagent_problems(self) -> list[str]:
+        """Tools a project's subagents name that the configured runtime would not give
+        them — a source not attached, a writing tool withheld under `ask`, a built-in
+        not opted into, a typo.
+
+        Asked of the runtime rather than worked out here, because only it knows what it
+        offers. Empty when there is nothing to check or no runtime that runs subagents:
+        `doctor`'s runtime block already says when the configured one does not.
+        """
+        resolved = settings_module.load()
+        if not resolved.agents or not resolved.runtime:
+            return []
+        try:
+            runtime = agent.build(
+                resolved.runtime, **self._runtime_options(resolved.runtime)
+            )
+        except Exception:  # noqa: BLE001 — the runtime block reports a broken build
+            return []
+        if not isinstance(runtime, agent.Delegating):
+            return []
+        usable = runtime.subagent_tools(self.tools())
+        return [
+            f"agents: {delegate.name}: `{name}` is not a tool "
+            f"'{resolved.runtime}' can give it here — dropped"
+            for delegate in resolved.agents
+            for name in delegate.tools or ()
+            if name not in usable
+        ]
+
     def mcp_servers(self) -> dict[str, dict[str, Any]]:
         """Connected sources a subprocess agent can reach, as an `mcpServers` block.
 
@@ -608,6 +639,7 @@ class Session:
                 if s.name in self._invoked
             ],
             call_tool=self.call_tool,
+            agents=resolved.agents,
         ):
             if isinstance(event, ev.AgentCompleted):
                 self._history.append(Message(role="assistant", text=event.text))

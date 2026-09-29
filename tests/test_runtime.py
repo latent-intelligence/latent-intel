@@ -66,8 +66,25 @@ def test_the_in_process_runtimes_load_even_where_they_cannot_run() -> None:
     it is listed — with a reason — on a machine with no credentials, rather than
     vanishing and taking the diagnosis with it."""
     assert "custom" in agent.available_kinds()
-    assert "sdk-anthropic" in agent.available_kinds()
+    assert "anthropic-sdk" in agent.available_kinds()
     assert "openai-agents" in agent.available_kinds()
+    assert "claude-agent-sdk" in agent.available_kinds()
+
+
+def test_each_extra_is_a_runtime_and_all_names_every_one() -> None:
+    """The extra that fixes a runtime is the runtime's own name, so the remedy it prints
+    and the thing to install are one word; and `[all]` names the others rather than
+    repeating their packages, so an extra left out of it would install quietly less."""
+    import tomllib
+
+    pyproject = Path(__file__).parents[1] / "pyproject.toml"
+    extras = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"][
+        "optional-dependencies"
+    ]
+    runtimes = set(extras) - {"all", "dev"}
+    assert runtimes <= set(agent.available_kinds())
+    [everything] = extras["all"]
+    assert set(everything.split("[", 1)[1].rstrip("]").split(",")) == runtimes
 
 
 def test_a_config_key_this_runtime_does_not_know_is_rejected_by_name() -> None:

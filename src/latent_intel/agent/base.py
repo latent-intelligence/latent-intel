@@ -22,7 +22,7 @@ same bargain connectors get by returning values instead of events.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from importlib.metadata import entry_points
 from typing import Any, Protocol, cast, runtime_checkable
 
@@ -135,6 +135,23 @@ class Owned(Protocol):
         ...
 
 
+@runtime_checkable
+class Delegating(Protocol):
+    """A runtime that runs a project's subagents — see `subagents.py`.
+
+    Optional, and composed the way `Hosted` is: implementing it is the declaration, and
+    a runtime that does not is reported by `doctor` when a project declares delegates,
+    rather than left to ignore them. One method rather than a flag beside another,
+    because the question `doctor` has to answer is not only *whether* but *with what*.
+    """
+
+    def subagent_tools(self, tools: Sequence[ToolSpec]) -> frozenset[str]:
+        """Every name a subagent's `tools:` may list on this runtime, given the tools
+        attached: ours as `source.tool`, where this runtime would offer them, and any
+        of its own it has been told to supply."""
+        ...
+
+
 def available_kinds() -> dict[str, type]:
     """Every runtime class registered under the entry-point group.
 
@@ -168,6 +185,7 @@ __all__ = [
     "DEFAULT_FAMILY",
     "ENTRY_POINT_GROUP",
     "FAMILIES",
+    "Delegating",
     "Diagnosable",
     "Hosted",
     "Owned",

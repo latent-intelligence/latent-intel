@@ -101,6 +101,10 @@ class AgentCompleted(BaseEvent):
     #: References the answer rests on, so a claim can be traced without re-running it.
     citations: list[str] = Field(default_factory=list)
     usage: dict[str, int] = Field(default_factory=dict)
+    #: What the turn cost in US dollars, where the runtime is told — today only
+    #: `claude-agent-sdk`, which reports its binary's own estimate. A float, so it
+    #: cannot live in `usage`. Optional and additive, so `SCHEMA_VERSION` does not move.
+    cost_usd: float | None = None
 
 
 class AgentFailed(BaseEvent):

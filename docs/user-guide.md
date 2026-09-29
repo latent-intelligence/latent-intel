@@ -28,8 +28,13 @@ uv tool install git+https://github.com/latent-intelligence/latent-intel --reinst
 
 Or `uv tool install .` from a clone, if you are working on the engine itself.
 
-There is no extra to add and no sibling package to fetch first. That is the entire
-install, and it is the same one a fresh clone gets.
+There is no sibling package to fetch first, and no extra for the three runtimes most
+people start on — `claude-cli`, `custom` and `anthropic-sdk`. `openai-agents` and
+`claude-agent-sdk` are extras named after themselves, and `[all]` is both:
+
+```bash
+uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
+```
 
 **That is the whole install.** Files, MCP servers and wikis — local or `s3://` — all
 work from it. A published wiki store is a versioned format (`manifest.json` plus
@@ -62,15 +67,16 @@ build** points at `src/` and tracks the working tree, so an edit is live and a
 half-finished branch is too.
 
 ```bash
-uv tool install ".[api,agents]" --reinstall              # user build — a snapshot of the checkout
-uv tool install --editable ".[api,agents]" --reinstall   # dev build  — tracks the working tree
+uv tool install ".[all]" --reinstall              # user build — a snapshot of the checkout
+uv tool install --editable ".[all]" --reinstall   # dev build  — tracks the working tree
 ```
 
-Both want the extras: `[api]` is the Anthropic and OpenAI SDKs that `custom` and
-`sdk-anthropic` run on, `[agents]` is the OpenAI Agents SDK for `openai-agents`. Without
-one, that runtime reports itself as not installed, since `uv run` reads the project
-environment and a tool install does not. Or skip PATH — `just install`, which is
-`uv sync --extra dev --extra api --extra agents`, and prefix commands with `uv run`.
+The base install runs `claude-cli`, `custom` and `anthropic-sdk`. `[openai-agents]` and
+`[claude-agent-sdk]` add the runtimes they are named after — the second bundles the
+Claude Code binary — and `[all]` is both. Without one, that runtime reports itself as
+not installed, since `uv run` reads the project environment and a tool install does
+not. Or skip PATH — `just install`, which is `uv sync --extra dev --extra all`, and
+prefix commands with `uv run`.
 Everything below works either way.
 
 Check what you got:
@@ -521,8 +527,8 @@ that runtime's table, differing in credentials and model names and in nothing el
 `intel doctor` groups the installed runtimes by loop owner, because that is the
 difference that decides what a runtime can reach and what you can configure about it.
 
-`ask` needs a backend. Four ship: one delegates the loop to a binary on your machine, one
-runs the loop we wrote, and two hand the loop to a vendor's SDK while tools stay ours.
+`ask` needs a backend. Five ship: one delegates the loop to a binary on your machine, one
+runs the loop we wrote, and three hand the loop to a vendor's SDK while tools stay ours.
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
@@ -535,29 +541,60 @@ runs the loop we wrote, and two hand the loop to a vendor's SDK while tools stay
   right for at most one deployment, so an unset host is reported by name — and on a chat
   row **no default model**, because every host names its models differently. Its host
   override is `LATENT_INTEL_CUSTOM_HOST`. It needs credentials in the environment and
-  the `api` extra — from a clone `uv tool install ".[api]"`, or
-  `uv tool install "latent-intel[api] @ git+https://github.com/latent-intelligence/latent-intel"`.
-- **`sdk-anthropic`** is `custom` on a Messages row with the loop run by the Anthropic
+  nothing beyond the base install.
+- **`anthropic-sdk`** is `custom` on a Messages row with the loop run by the Anthropic
   SDK's tool runner instead of by us. Same protocol, the two Anthropic hosts, the same
   credentials and the same options, and tools are still routed through our router, so it
   sees every attached source too. What it adds is what the SDK maintains: prompt caching
   is on, and the round-trip bound is the runner's. Its host override is
-  `LATENT_INTEL_SDK_ANTHROPIC_HOST`, separate from `custom`'s, so one machine can point
+  `LATENT_INTEL_ANTHROPIC_SDK_HOST`, separate from `custom`'s, so one machine can point
   the two at different endpoints while comparing them.
 - **`openai-agents`** is `custom` on a chat row with the loop run by the OpenAI Agents
   SDK instead of by us. Same protocol, the five chat hosts, the same credentials and the
   same options — `tokens_param` included, because the SDK's own parameter is the older
   name — and tools still route through our router, so every attached source is visible
-  to it. It needs the `agents` extra, which pulls the framework alongside the `api`
-  extra's SDKs: `uv tool install ".[api,agents]"`. Its host override is
+  to it. It needs the `openai-agents` extra:
+  `uv tool install ".[openai-agents]"`. Its host override is
   `LATENT_INTEL_OPENAI_AGENTS_HOST`. Two differences from `custom` worth knowing: an
   answer cut short by the output limit completes rather than reporting why, and a tool
   name the model invented is answered by the SDK rather than by our router, so no tool
   event appears for it.
+- **`claude-agent-sdk`** hands the loop to Claude Code's own harness through the Claude
+  Agent SDK — the binary `claude-cli` runs, driven over a two-way channel instead of
+  listened to. That channel is the difference: **our tools run in this process**,
+  and the harness calls them back over it, so every attached source is visible, with
+  the same tool events and the same approval gate as `anthropic-sdk`. It reaches the
+  same two Anthropic hosts with the same variables and defaults, so switching
+  `runtime:` between the two changes only the harness. It needs the `claude-agent-sdk` extra, which bundles the Claude Code
+  binary: `uv tool install ".[claude-agent-sdk]"`. Its host override is
+  `LATENT_INTEL_CLAUDE_AGENT_SDK_HOST`. What else it does and does not do:
+  - **Isolated from your own Claude setup.** Your `~/.claude` settings, `CLAUDE.md`,
+    memory, skills and MCP servers are never loaded, and anything off its tool list is
+    refused rather than prompted for. The project's skills load on demand through
+    `load_skill`, as under the in-process runtimes.
+  - **API key or Foundry only.** It authenticates with the host row's variables and
+    never with a claude.ai login, which Anthropic does not permit for a product built on
+    the SDK.
+  - **Follow-ups resume its session**, tool results included, when the history
+    continues the one it answered. That needs Claude Code's session files, written
+    under `~/.claude/projects/`. Switching runtime, host or model mid-conversation
+    starts a fresh session with only the latest question.
+  - **Options of its own:** `max_budget_usd` stops a run by cost, and every completed
+    turn reports its cost — the binary's own estimate. `builtin_tools: [WebSearch,
+    WebFetch]` opts into the binary's web tools; nothing else can be named. **WebFetch
+    can carry what your sources said to any URL**, so turn it on only for sources you
+    would publish. `cwd` and `cli_path` are as for `claude-cli`.
+  - **Subagents** from the project's `agents/` directory run here and nowhere else —
+    see [configuring a deployment](configuring-a-deployment.md#subagents).
+  - **Two differences from `custom`:** a tool name the model invented, or arguments that
+    fail the tool's schema, are refused by the SDK before our router, so no tool event
+    appears for either. No Windows wheel is published yet.
 
 `anthropic` and `openai` were folded into `custom` on 2026-09-17 — they named a wire
 protocol rather than a loop owner, and the row names it now: set `runtime: custom` and
-the `host:` the old runtime's name implied.
+the `host:` the old runtime's name implied. `sdk-anthropic` became `anthropic-sdk` on
+2026-09-29, the name Anthropic gives the SDK whose tool runner it drives: rename the
+`runtime:` value, the `runtimes:` block and `LATENT_INTEL_SDK_ANTHROPIC_HOST`.
 
 ```
 latent › /runtime custom
@@ -587,12 +624,18 @@ runtimes:
     max_tokens: 16384
     max_tool_rounds: 10      # how many model round-trips one question may take
     tokens_param: max_tokens # chat hosts only — refused by name on a Messages row
-  sdk-anthropic:             # the same options, and the two Anthropic hosts
+  anthropic-sdk:             # the same options, and the two Anthropic hosts
     host: foundry-anthropic
     model: claude-sonnet-5
   openai-agents:             # the same options, and the five chat hosts
     host: foundry-openai
     model: my-gpt-deployment # a deployment name, not a catalogue id
+  claude-agent-sdk:          # the two Anthropic hosts; no max_tokens or tokens_param
+    host: anthropic
+    model: claude-sonnet-5
+    max_tool_rounds: 10
+    max_budget_usd: 0.50     # optional — stops a run by cost
+    builtin_tools: [WebSearch]  # optional — WebSearch, WebFetch, nothing else
 ```
 
 The same block may be written by a project, under `agent:` — which is how a deployment
@@ -612,18 +655,18 @@ stale. An unknown name fails when you ask, with the runtime's own message.
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
 MCP servers, so under `claude-cli` only `mcp` and `wiki` sources are visible to it —
 `files` and `vector` run in this process and have no server to point at. `intel doctor`
-marks the difference under `attached`. Under `custom`, `sdk-anthropic` and
-`openai-agents` the distinction does not apply: the tool router is ours either way —
-whoever drives the loop — so everything attached is a tool.
+marks the difference under `attached`. Under `custom`, `anthropic-sdk`, `openai-agents`
+and `claude-agent-sdk` the distinction does not apply: the tool router is ours either
+way — whoever drives the loop — so everything attached is a tool.
 
 **Credentials for the in-process runtimes.** Names only, always in the environment,
 never in a config file.
 A project's `.env` is loaded before the runtime is built, so deployment credentials live
 there.
 
-One table, whichever runtime dials it. `custom` reaches every row; `sdk-anthropic` the
-two `messages` rows and `openai-agents` the five `chat` ones, because a runtime built on
-one SDK can dial no other.
+One table, whichever runtime dials it. `custom` reaches every row; `anthropic-sdk` and
+`claude-agent-sdk` the two `messages` rows and `openai-agents` the five `chat` ones,
+because a runtime built on one SDK can dial no other.
 
 | host | protocol | needs | optional | model is |
 |---|---|---|---|---|
@@ -684,9 +727,9 @@ runtimes
   custom loop
     · custom — no host is set — set `host:` under `runtimes: custom:`; `intel hosts` lists them
   sdk runner
-    · openai-agents — set OPENAI_API_KEY for host 'openai'
-    · sdk-anthropic — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
+    · anthropic-sdk — set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
 ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
+    · openai-agents — set OPENAI_API_KEY for host 'openai'
   delegated
     ✓ claude-cli
 ```

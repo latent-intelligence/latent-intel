@@ -11,7 +11,7 @@ reaches the second request is a bug no assertion about events would catch.
 **One client, two loops.** `messages.stream` is the path `protocols/messages.py` drives
 itself; `beta.messages.tool_runner` returns a `_FakeRunner` driving the same scripted
 rounds the way `BaseAsyncToolRunner.__run__` does — including the part that matters most
-to `runtimes/sdk_anthropic.py`, which is that **the runner calls our tools**, between
+to `runtimes/anthropic_sdk.py`, which is that **the runner calls our tools**, between
 yielding one round's stream and opening the next request. Faking that with a runner that
 never called `tool.call` would leave the bridge, the relay and the ordering they produce
 entirely untested.

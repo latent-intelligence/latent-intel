@@ -17,8 +17,10 @@ release.
 ├── corpus/                      material this deployment ships, if any
 │   └── notes/
 ├── .env                         optional credentials — git-ignored, never committed
-├── skills/                      one .md per skill  →  the agent's standing knowledge
+├── skills/                      name.md or name/SKILL.md  →  loaded when a question needs one
 │   └── methodology.md
+├── agents/                      one .md per subagent  →  delegates, claude-agent-sdk only
+│   └── reviewer.md
 └── persona.md                   voice and standing instructions
 ```
 
@@ -122,11 +124,14 @@ plugs in — connectors and tools — are in [`../CLAUDE.md`](../CLAUDE.md).
 
 ## Persona and skills
 
-Both are markdown the agent is given before your question, and the line between them is
-what is true *when*. A **persona** is true on every turn — the role, what it refuses,
-how it cites — so it is one file and it is always sent. A **skill** is true *sometimes*
-and too long to pay for always: how this corpus is organised, the query patterns that
-work on it, a method it should follow when asked for one.
+Persona, skills and [subagents](#subagents) are the deployment's **context
+engineering**: markdown, not code, that shapes what the agent knows and how it behaves.
+
+A persona and skills are both given to the agent before your question, and the line
+between them is what is true *when*. A **persona** is true on every turn — the role,
+what it refuses, how it cites — so it is one file and it is always sent. A **skill** is
+true *sometimes* and too long to pay for always: how this corpus is organised, the query
+patterns that work on it, a method it should follow when asked for one.
 
 ```yaml
 # ~/deployments/research/research.yaml
@@ -178,6 +183,50 @@ A missing persona file, a skill whose frontmatter will not parse, a folder with 
 `SKILL.md`, and a second skill with a name already taken are each **reported and
 skipped** — one bad file does not cost a deployment its other four. `intel project
 validate` lists them.
+
+---
+
+## Subagents
+
+A **subagent** is a delegate with its own context. The main agent hands it a task and
+gets back its report, not its working — which is the one thing a subagent buys that a
+skill does not. Reach for one when the trail would crowd the conversation (twenty
+searches to produce one table), when parts of a question can be worked independently,
+or when the task should get fewer tools than the main agent has.
+
+```yaml
+# ~/deployments/research/research.yaml
+agents: ./agents                      # every *.md in it, in filename order
+```
+
+The files are in Claude Code's format, so the same folder serves Claude Code and the
+Agent SDK unchanged:
+
+```markdown
+---
+name: reviewer
+description: Checks a draft answer against the pages it cites. Use before answering
+  a question that rests on more than three sources.
+tools: design.search, design.fetch
+model: haiku
+---
+You check a draft against its citations. Open each cited page, say which claims it
+supports and which it does not, and return that as a short list.
+```
+
+`name`, `description` and a body are required. `tools` names tools the way `/tools`
+prints them — `source.tool` — or a web tool the runtime has been told to supply; leave
+it out and the subagent may use everything the main agent can. `disallowedTools` takes
+the same names and is honoured. `model` is optional, an alias such as `haiku` or a full
+model name. A file that sets `permissionMode` is refused rather than loaded — the
+runtime's own permission policy decides, and ignoring the key could only widen what the
+subagent may do. Other Claude Code keys are reported and ignored.
+
+**Only `claude-agent-sdk` runs them**, and only the ones you declare: Claude Code's own
+built-in subagents are not offered. Under any other runtime they are not sent, and
+`intel doctor` says so — along with any tool a subagent names that the runtime would not
+give it: a source not attached, a writing tool withheld under `approval: ask`, a web tool
+not turned on, a typo. A file missing a required field is reported and skipped.
 
 ---
 

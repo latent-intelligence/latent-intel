@@ -541,3 +541,26 @@ def test_what_a_skill_asks_for_and_this_build_will_not_do_is_said(
     assert "'Report Outline' has a space" in joined
     assert "dead.md: disable-model-invocation and user-invocable: false" in joined
     assert "positional.md: uses $N or $ARGUMENTS[N]" in joined
+
+
+def test_subagents_resolve_against_the_project_file_not_the_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The path rule, for `agents:` as for every other directory: a deploy repo checked
+    out anywhere reads its own delegates, and a missing one is a problem, not a
+    crash."""
+    agents = tmp_path / "deploy" / "agents"
+    agents.mkdir(parents=True)
+    (agents / "reviewer.md").write_text(
+        "---\nname: reviewer\ndescription: Reviews.\n---\nReview.\n", encoding="utf-8"
+    )
+    path = write(tmp_path / "deploy", "deploy", "agents: ./agents\n")
+    monkeypatch.chdir(tmp_path)
+
+    loaded = project.load(path)
+    assert [agent.name for agent in loaded.agents] == ["reviewer"]
+    assert loaded.problems == []
+
+    missing = project.load(write(tmp_path / "other", "other", "agents: ./nowhere\n"))
+    assert missing.agents == []
+    assert any(problem.startswith("agents:") for problem in missing.problems)

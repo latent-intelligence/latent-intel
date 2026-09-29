@@ -29,7 +29,7 @@ from typing import Any
 
 import yaml
 
-from . import procedures
+from . import procedures, subagents
 from .config import SourceSpec
 from .models import Skill
 
@@ -357,6 +357,9 @@ class Project:
     #: false`.
     skills: list[Skill] = field(default_factory=list)
     defaults: dict[str, Any] = field(default_factory=dict)
+    #: Delegates, from the `agents:` directory — see `subagents.py`. Read here; run only
+    #: by a runtime that declares `agent.base.Delegating`.
+    agents: list[subagents.Subagent] = field(default_factory=list)
     #: Validation complaints. Non-fatal by design: a project with one bad source should
     #: still attach the other four, and `doctor` is where you go to find out why.
     problems: list[str] = field(default_factory=list)
@@ -460,6 +463,7 @@ def load(path: Path | str) -> Project:
         title=str(raw.get("title") or name),
         description=str(raw.get("description") or "").strip(),
         registry=registry,
+        agents=subagents.load(directory("agents"), problems),
         variables=variables,
         sources=sources,
         branding=dict(raw.get("branding") or {}),

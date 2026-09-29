@@ -24,11 +24,11 @@ one deployment, so an unset host is reported by name the way an unset model is.
 The rules the two folded modules stated apply here verbatim:
 
 - **The SDK is imported inside the turn, never at module scope.** `available_kinds()`
-  loads every registered runtime, so an import here would make a base install without
-  the `api` extra lose `claude-cli` as well. `unavailable_reason()` answers with
-  `importlib.util.find_spec` and `os.environ` and makes no network call — `intel
-  doctor` calls it for every installed runtime, and a probe that dialled out would make
-  diagnosis slower than the thing being diagnosed.
+  loads every registered runtime, so an import here would make every command pay for
+  SDKs a search never uses, and a broken one would take `claude-cli` down with it.
+  `unavailable_reason()` answers with `importlib.util.find_spec` and `os.environ` and
+  makes no network call — `intel doctor` calls it for every installed runtime, and a
+  probe that dialled out would make diagnosis slower than the thing being diagnosed.
 - **Names of variables, never their values.** The reason a runtime cannot run is
   printed by `doctor`, pasted into support threads, and read aloud in screen shares.
 - **One terminal event on every path.** A tool call that fails, a stop reason we do not
@@ -141,7 +141,10 @@ class CustomRuntime:
         if row is None:
             return hosts.unknown(self.host, HOSTS)
         if importlib.util.find_spec(row.sdk) is None:
-            return f"the {row.sdk} SDK is not installed — install `latent-intel[api]`"
+            return (
+                f"the {row.sdk} SDK is not installed — reinstall `latent-intel`, "
+                "which includes it"
+            )
         if (reason := hosts.diagnose(row, name=self.host)) is not None:
             return reason
         # The row's own default was applied in the constructor, so an empty model here
@@ -200,7 +203,7 @@ class CustomRuntime:
                 ev.AgentFailed,
                 message=f"the {row.sdk} SDK could not be imported: {exc}",
                 kind="runtime_unavailable",
-                remedy="reinstall `latent-intel[api]`",
+                remedy="reinstall `latent-intel`",
             )
             return
 

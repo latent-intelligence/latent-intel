@@ -146,6 +146,21 @@ def test_emitter_stamps_a_coherent_envelope() -> None:
     assert first.parent_id is None
 
 
+def test_a_completed_turn_s_cost_round_trips_and_is_optional() -> None:
+    """`cost_usd` is a float, which is why it is not in `usage`. Additive: an event
+    written before it existed still parses, with no cost rather than a zero."""
+    emitter = ev.Emitter(uuid4())
+    done = emitter.emit(
+        ev.AgentCompleted, text="a", usage={"num_turns": 1}, cost_usd=0.5
+    )
+    assert ev.parse_event(ev.dump_event(done)) == done
+
+    older = json.loads(ev.dump_event(done))
+    del older["cost_usd"]
+    parsed = ev.parse_event(json.dumps(older))
+    assert isinstance(parsed, ev.AgentCompleted) and parsed.cost_usd is None
+
+
 def test_emitter_gives_each_operation_its_own_id() -> None:
     session = uuid4()
     assert ev.Emitter(session).operation_id != ev.Emitter(session).operation_id

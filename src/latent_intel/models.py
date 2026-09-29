@@ -261,6 +261,8 @@ class RuntimeReport(BaseModel):
     #: Who owns its agent loop — one of `agent.base.FAMILIES`. A runtime that declares
     #: nothing, or declares something this build does not know, reads as `custom`.
     family: str = "custom"
+    #: Whether it runs a project's subagents — `agent.base.Delegating`, declared.
+    subagents: bool = False
 
 
 class Message(BaseModel):

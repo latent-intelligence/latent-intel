@@ -33,7 +33,11 @@ CREDENTIAL_PREFIXES = (
     "AZURE_",
     "LATENT_INTEL_OPENAI_",
     "LATENT_INTEL_CUSTOM_",
-    "LATENT_INTEL_SDK_ANTHROPIC_",
+    "LATENT_INTEL_SDK_ANTHROPIC_",  # the renamed runtime's old host variable
+    "LATENT_INTEL_CLAUDE_AGENT_SDK_",
+    # The binary's own switches: an exported `CLAUDE_CODE_USE_FOUNDRY` is exactly what
+    # `claude-agent-sdk` blanks for its child, and a test must not see it either.
+    "CLAUDE_CODE_",
 )
 
 

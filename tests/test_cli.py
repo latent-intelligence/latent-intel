@@ -43,7 +43,7 @@ def runtime_line(stdout: str, name: str) -> str | None:
     """One runtime's `doctor` row, as a whole stripped line, or None if it has none.
 
     Anchored to the name rather than matched as a substring, because the names nest:
-    `"anthropic" in stdout` is satisfied by `sdk-anthropic`, and `"! anthropic"` by
+    `"anthropic" in stdout` is satisfied by `anthropic-sdk`, and `"! anthropic"` by
     `! anthropic-something` — an assertion that passes because a sibling runtime is
     installed is an assertion about nothing.
     """
@@ -246,7 +246,7 @@ def test_doctor_names_the_variables_a_runtime_is_missing() -> None:
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert runtime_line(result.stdout, "custom") is not None
-    assert runtime_line(result.stdout, "sdk-anthropic") is not None
+    assert runtime_line(result.stdout, "anthropic-sdk") is not None
     assert "ANTHROPIC_FOUNDRY_API_KEY" in result.stdout
     assert runtime_line(result.stdout, "openai-agents") is not None
     assert "OPENAI_API_KEY" in result.stdout
@@ -269,8 +269,9 @@ def test_doctor_groups_runtimes_by_who_owns_the_loop() -> None:
     ]
     assert printed == ["custom loop", "sdk runner", "delegated"]
     assert runtime_group(result.stdout, "custom") == "custom loop"
-    assert runtime_group(result.stdout, "sdk-anthropic") == "sdk runner"
+    assert runtime_group(result.stdout, "anthropic-sdk") == "sdk runner"
     assert runtime_group(result.stdout, "openai-agents") == "sdk runner"
+    assert runtime_group(result.stdout, "claude-agent-sdk") == "sdk runner"
     assert runtime_group(result.stdout, "claude-cli") == "delegated"
 
 
@@ -322,6 +323,60 @@ def test_doctor_names_an_orphaned_runtimes_block_rather_than_ignoring_it() -> No
         in flat(result.stdout)
     )
     assert runtime_line(result.stdout, "custom") is not None
+
+
+def test_doctor_names_the_old_sdk_anthropic_name_rather_than_answering_to_it() -> None:
+    """`sdk-anthropic` became `anthropic-sdk` and was removed rather than aliased, as
+    ADR-003 did for `anthropic` and `openai`. A config still naming it is told so, for
+    the kind and for its options, while the new name has its own row."""
+    config = config_module.load()
+    config.runtime = "sdk-anthropic"
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "sdk-anthropic — configured, but not installed" in flat(result.stdout)
+    assert runtime_line(result.stdout, "anthropic-sdk") is not None
+
+    config.runtime = "anthropic-sdk"
+    config.runtimes = {"sdk-anthropic": {"host": "anthropic", "model": "m"}}
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert (
+        "sdk-anthropic — options set under runtimes:, but no such runtime is installed"
+        in flat(result.stdout)
+    )
+
+
+def test_doctor_says_when_the_runtime_will_not_run_the_project_s_subagents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project that declares delegates, answered by a runtime that cannot run them,
+    would answer questions it believes it handed off — so doctor names the runtimes
+    that can."""
+    from latent_intel import settings as settings_module
+
+    projects = tmp_path / "projects"
+    (projects / "agents").mkdir(parents=True)
+    (projects / "agents" / "reviewer.md").write_text(
+        "---\nname: reviewer\ndescription: Reviews.\n---\nReview.\n", encoding="utf-8"
+    )
+    (projects / "deploy.yaml").write_text("agents: ./agents\n", encoding="utf-8")
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "deploy")
+    config = config_module.load()
+    config.runtime = "custom"
+    config_module.save(config)
+    settings_module.invalidate()
+
+    out = flat(runner.invoke(app, ["doctor"]).stdout)
+    assert "declares 1 subagent(s), and custom does not run them" in out
+    assert "runtimes that do: claude-agent-sdk" in out
+
+    config.runtime = "claude-agent-sdk"
+    config_module.save(config)
+    assert "does not run them" not in flat(runner.invoke(app, ["doctor"]).stdout)
 
 
 def test_doctor_builds_each_installed_runtime_exactly_once() -> None:
@@ -403,8 +458,9 @@ def test_hosts_gives_each_runtime_the_rows_it_can_actually_dial(
     and name variables that would not help."""
     table = hosts_table(monkeypatch)
     assert table["custom"] == list(hosts.HOSTS)
-    assert table["sdk-anthropic"] == list(hosts.for_sdk("anthropic"))
+    assert table["anthropic-sdk"] == list(hosts.for_sdk("anthropic"))
     assert table["openai-agents"] == list(hosts.for_sdk("openai"))
+    assert table["claude-agent-sdk"] == list(hosts.for_sdk("anthropic"))
     assert "claude-cli" not in table
 
 
@@ -481,7 +537,7 @@ def test_hosts_marks_only_the_answering_runtime_s_host_as_in_use(
     assert result.exit_code == 0
     assert result.stdout.count("← in use") == 1
     assert result.stdout.count("← configured") == 1
-    # sdk-anthropic resolves `foundry-anthropic` too, and it is nobody's choice here.
+    # anthropic-sdk resolves `foundry-anthropic` too, and it is nobody's choice here.
     assert "· foundry-anthropic" in result.stdout
 
 
