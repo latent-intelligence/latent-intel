@@ -25,6 +25,9 @@ should see travels as `AgentFailed`.
 
 from __future__ import annotations
 
+import dataclasses
+import hashlib
+import json
 import re
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
@@ -32,8 +35,8 @@ from uuid import UUID, uuid4
 
 import anyio
 
+from . import __version__, registry
 from . import events as ev
-from . import registry
 from . import settings as settings_module
 from .agent import base as agent
 from .agent import tools as engine_tools
@@ -48,11 +51,13 @@ from .commands import (
 )
 from .connectors import base as connectors
 from .models import (
+    AttachedSource,
     Capability,
     CapabilityError,
     ConnectError,
     Descriptor,
     Doc,
+    Fingerprint,
     Hit,
     HostReport,
     Message,
@@ -111,6 +116,9 @@ class Session:
         #: skill of the same name would arrive without anyone having run it.
         self._invoked: dict[str, str] = {}
         self._invoked_in: str | None = None
+        #: The runtime `run_context` built to read, with the kind and options it was
+        #: built from — see `_probe`.
+        self._probed: tuple[str, dict[str, Any], agent.Runtime | None] | None = None
 
     # -- typed API ------------------------------------------------------------
 
@@ -641,8 +649,16 @@ class Session:
             call_tool=self.call_tool,
             agents=resolved.agents,
         ):
-            if isinstance(event, ev.AgentCompleted):
+            if isinstance(event, ev.ToolResult) and not event.refs:
+                event = event.model_copy(
+                    update={"refs": Ref.find_all(event.output, self._connectors)}
+                )
+            elif isinstance(event, ev.AgentCompleted):
                 self._history.append(Message(role="assistant", text=event.text))
+                if not event.citations:
+                    event = event.model_copy(
+                        update={"citations": Ref.find_all(event.text, self._connectors)}
+                    )
             yield event
 
     def _invoke(
@@ -670,7 +686,7 @@ class Session:
         if not resolved.runtime:
             raise RuntimeUnavailable(NO_RUNTIME)
         kind = resolved.runtime
-        runtime = agent.build(kind, **self._runtime_options(kind))
+        runtime = self._probe(kind) or agent.build(kind, **self._runtime_options(kind))
         if not runtime.available():
             reason = (
                 runtime.unavailable_reason()
@@ -683,6 +699,54 @@ class Session:
             )
         self._runtime = runtime
         self._runtime_kind = kind
+        return runtime
+
+    def run_context(self, purpose: str = "share", title: str = "") -> ev.RunContext:
+        """What would answer now, as the header a recording opens with.
+
+        Read fresh on every call, so a frontend that compares two can tell when a
+        runtime, model, project, skill or source changed underneath a recording. The
+        runtime is the session's own when one is built; otherwise `_probe` builds one
+        to read its resolved host and model, once per setup.
+
+        The runtime's other options are left out: a `cwd` or a binary path is a
+        location, and a header names things rather than saying where they live.
+        """
+        if purpose not in ev.PURPOSES:
+            raise SessionError(
+                f"no purpose '{purpose}' — one of {', '.join(ev.PURPOSES)}"
+            )
+        resolved = settings_module.load()
+        kind = self._runtime_kind or resolved.runtime
+        runtime = self._runtime or (self._probe(kind) if kind else None)
+        context: ev.RunContext = ev.Emitter(self.session_id).emit(
+            ev.RunContext,
+            purpose=purpose,
+            title=title,
+            latent_intel_version=__version__,
+            runtime=kind,
+            host=self._setting(runtime, "host") if runtime else None,
+            model=self._setting(runtime, "model") if runtime else None,
+            approval=resolved.approval,
+            project=resolved.project_name,
+            context=_fingerprint(resolved),
+            sources=[AttachedSource(id=d.id, kind=d.kind) for d in self.sources()],
+        )
+        return context
+
+    def _probe(self, kind: str) -> agent.Runtime | None:
+        """A runtime built to be read, not run — kept while its options are unchanged,
+        so a shell checking its header before every command builds it once, and the
+        first `ask` takes it over rather than building another. None when it cannot
+        be built: an unbuildable runtime has no settings to report."""
+        options = self._runtime_options(kind)
+        if self._probed is not None and self._probed[:2] == (kind, options):
+            return self._probed[2]
+        try:
+            runtime: agent.Runtime | None = agent.build(kind, **options)
+        except Exception:  # noqa: BLE001
+            runtime = None
+        self._probed = (kind, options, runtime)
         return runtime
 
     async def aclose(self) -> None:
@@ -786,6 +850,24 @@ class Session:
             for name, connector in self._connectors.items()
             if connector.describe().can(Capability.SEARCH)
         ]
+
+
+def _fingerprint(resolved: settings_module.Settings) -> Fingerprint:
+    """Content hashes of the persona, each skill and each agent, and one over all."""
+
+    def digest(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    parts = Fingerprint(
+        persona=digest(resolved.persona) if resolved.persona else None,
+        persona_mode=resolved.persona_mode,
+        skills={s.name: digest(s.model_dump_json()) for s in resolved.skills},
+        agents={
+            a.name: digest(json.dumps(dataclasses.asdict(a), sort_keys=True))
+            for a in resolved.agents
+        },
+    )
+    return parts.model_copy(update={"hash": digest(parts.model_dump_json())})
 
 
 def _claim(source_id: str) -> None:

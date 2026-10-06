@@ -34,12 +34,30 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from .models import Approval, Artifact, Descriptor, Doc, Hit, ToolSpec
+from .models import (
+    Approval,
+    Artifact,
+    AttachedSource,
+    Descriptor,
+    Doc,
+    Fingerprint,
+    Hit,
+    ToolSpec,
+)
 
 #: Bumped when a change would make an older consumer misread a newer stream. Additive
 #: changes — a new event type, a new optional field — do not bump it, because tolerant
 #: parsing already covers them.
 SCHEMA_VERSION = 1
+
+#: The format a recording file declares in its `RunContext` header, at `format_version`
+#: `SCHEMA_VERSION` — one constant, because a change that breaks an older reader of the
+#: events breaks an older reader of the file. Spec: `docs/formats/recording.md`.
+RECORDING_FORMAT = "latent-intel.recording"
+
+#: What a recording is for, so a share, a demo and an eval run can be told apart from
+#: the file alone.
+PURPOSES = ("share", "demo", "eval")
 
 
 def _now() -> datetime:
@@ -174,6 +192,9 @@ class ToolResult(BaseEvent):
     output: str = ""
     error: str = ""
     duration_ms: int | None = None
+    #: The `source:key` refs in `output`, in order — filled by the session, so
+    #: retrieval can be scored without parsing text. Optional and additive.
+    refs: list[str] = Field(default_factory=list)
 
 
 # -- what is attached -------------------------------------------------------
@@ -229,6 +250,43 @@ class ApprovalResolved(BaseEvent):
     automatic: bool = False
 
 
+# -- what produced the rest -------------------------------------------------
+
+
+class RunContext(BaseEvent):
+    """What produced the events after it: the header of a recording.
+
+    First in every recording, and again whenever any of it changes, so each stretch of
+    a file says which runtime, model, project and context engineering made it. Carries
+    the format name and version itself, so a file split or concatenated stays readable.
+    Written by a recording, not by `Session.run`: the `--json` stream is the wire
+    format and has no header.
+
+    Names, never locations — sources are ids and kinds, the project is a name, and
+    context engineering is content hashes. `case_id`, `variant_id` and `epoch` are
+    filled by batch eval runs.
+    """
+
+    type: Literal["run_context"] = "run_context"
+    format: str = RECORDING_FORMAT
+    format_version: int = SCHEMA_VERSION
+    #: A string rather than a Literal, so a purpose added later still parses here as a
+    #: header; the schema holds producers to the list.
+    purpose: str = Field("share", json_schema_extra={"enum": list(PURPOSES)})
+    title: str = ""
+    latent_intel_version: str = ""
+    runtime: str | None = None
+    host: str | None = None
+    model: str | None = None
+    approval: str = "ask"
+    project: str | None = None
+    context: Fingerprint = Field(default_factory=Fingerprint)
+    sources: list[AttachedSource] = Field(default_factory=list)
+    case_id: str | None = None
+    variant_id: str | None = None
+    epoch: int | None = None
+
+
 # -- tools offered ----------------------------------------------------------
 
 
@@ -271,6 +329,7 @@ AgentEvent = Annotated[
     | ArtifactCreated
     | ApprovalRequested
     | ApprovalResolved
+    | RunContext
     | ToolsChanged,
     Field(discriminator="type"),
 ]
@@ -329,6 +388,23 @@ def _uuid_or_new(value: Any) -> UUID:
         return UUID(str(value))
     except (ValueError, AttributeError, TypeError):
         return uuid4()
+
+
+def recording_schema() -> dict[str, Any]:
+    """The JSON Schema every line of a recording satisfies, as committed at
+    `schemas/recording.v1.json`. Per line, because the file is JSON Lines; that the
+    first line is a `run_context` is stated in the spec and checked in tests."""
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": f"{RECORDING_FORMAT}.v{SCHEMA_VERSION}",
+        "title": f"{RECORDING_FORMAT} v{SCHEMA_VERSION}, one line",
+        "description": (
+            "One event of a recording. A recording opens with a run_context; a reader "
+            "skips a type it does not know and refuses a missing or unknown "
+            "format_version. Spec: docs/formats/recording.md."
+        ),
+        **_ADAPTER.json_schema(mode="serialization"),
+    }
 
 
 def dump_event(event: BaseEvent) -> str:
@@ -400,8 +476,11 @@ __all__ = [
     "DocumentFetched",
     "Emitter",
     "KNOWN_TYPES",
+    "PURPOSES",
+    "RECORDING_FORMAT",
     "RetrievalResult",
     "RetrievalStarted",
+    "RunContext",
     "SourceConnected",
     "SourceDisconnected",
     "ToolResult",
@@ -412,4 +491,5 @@ __all__ = [
     "dump_event",
     "parse_event",
     "read_stream",
+    "recording_schema",
 ]

@@ -26,24 +26,32 @@ from latent_intel import events as ev  # noqa: E402
 from latent_intel.models import (  # noqa: E402
     Approval,
     Artifact,
+    AttachedSource,
     Capability,
     Descriptor,
     Doc,
     Effect,
     Hit,
     Provenance,
+    Skill,
 )
+from latent_intel.session import _fingerprint  # noqa: E402
+from latent_intel.settings import Settings  # noqa: E402
 
 NS = UUID("6f1d5b2a-0000-4000-8000-000000000000")
 T0 = datetime(2026, 8, 21, 12, 0, 0, tzinfo=UTC)
 OUT = Path(__file__).parent / "streams"
+#: Published samples of the recording format, for consumers to copy into their own tests
+#: (house-rules/integration.md, "fixtures, not imports"). Each opens with its header.
+FORMATS = Path(__file__).parent / "formats" / "recording"
 
 
 class Recorder:
     """An Emitter with the clock and the identifiers pinned."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, directory: Path = OUT) -> None:
         self.name = name
+        self.directory = directory
         self.session_id = uuid5(NS, f"{name}/session")
         self.operation_id = uuid5(NS, f"{name}/operation")
         self.events: list[ev.BaseEvent] = []
@@ -63,7 +71,7 @@ class Recorder:
         return event
 
     def write(self) -> Path:
-        path = OUT / f"{self.name}.jsonl"
+        path = self.directory / f"{self.name}.jsonl"
         path.write_text(
             "".join(ev.dump_event(e) + "\n" for e in self.events), encoding="utf-8"
         )
@@ -344,6 +352,87 @@ def agent_turn_stream() -> Recorder:
     return r
 
 
+def recorded_ask() -> Recorder:
+    """A recording of one eval turn: header, question, a search tool, a cited answer."""
+    r = Recorder("ask", FORMATS)
+    r.add(
+        ev.RunContext,
+        purpose="eval",
+        title="compaction, haiku",
+        latent_intel_version="0.1.0",
+        runtime="claude-agent-sdk",
+        host="anthropic",
+        model="claude-haiku-4-5",
+        approval="auto",
+        project="research",
+        # Through the writer's own code, so the digests are ones it can produce.
+        context=_fingerprint(
+            Settings(
+                persona="You are an archivist.",
+                skills=[Skill(name="citation-style", body="Cite inline.")],
+            )
+        ),
+        sources=[AttachedSource(id="design", kind="wiki")],
+        case_id="q17",
+        variant_id="haiku",
+        epoch=1,
+    )
+    r.add(ev.UserMessage, text="is context compaction recoverable?")
+    started = r.add(
+        ev.ToolStarted,
+        tool="design.wiki_search",
+        source_id="design",
+        arguments={"query": "compaction recoverable", "limit": 3},
+        effect=Effect.EXTERNAL_READ.value,
+    )
+    r.add(
+        ev.ToolResult,
+        parent=started,
+        tool="design.wiki_search",
+        source_id="design",
+        output=(
+            "[contradiction] design:ace-contradiction — ACE contradiction\n"
+            "  Two sources disagree on whether compaction is recoverable.\n\n"
+            "[concept] design:context-collapse — Context collapse\n"
+            "  Rewriting an accumulated context end to end destroys it."
+        ),
+        refs=["design:ace-contradiction", "design:context-collapse"],
+        duration_ms=140,
+    )
+    r.add(
+        ev.AgentCompleted,
+        text=(
+            "Only with an external probe: unbounded rewriting destroys context "
+            "(design:context-collapse), and the sources disagree on recovery "
+            "(design:ace-contradiction)."
+        ),
+        citations=["design:context-collapse", "design:ace-contradiction"],
+        usage={"input_tokens": 9100, "output_tokens": 640},
+        cost_usd=0.012,
+    )
+    return r
+
+
+def recorded_search() -> Recorder:
+    """A recording of a search, shared: the header, then the search stream."""
+    r = Recorder("search", FORMATS)
+    r.add(
+        ev.RunContext,
+        title="two sources, one query",
+        latent_intel_version="0.1.0",
+        context=_fingerprint(Settings()),
+        sources=[
+            AttachedSource(id="design", kind="wiki"),
+            AttachedSource(id="papers", kind="vector"),
+        ],
+    )
+    for event in search_stream().events:
+        envelope = {"event_id", "session_id", "operation_id", "parent_id", "sequence"}
+        fields = event.model_dump(exclude=envelope | {"ts"})
+        r.add(type(event), **fields)
+    return r
+
+
 BUILDERS = (
     search_stream,
     retrieval_stream,
@@ -351,11 +440,14 @@ BUILDERS = (
     approval_stream,
     failure_stream,
     agent_turn_stream,
+    recorded_ask,
+    recorded_search,
 )
 
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    FORMATS.mkdir(parents=True, exist_ok=True)
     for build in BUILDERS:
         recorder = build()
         path = recorder.write()

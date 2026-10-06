@@ -221,7 +221,8 @@ once it has chosen…
 | `/disconnect <id>` | detach one |
 | `/use [id]` | which source a bare key resolves against |
 | `/tools` | what the router exposes, and each tool's declared effect |
-| `/record [file]` `/record off` | tee every event to a file · stop and say how many · bare, what is being recorded |
+| `/record [file] [--purpose p] [--title t]` `/record off` | tee every event to a file, headed by what produced it · stop and say how many · bare, what is being recorded |
+| `/replay <file> [--since N]` | render a recording, exactly as `intel replay` does |
 | `/runtime [name]` `/model [name]` `/host [name]` | which backend answers `ask`, which model it uses, which host it talks to |
 | `/hosts` | every host either runtime can reach, and what each one needs |
 | `/clear` `/exit` | clear the screen · leave (Ctrl-D also leaves) |
@@ -342,27 +343,44 @@ lose the live view precisely when you most want to keep it. `--record` tees — 
 renders as usual, and every event is appended to the file as it happens:
 
 ```bash
-intel search "disclosure" --record run.jsonl   # also on get, ask and run
-intel replay run.jsonl                         # the run, as it looked
-intel replay run.jsonl --since 12              # start at line 12 of the file
-intel replay run.jsonl --json | jq -c .type    # or pipe it onward
+intel search "disclosure" --record run           # also on get, ask and run
+intel ask "…" --record demo --purpose demo --title "first look"
+intel replay run                                 # the run, as it looked
+intel replay run --since 12                      # start at line 12 of the file
+intel replay run --json | jq -c .type            # or pipe it onward
 ```
 
-A recorded file is the `--json` stream, appended — two runs recorded to one file replay
-as one, with no seam — and nothing beside it: no manifest, no index, no directory
-convention. So an interrupted run still replays up to the interruption, and a run
-recorded by a newer build replays here too: a line this one cannot read renders as the
-unknown-event line rather than refusing the file, and a newer `schema_version` is named
-on stderr rather than read silently.
+**A plain name lives in the data directory** — `run` is
+`~/.local/share/latent-intel/recordings/run.jsonl` — so the shell and the CLI find the
+same recording wherever each was typed. A filename is used as typed: `run.jsonl` or
+`./run` is in the working directory, which is also how a `--json` capture is replayed.
+
+**A recording says what produced it.** Its first line is a `run_context`: purpose
+(`share`, `demo` or `eval`; `share` by default), title, runtime, host, model, project,
+a hash of the persona, skills and agents in force, and the attached sources by id and
+kind — never a path. Replay shows it as one line beginning `●`. The format is specified
+in [`formats/recording.md`](formats/recording.md). Tool output in a recording carries
+source content, so treat one like the sources themselves.
+
+Otherwise a recording is the `--json` stream, appended. Two runs recorded to one file
+replay as one, each with its own header. An interrupted run still replays up to the
+interruption, and a run recorded by a newer build replays here too: a line this one
+cannot read renders as the unknown-event line rather than refusing the file, and a newer
+version is named on stderr rather than read silently. So is a file whose first line is
+not a header — a `--json` capture, or a recording made before headers existed.
 
 `--since` is a line of the file, 1-based, because that is the number your editor shows
 in the gutter — `sequence` restarts within one file, so it cannot address a position in
 it. A file that cannot be read exits 1, and so does a `--record` target that cannot be
-opened, before anything runs.
+opened, before anything runs. `--purpose` or `--title` without `--record` is refused
+rather than ignored.
 
-In the shell, `/record <file>` starts and `/record off` stops, reporting how many events
-it wrote; bare `/record` says which file is being written, or that none is. Session
-state, and nothing about it is written to your config.
+In the shell, `/record <file> [--purpose p] [--title t]` starts and `/record off` stops,
+reporting how many events it wrote; bare `/record` says which file is being written, or
+that none is. Before each command the shell checks whether the runtime, model, project,
+skills or sources changed, and writes a new header when they did. `/replay <file>` prints
+what `intel replay` prints. Session state, and nothing about it is written to your
+config.
 
 ---
 

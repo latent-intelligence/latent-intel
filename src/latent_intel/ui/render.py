@@ -66,11 +66,40 @@ def render(console: Console, event: ev.AgentEvent | ev.UnknownEvent) -> None:
                 f" [dim]{escape(event.artifact.path)}[/]" if event.artifact.path else ""
             )
             console.print(f"  [accent]created[/] {escape(event.artifact.title)}{where}")
+        case ev.RunContext():
+            _context(console, event)
         case ev.UserMessage() | ev.ToolsChanged():
             pass  # echoed by the frontend that caused it; not worth reprinting
         case _:
             # Including UnknownEvent. A newer producer must never break this renderer.
             console.print(f"  [dim]· {escape(str(event.type))}[/]")
+
+
+def _context(console: Console, event: ev.RunContext) -> None:
+    """One line saying what produced what follows. The fingerprint is shortened to
+    eight characters here; the recording keeps all of it."""
+    title = f' [text]"{escape(event.title)}"[/]' if event.title else ""
+    setup = " · ".join(p for p in (event.runtime, event.host, event.model) if p)
+    parts = [f"[source]{escape(setup or 'no runtime')}[/]"]
+    if event.project:
+        parts.append(f"[dim]project[/] [source]{escape(event.project)}[/]")
+    if event.context.hash:
+        parts.append(f"[dim]context[/] {escape(event.context.hash[:8])}")
+    if event.sources:
+        names = ", ".join(s.id for s in event.sources)
+        parts.append(f"[dim]sources[/] [source]{escape(names)}[/]")
+    for label, value in (
+        ("case", event.case_id),
+        ("variant", event.variant_id),
+        ("epoch", event.epoch),
+    ):
+        if value is not None:
+            parts.append(f"[dim]{label}[/] {escape(str(value))}")
+    console.print(
+        f"[dim]●[/] [accent]{escape(event.purpose)}[/]{title} [dim]—[/] "
+        + " [dim]·[/] ".join(parts),
+        highlight=False,
+    )
 
 
 def _source(console: Console, event: ev.SourceConnected) -> None:

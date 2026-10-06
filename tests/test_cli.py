@@ -25,6 +25,7 @@ from latent_intel.models import Capability, Descriptor
 from latent_intel.ui import banner, render
 from latent_intel.ui.theme import THEME
 
+ROOT_FORMATS = Path(__file__).parent / "fixtures" / "formats" / "recording"
 STREAMS = Path(__file__).parent / "fixtures" / "streams"
 FIXTURES = sorted(STREAMS.glob("*.jsonl"))
 
@@ -893,3 +894,104 @@ def test_record_on_get_writes_the_document_it_fetched(tmp_path: Path) -> None:
     result = runner.invoke(app, ["get", "c:note.md", "--record", str(recording)])
     assert result.exit_code == 0
     assert "document_fetched" in recording.read_text()
+
+
+def test_a_recording_opens_with_what_produced_it(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
+
+    recording = tmp_path / "run.jsonl"
+    result = runner.invoke(
+        app,
+        ["search", "retrieval", "--record", str(recording)]
+        + ["--purpose", "demo", "--title", "first look"],
+    )
+    assert result.exit_code == 0
+
+    first = ev.parse_event(recording.read_text().splitlines()[0])
+    assert isinstance(first, ev.RunContext)
+    assert (first.purpose, first.title) == ("demo", "first look")
+    assert [s.id for s in first.sources] == ["c"]
+    replayed = runner.invoke(app, ["replay", str(recording)])
+    assert '● demo "first look"' in replayed.stdout
+
+
+def test_the_json_stream_has_no_header(tmp_path: Path) -> None:
+    """`--json` is the wire format; a header belongs to the recording file only."""
+    recording = tmp_path / "run.jsonl"
+    result = runner.invoke(app, ["search", "x", "--json", "--record", str(recording)])
+    assert "run_context" not in result.stdout
+    assert "run_context" in recording.read_text().splitlines()[0]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--purpose", "demo"], ["--title", "t"]],
+)
+def test_recording_options_without_a_recording_are_refused(extra: list[str]) -> None:
+    result = runner.invoke(app, ["search", "x", *extra])
+    assert result.exit_code == 1
+    assert "--record" in result.stderr
+
+
+def test_an_unknown_purpose_is_refused_before_anything_runs(tmp_path: Path) -> None:
+    recording = tmp_path / "run.jsonl"
+    result = runner.invoke(
+        app, ["search", "x", "--record", str(recording), "--purpose", "archive"]
+    )
+    assert result.exit_code == 1
+    assert not recording.exists()
+
+
+def test_a_file_with_no_header_replays_and_says_so() -> None:
+    result = runner.invoke(app, ["replay", str(STREAMS / "search.jsonl")])
+    assert result.exit_code == 0
+    assert "searching" in result.stdout
+    assert "no run context" in result.stderr
+
+
+def test_a_header_from_another_format_is_named_once(tmp_path: Path) -> None:
+    """Its version means nothing against ours, so no schema warning follows."""
+    header = json.loads((ROOT_FORMATS / "search.jsonl").read_text().splitlines()[0])
+    header.update(format="other.tool", format_version=3)
+    path = tmp_path / "other.jsonl"
+    path.write_text(json.dumps(header) + "\n")
+    result = runner.invoke(app, ["replay", str(path)])
+    assert "other.tool" in result.stderr
+    assert "schema_version" not in result.stderr
+
+
+def test_a_header_appended_after_a_json_capture_still_warns(tmp_path: Path) -> None:
+    path = tmp_path / "mixed.jsonl"
+    path.write_text(
+        (STREAMS / "search.jsonl").read_text()
+        + (ROOT_FORMATS / "search.jsonl").read_text()
+    )
+    result = runner.invoke(app, ["replay", str(path)])
+    assert result.exit_code == 0
+    assert "no run context on the first line" in result.stderr
+
+
+def test_a_header_cannot_restyle_the_terminal(tmp_path: Path) -> None:
+    header = json.loads((ROOT_FORMATS / "search.jsonl").read_text().splitlines()[0])
+    header["context"]["hash"] = "[bold]xx" + "0" * 56
+    path = tmp_path / "styled.jsonl"
+    path.write_text(json.dumps(header) + "\n")
+    result = runner.invoke(app, ["replay", str(path)])
+    assert "[bold]xx" in result.stdout
+
+
+def test_an_unwritable_data_directory_is_one_line_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from latent_intel import config as config_module
+
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file where a directory should be")
+    monkeypatch.setenv(config_module.ENV_HOME, str(blocked))
+    result = runner.invoke(app, ["search", "x", "--record", "run"])
+    assert result.exit_code == 1
+    assert "✗" in result.stderr
+    assert not isinstance(result.exception, OSError)

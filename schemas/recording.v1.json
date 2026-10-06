@@ -1,0 +1,1939 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "latent-intel.recording.v1",
+  "title": "latent-intel.recording v1, one line",
+  "description": "One event of a recording. A recording opens with a run_context; a reader skips a type it does not know and refuses a missing or unknown format_version. Spec: docs/formats/recording.md.",
+  "$defs": {
+    "AgentCompleted": {
+      "properties": {
+        "type": {
+          "const": "agent_completed",
+          "default": "agent_completed",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "streamed": {
+          "default": false,
+          "title": "Streamed",
+          "type": "boolean"
+        },
+        "citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Citations",
+          "type": "array"
+        },
+        "usage": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Usage",
+          "type": "object"
+        },
+        "cost_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Usd"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id"
+      ],
+      "title": "AgentCompleted",
+      "type": "object"
+    },
+    "AgentFailed": {
+      "description": "A failure is an event, not an exception.\n\nA frontend consuming a stream cannot catch an exception raised inside a generator it\nis iterating over a socket. Every failure a user should see travels as an event.",
+      "properties": {
+        "type": {
+          "const": "agent_failed",
+          "default": "agent_failed",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "kind": {
+          "default": "error",
+          "title": "Kind",
+          "type": "string"
+        },
+        "remedy": {
+          "default": "",
+          "title": "Remedy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "message"
+      ],
+      "title": "AgentFailed",
+      "type": "object"
+    },
+    "Approval": {
+      "description": "A request to run something that changes the world, and what was decided.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "effect": {
+          "$ref": "#/$defs/Effect"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "arguments": {
+          "additionalProperties": true,
+          "title": "Arguments",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "tool",
+        "effect",
+        "summary"
+      ],
+      "title": "Approval",
+      "type": "object"
+    },
+    "ApprovalRequested": {
+      "description": "Emitted before anything that changes the world. The stream pauses here.",
+      "properties": {
+        "type": {
+          "const": "approval_requested",
+          "default": "approval_requested",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/Approval"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "approval"
+      ],
+      "title": "ApprovalRequested",
+      "type": "object"
+    },
+    "ApprovalResolved": {
+      "properties": {
+        "type": {
+          "const": "approval_resolved",
+          "default": "approval_resolved",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "approval_id": {
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "granted": {
+          "title": "Granted",
+          "type": "boolean"
+        },
+        "automatic": {
+          "default": false,
+          "title": "Automatic",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "approval_id",
+        "granted"
+      ],
+      "title": "ApprovalResolved",
+      "type": "object"
+    },
+    "Artifact": {
+      "description": "Something produced during a session that outlives the message it appeared in.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "preview": {
+          "default": "",
+          "title": "Preview",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "ArtifactCreated": {
+      "properties": {
+        "type": {
+          "const": "artifact_created",
+          "default": "artifact_created",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "artifact"
+      ],
+      "title": "ArtifactCreated",
+      "type": "object"
+    },
+    "AssistantToken": {
+      "description": "One chunk of streamed output. Chunks, not characters \u2014 a renderer appends.",
+      "properties": {
+        "type": {
+          "const": "assistant_token",
+          "default": "assistant_token",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "text"
+      ],
+      "title": "AssistantToken",
+      "type": "object"
+    },
+    "AttachedSource": {
+      "description": "A source as a recording names it \u2014 id and kind, never where it lives.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "title": "AttachedSource",
+      "type": "object"
+    },
+    "Capability": {
+      "description": "What a connector can do. Not every source does everything.\n\nAn MCP server may expose only tools; a directory of markdown has no tools; a wiki\nhas all three. A single fat Protocol would force empty implementations and let a\nconnector lie about what it supports.",
+      "enum": [
+        "search",
+        "fetch",
+        "tools"
+      ],
+      "title": "Capability",
+      "type": "string"
+    },
+    "ContextAdded": {
+      "description": "Material pinned into the working context by hand, not retrieved.",
+      "properties": {
+        "type": {
+          "const": "context_added",
+          "default": "context_added",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "ref",
+        "source_id"
+      ],
+      "title": "ContextAdded",
+      "type": "object"
+    },
+    "ContextRemoved": {
+      "properties": {
+        "type": {
+          "const": "context_removed",
+          "default": "context_removed",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "ref"
+      ],
+      "title": "ContextRemoved",
+      "type": "object"
+    },
+    "Descriptor": {
+      "description": "What a connected source is, cheaply. The scan rung for sources themselves.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "freshness": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Freshness"
+        },
+        "detail": {
+          "additionalProperties": true,
+          "title": "Detail",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "title": "Descriptor",
+      "type": "object"
+    },
+    "Doc": {
+      "description": "One document in full \u2014 the detail rung.",
+      "properties": {
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "title": "Kind",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "ref",
+        "source_id",
+        "title",
+        "body",
+        "provenance"
+      ],
+      "title": "Doc",
+      "type": "object"
+    },
+    "DocumentFetched": {
+      "properties": {
+        "type": {
+          "const": "document_fetched",
+          "default": "document_fetched",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "doc": {
+          "$ref": "#/$defs/Doc"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "doc"
+      ],
+      "title": "DocumentFetched",
+      "type": "object"
+    },
+    "Effect": {
+      "description": "What a tool does to the world. Declared by the tool, never guessed.",
+      "enum": [
+        "none",
+        "external_read",
+        "local_write",
+        "external_write",
+        "destructive"
+      ],
+      "title": "Effect",
+      "type": "string"
+    },
+    "Fingerprint": {
+      "description": "The context engineering in force, as sha256 content hashes.\n\nEnough to tell two runs apart, or prove them alike, without carrying a persona or a\nskill body into a file that gets shared. `hash` covers everything else here.",
+      "properties": {
+        "persona": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Persona"
+        },
+        "persona_mode": {
+          "default": "append",
+          "title": "Persona Mode",
+          "type": "string"
+        },
+        "skills": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Skills",
+          "type": "object"
+        },
+        "agents": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Agents",
+          "type": "object"
+        },
+        "hash": {
+          "default": "",
+          "title": "Hash",
+          "type": "string"
+        }
+      },
+      "title": "Fingerprint",
+      "type": "object"
+    },
+    "Hit": {
+      "description": "One search result, at the gist rung. A lead, never a body.",
+      "properties": {
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "title": "Kind",
+          "type": "string"
+        },
+        "lead": {
+          "default": "",
+          "title": "Lead",
+          "type": "string"
+        },
+        "score": {
+          "default": 0.0,
+          "title": "Score",
+          "type": "number"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "ref",
+        "source_id",
+        "title",
+        "provenance"
+      ],
+      "title": "Hit",
+      "type": "object"
+    },
+    "Provenance": {
+      "description": "Where a result came from. Required on every result-bearing event.",
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "as_of": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "As Of"
+        }
+      },
+      "required": [
+        "source_id",
+        "method"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "RetrievalResult": {
+      "description": "Hits from **one** source.\n\nOne event per source rather than one merged list, because a lexical score and a\nvector cosine are not comparable and a single ordered list would assert that they\nare. Grouping is structural here so no renderer has to remember it.",
+      "properties": {
+        "type": {
+          "const": "retrieval_result",
+          "default": "retrieval_result",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "hits": {
+          "items": {
+            "$ref": "#/$defs/Hit"
+          },
+          "title": "Hits",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "source_id",
+        "query"
+      ],
+      "title": "RetrievalResult",
+      "type": "object"
+    },
+    "RetrievalStarted": {
+      "properties": {
+        "type": {
+          "const": "retrieval_started",
+          "default": "retrieval_started",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "filters": {
+          "additionalProperties": true,
+          "title": "Filters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "query"
+      ],
+      "title": "RetrievalStarted",
+      "type": "object"
+    },
+    "RunContext": {
+      "description": "What produced the events after it: the header of a recording.\n\nFirst in every recording, and again whenever any of it changes, so each stretch of\na file says which runtime, model, project and context engineering made it. Carries\nthe format name and version itself, so a file split or concatenated stays readable.\nWritten by a recording, not by `Session.run`: the `--json` stream is the wire\nformat and has no header.\n\nNames, never locations \u2014 sources are ids and kinds, the project is a name, and\ncontext engineering is content hashes. `case_id`, `variant_id` and `epoch` are\nfilled by batch eval runs.",
+      "properties": {
+        "type": {
+          "const": "run_context",
+          "default": "run_context",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "format": {
+          "default": "latent-intel.recording",
+          "title": "Format",
+          "type": "string"
+        },
+        "format_version": {
+          "default": 1,
+          "title": "Format Version",
+          "type": "integer"
+        },
+        "purpose": {
+          "default": "share",
+          "enum": [
+            "share",
+            "demo",
+            "eval"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "latent_intel_version": {
+          "default": "",
+          "title": "Latent Intel Version",
+          "type": "string"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime"
+        },
+        "host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "approval": {
+          "default": "ask",
+          "title": "Approval",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "context": {
+          "$ref": "#/$defs/Fingerprint"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/AttachedSource"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "case_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Case Id"
+        },
+        "variant_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variant Id"
+        },
+        "epoch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Epoch"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id"
+      ],
+      "title": "RunContext",
+      "type": "object"
+    },
+    "SourceConnected": {
+      "properties": {
+        "type": {
+          "const": "source_connected",
+          "default": "source_connected",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "descriptor": {
+          "$ref": "#/$defs/Descriptor"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "descriptor"
+      ],
+      "title": "SourceConnected",
+      "type": "object"
+    },
+    "SourceDisconnected": {
+      "properties": {
+        "type": {
+          "const": "source_disconnected",
+          "default": "source_disconnected",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "source_id"
+      ],
+      "title": "SourceDisconnected",
+      "type": "object"
+    },
+    "ToolResult": {
+      "properties": {
+        "type": {
+          "const": "tool_result",
+          "default": "tool_result",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "ok": {
+          "default": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "output": {
+          "default": "",
+          "title": "Output",
+          "type": "string"
+        },
+        "error": {
+          "default": "",
+          "title": "Error",
+          "type": "string"
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Ms"
+        },
+        "refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "tool",
+        "source_id"
+      ],
+      "title": "ToolResult",
+      "type": "object"
+    },
+    "ToolSpec": {
+      "description": "A tool a connector contributes to the router.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "effect": {
+          "$ref": "#/$defs/Effect",
+          "default": "external_write"
+        },
+        "effect_declared": {
+          "default": true,
+          "title": "Effect Declared",
+          "type": "boolean"
+        },
+        "input_schema": {
+          "additionalProperties": true,
+          "title": "Input Schema",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "source_id"
+      ],
+      "title": "ToolSpec",
+      "type": "object"
+    },
+    "ToolStarted": {
+      "description": "MCP tools and native tools alike. One pair of events, not one per kind \u2014 a\nrenderer showing tool activity should not care which side of the seam it came\nfrom.",
+      "properties": {
+        "type": {
+          "const": "tool_started",
+          "default": "tool_started",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "arguments": {
+          "additionalProperties": true,
+          "title": "Arguments",
+          "type": "object"
+        },
+        "effect": {
+          "default": "external_write",
+          "title": "Effect",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "tool",
+        "source_id"
+      ],
+      "title": "ToolStarted",
+      "type": "object"
+    },
+    "ToolsChanged": {
+      "description": "The router's namespace after a source connected or dropped.",
+      "properties": {
+        "type": {
+          "const": "tools_changed",
+          "default": "tools_changed",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ToolSpec"
+          },
+          "title": "Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id"
+      ],
+      "title": "ToolsChanged",
+      "type": "object"
+    },
+    "UserMessage": {
+      "properties": {
+        "type": {
+          "const": "user_message",
+          "default": "user_message",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "skills": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Skills",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "text"
+      ],
+      "title": "UserMessage",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "agent_completed": "#/$defs/AgentCompleted",
+      "agent_failed": "#/$defs/AgentFailed",
+      "approval_requested": "#/$defs/ApprovalRequested",
+      "approval_resolved": "#/$defs/ApprovalResolved",
+      "artifact_created": "#/$defs/ArtifactCreated",
+      "assistant_token": "#/$defs/AssistantToken",
+      "context_added": "#/$defs/ContextAdded",
+      "context_removed": "#/$defs/ContextRemoved",
+      "document_fetched": "#/$defs/DocumentFetched",
+      "retrieval_result": "#/$defs/RetrievalResult",
+      "retrieval_started": "#/$defs/RetrievalStarted",
+      "run_context": "#/$defs/RunContext",
+      "source_connected": "#/$defs/SourceConnected",
+      "source_disconnected": "#/$defs/SourceDisconnected",
+      "tool_result": "#/$defs/ToolResult",
+      "tool_started": "#/$defs/ToolStarted",
+      "tools_changed": "#/$defs/ToolsChanged",
+      "user_message": "#/$defs/UserMessage"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/UserMessage"
+    },
+    {
+      "$ref": "#/$defs/AssistantToken"
+    },
+    {
+      "$ref": "#/$defs/AgentCompleted"
+    },
+    {
+      "$ref": "#/$defs/AgentFailed"
+    },
+    {
+      "$ref": "#/$defs/RetrievalStarted"
+    },
+    {
+      "$ref": "#/$defs/RetrievalResult"
+    },
+    {
+      "$ref": "#/$defs/DocumentFetched"
+    },
+    {
+      "$ref": "#/$defs/ToolStarted"
+    },
+    {
+      "$ref": "#/$defs/ToolResult"
+    },
+    {
+      "$ref": "#/$defs/SourceConnected"
+    },
+    {
+      "$ref": "#/$defs/SourceDisconnected"
+    },
+    {
+      "$ref": "#/$defs/ContextAdded"
+    },
+    {
+      "$ref": "#/$defs/ContextRemoved"
+    },
+    {
+      "$ref": "#/$defs/ArtifactCreated"
+    },
+    {
+      "$ref": "#/$defs/ApprovalRequested"
+    },
+    {
+      "$ref": "#/$defs/ApprovalResolved"
+    },
+    {
+      "$ref": "#/$defs/RunContext"
+    },
+    {
+      "$ref": "#/$defs/ToolsChanged"
+    }
+  ]
+}

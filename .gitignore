@@ -32,3 +32,6 @@ htmlcov/
 # Local data — recorded sessions, caches, scratch stores.
 # Never versioned; see ../house-rules/paths.md.
 /data
+
+# Design records, plans and working notes — private for now (house-rules/plans.md)
+/docs/context/

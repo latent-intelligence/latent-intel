@@ -19,6 +19,7 @@ never inside the install directory.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,10 @@ from .._shared import (
     console,
     print_hosts,
     record,
+    recording_path,
+    replay_file,
     report,
+    same_context,
     session_scope,
 )
 from .._shared import recording as open_recording
@@ -64,6 +68,10 @@ class Recording:
 
     path: Path | None = None
     count: int = 0
+    purpose: str = "share"
+    title: str = ""
+    #: The header last written, so a new one goes in only when the setup changed.
+    context: ev.RunContext | None = None
 
 
 def _prompt_style() -> Style:
@@ -302,6 +310,12 @@ async def _dispatch(
     """
     refs: list[str] = []
     with open_recording(recording.path) as tee:
+        if recording.path is not None:
+            # Checked before every command rather than hooked into each one that can
+            # change it: `/runtime`, `/model`, `/host`, `/project`, an attach, a skill
+            # edited on disk — one comparison covers all of them, including the ones
+            # nobody thought to hook.
+            _head(session, recording, tee)
         async for event in session.run(command):
             if isinstance(event, ev.RetrievalResult):
                 refs.extend(hit.ref for hit in event.hits)
@@ -363,7 +377,9 @@ def _local(
                 if tool.description:
                     console.print(f"    [dim]{escape(tool.description[:100])}[/]")
         case "record":
-            _record(recording, local.argument)
+            _record(session, recording, local)
+        case "replay":
+            _replay(local)
         case "use":
             _use(session, local.argument)
         case "runtime":
@@ -402,7 +418,7 @@ def _project(session: Session, name: str) -> None:
     console.print("[dim]restart the shell to attach its sources[/]")
 
 
-def _record(recording: Recording, argument: str) -> None:
+def _record(session: Session, recording: Recording, local: Local) -> None:
     """Start, stop, or report this session's recording.
 
     Nothing is persisted: `/record` changes what this shell does with its events, not
@@ -411,14 +427,17 @@ def _record(recording: Recording, argument: str) -> None:
 
     A file the person chose and nothing beside it — no manifest, no index, no directory
     convention. Anything more is a store, and this is not the package that owns one.
+    The file opens with a `RunContext`, written now rather than at the next command, so
+    a recording stopped before anything ran still says what it would have recorded.
     """
+    argument = local.argument
     if not argument:
         if recording.path is None:
             console.print("[dim]not recording[/] [dim]— /record <file> to start[/]")
             return
         console.print(
             f"[dim]recording to[/] [source]{escape(str(recording.path))}[/] "
-            f"[dim]({recording.count} events)[/]"
+            f"[dim]({recording.purpose}, {recording.count} events)[/]"
         )
         return
 
@@ -432,23 +451,54 @@ def _record(recording: Recording, argument: str) -> None:
         )
         recording.path = None
         recording.count = 0
+        recording.context = None
         return
 
-    path = Path(argument).expanduser()
     try:
+        path = recording_path(argument)
         # Opened now rather than at the next command: a mistyped directory is a
         # diagnosis here and a traceback out of the loop there, which would take the
-        # session with it.
-        path.open("a", encoding="utf-8").close()
+        # session with it. Through the writer, which creates the data directory's
+        # `recordings/` and nothing else.
+        with open_recording(path):
+            pass
     except OSError as exc:
         console.print(f"[fail]✗[/] {escape(str(exc))}")
         return
     recording.path = path
     recording.count = 0
+    recording.purpose = local.options.get("purpose", "share")
+    recording.title = local.options.get("title", "")
+    recording.context = None
     console.print(
         f"[dim]recording to[/] [source]{escape(str(path))}[/] "
         "[dim]— /record off to stop[/]"
     )
+    with open_recording(path) as tee:
+        _head(session, recording, tee)
+
+
+def _head(
+    session: Session, recording: Recording, tee: Callable[[ev.BaseEvent], None]
+) -> None:
+    """Write and show a header when what would answer differs from the last one."""
+    context = session.run_context(recording.purpose, recording.title)
+    if same_context(recording.context, context):
+        return
+    render_module.render(console, context)
+    tee(context)
+    recording.context = context
+    recording.count += 1
+
+
+def _replay(local: Local) -> None:
+    """The same replay `intel replay` prints, so the two cannot disagree."""
+    try:
+        replay_file(
+            recording_path(local.argument), since=int(local.options.get("since", "1"))
+        )
+    except OSError as exc:
+        console.print(f"[fail]✗[/] {escape(str(exc))}")
 
 
 def _use(session: Session, source_id: str) -> None:
