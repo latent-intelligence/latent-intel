@@ -86,6 +86,7 @@ $ intel doctor
 latent-intel 0.1.0
 
 connectors (entry points)
+  ✓ code
   ✓ files
   ✓ mcp
   ✓ wiki
@@ -131,6 +132,23 @@ sources:
 The pairing is what lets `wiki_raw` escalate from a page to the source it derives from.
 Leave it out and search, `open` and every other tool still work — only that escalation
 reports it has nothing to read.
+
+**A codebase** is `--kind code`: the repository's own files, read as text.
+
+```
+$ intel connect ~/src/example-repo --kind code --as repo
+✓ code   repo  89 files  search fetch tools
+$ intel get repo:src/app/models.py:40-80
+```
+
+A key may end in a line span — `:40` or `:40-80` — and the lines come back numbered. Search
+matches paths and file contents, skipping files over 1 MB, and each hit shows the first
+matching line. Source, config and docs files are included and `.git .venv node_modules dist
+build __pycache__` are skipped; a project can override either with `include:` and `exclude:`
+options (space-separated globs). An excluded file cannot be fetched either, so `.env` stays
+closed. The agent gets `search_code`, `read_file` and `list_files`, all read-only. A
+`graph:` option is refused for now: there is no symbol index behind this kind yet, and a
+source that silently searched text instead would mislead.
 
 **Local or remote.** A registered store resolves to its local copy when that path exists,
 and to its `paths.mirror` otherwise — so one registry works on your laptop and on a build
