@@ -89,6 +89,18 @@ async def test_files_connector_refuses_to_climb_out_of_its_root(corpus: Path) ->
         await connector.fetch("../../../etc/passwd")
 
 
+async def test_files_connector_refuses_a_sibling_sharing_its_prefix(
+    tmp_path: Path,
+) -> None:
+    """`/notes-private` starts with `/notes` as a string but is not inside it."""
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes-private").mkdir()
+    (tmp_path / "notes-private" / "secret.md").write_text("# Secret\n")
+    connector = FilesConnector("notes", str(tmp_path / "notes"))
+    with pytest.raises(ConnectError, match="outside"):
+        await connector.fetch("../notes-private/secret.md")
+
+
 def test_files_connector_rejects_a_missing_root(tmp_path: Path) -> None:
     with pytest.raises(ConnectError, match="no directory"):
         FilesConnector("nope", str(tmp_path / "does-not-exist"))

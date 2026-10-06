@@ -80,8 +80,9 @@ class FilesConnector:
         A key arrives from a user, a config file, or an agent. `../../.ssh/id_rsa` is a
         valid relative path and must not be a valid key.
         """
-        candidate = (self.root / key).resolve()
-        if not str(candidate).startswith(str(self.root.resolve())):
+        root = self.root.resolve()
+        candidate = (root / key).resolve()
+        if candidate != root and root not in candidate.parents:
             raise ConnectError(f"{key!r} resolves outside {self.id}")
         return candidate
 
