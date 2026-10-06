@@ -133,7 +133,9 @@ def connect(
         None, help="A registered store id, or a path/URI. With --from, a server name."
     ),
     kind: str = typer.Option(
-        None, "--kind", help="wiki | files | mcp | vector. Required for a raw path."
+        None,
+        "--kind",
+        help="wiki | files | code | mcp | vector. Required for a raw path.",
     ),
     name: str = typer.Option(None, "--as", help="Attach it under a different id."),
     remote: bool = typer.Option(

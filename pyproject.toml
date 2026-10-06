@@ -100,6 +100,7 @@ intel = "latent_intel.frontends.cli.main:main"
 # The plug-and-play seam. Our own adapters register the same way a third party's would,
 # so the extension path is the one we use ourselves and cannot rot unnoticed.
 [project.entry-points."latent_intel.connectors"]
+code = "latent_intel.connectors.code:CodeConnector"
 files = "latent_intel.connectors.files:FilesConnector"
 mcp = "latent_intel.connectors.mcp:McpConnector"
 wiki = "latent_intel.connectors.wiki:WikiConnector"
