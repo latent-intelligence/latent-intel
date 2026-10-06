@@ -185,6 +185,33 @@ def test_ref_parsing_follows_the_colon_rule() -> None:
         Ref.parse("bare")
 
 
+def test_refs_in_text_are_found_in_order_once_each() -> None:
+    text = (
+        "[concept] design:context-collapse — Context collapse\n"
+        "see (design:ace) and `notes:sub/dir/note.md`, then design:context-collapse."
+    )
+    assert Ref.find_all(text, {"design", "notes"}) == [
+        "design:context-collapse",
+        "design:ace",
+        "notes:sub/dir/note.md",
+    ]
+
+
+def test_only_attached_sources_make_a_ref() -> None:
+    """A URL, a time and a third-party id all contain a colon; none of them is a ref
+    into something this session can open."""
+    text = "at 12:30 see https://example.org/x, gh:issue-4 and design:ok"
+    assert Ref.find_all(text, {"design"}) == ["design:ok"]
+    assert Ref.find_all("mydesign:x and design.v2:y", {"design"}) == []
+    assert Ref.find_all("anything", set()) == []
+
+
+def test_a_source_named_like_a_scheme_still_skips_urls() -> None:
+    assert Ref.find_all("docs://host/page", {"docs"}) == []
+    # An MCP resource ref keeps its own URI as the key.
+    assert Ref.find_all("docs:file:///a/b.md.", {"docs"}) == ["docs:file:///a/b.md"]
+
+
 # -- the session ------------------------------------------------------------
 
 
@@ -1201,3 +1228,157 @@ async def test_a_project_switch_drops_the_skills_run_under_the_last_one(
         pass
 
     assert runtime.saw["options"]["invoked"] == []
+
+
+# -- what a recording says about itself -------------------------------------
+
+
+class CitingRuntime:
+    """A turn that searched, then answered naming what it found."""
+
+    id = "fake"
+    model = "fake-model-1"
+
+    def __init__(self, citations: list[str] | None = None) -> None:
+        self.citations = citations or []
+
+    def available(self) -> bool:
+        return True
+
+    async def stream(self, messages, tools, *, emitter, **options):  # type: ignore[no-untyped-def]
+        started = emitter.emit(
+            ev.ToolStarted, tool="notes.search", source_id="notes", effect="none"
+        )
+        yield started
+        yield emitter.nested(started).emit(
+            ev.ToolResult,
+            tool="notes.search",
+            source_id="notes",
+            output="notes:note.md — Note\n  …\nnotes:second.md — Second\nnotes:note.md",
+        )
+        yield emitter.emit(
+            ev.AgentCompleted,
+            text="Retrieval is finding material (notes:second.md; elsewhere:x).",
+            citations=self.citations,
+        )
+
+
+async def test_ask_fills_tool_refs_and_answer_citations(corpus: Path) -> None:
+    """Retrieval and citation scoring need refs as data, not inside text. Filled once,
+    in the session, so no runtime has to remember to."""
+    session = Session(runtime=CitingRuntime())
+    await session.connect(str(corpus), kind="files", source_id="notes")
+    events = [e async for e in session.ask("what is retrieval?")]
+
+    (result,) = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert result.refs == ["notes:note.md", "notes:second.md"]
+    assert events[-1].citations == ["notes:second.md"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
+async def test_citations_a_runtime_reports_are_kept(corpus: Path) -> None:
+    session = Session(runtime=CitingRuntime(citations=["notes:note.md"]))
+    await session.connect(str(corpus), kind="files", source_id="notes")
+    events = [e async for e in session.ask("q")]
+    assert events[-1].citations == ["notes:note.md"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
+async def test_run_context_describes_what_will_answer(
+    corpus: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "projects"
+    directory.mkdir(parents=True)
+    (directory / "persona.md").write_text("You are an archivist.\n", encoding="utf-8")
+    _project(tmp_path, monkeypatch, "agent: {persona: ./persona.md}\n")
+    session = Session(runtime=CitingRuntime())
+    await session.connect(str(corpus), kind="files", source_id="notes")
+
+    context = session.run_context(purpose="demo", title="first look")
+
+    assert context.format == ev.RECORDING_FORMAT
+    assert context.format_version == ev.SCHEMA_VERSION
+    assert (context.purpose, context.title) == ("demo", "first look")
+    assert (context.runtime, context.model) == ("fake", "fake-model-1")
+    assert context.project == "deploy"
+    assert context.context.persona and len(context.context.persona) == 64
+    assert [(s.id, s.kind) for s in context.sources] == [("notes", "files")]
+    # Ids and kinds only: where a source lives is the machine's business, and a path
+    # can carry a user name.
+    assert str(corpus) not in context.model_dump_json()
+    await session.aclose()
+
+
+def test_the_fingerprint_moves_when_a_skill_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from latent_intel import settings as settings_module
+
+    skill = tmp_path / "projects" / "skills" / "citing.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: citing\n---\nCite inline.\n", encoding="utf-8")
+    _project(tmp_path, monkeypatch, "skills: ./skills\n")
+    session = Session(runtime=CitingRuntime())
+    before = session.run_context().context
+
+    skill.write_text("---\nname: citing\n---\nCite in footnotes.\n", encoding="utf-8")
+    settings_module.invalidate()
+    after = session.run_context().context
+
+    assert set(before.skills) == {"citing"}
+    assert before.skills["citing"] != after.skills["citing"]
+    assert before.hash != after.hash
+    assert session.run_context().context == after  # same content, same fingerprint
+
+
+def test_run_context_carries_no_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-secret-value")
+    assert "sk-test-secret-value" not in Session().run_context().model_dump_json()
+
+
+def test_an_unknown_purpose_is_refused() -> None:
+    with pytest.raises(SessionError, match="share, demo, eval"):
+        Session().run_context(purpose="archive")
+
+
+def test_a_header_names_no_runtime_option_that_is_a_location(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `cwd` or a binary path is where something lives — and a cloud-mount path
+    carries its owner's email address."""
+    from latent_intel import config as config_module
+    from latent_intel import settings as settings_module
+
+    config = config_module.load()
+    config.runtime = "custom"
+    config.runtimes = {"custom": {"cwd": "/mnt/someone@example.org/project"}}
+    config_module.save(config)
+    settings_module.invalidate()
+    assert "someone@example.org" not in Session().run_context().model_dump_json()
+
+
+def test_headers_build_a_runtime_once_per_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shell reads the header before every command while recording; the runtime it
+    reads host and model from is built once, then reused by the first `ask`."""
+    from latent_intel import config as config_module
+    from latent_intel import settings as settings_module
+    from latent_intel.agent import base as agent_base
+
+    config = config_module.load()
+    config.runtime = "custom"
+    config_module.save(config)
+    settings_module.invalidate()
+    built: list[str] = []
+    real = agent_base.build
+
+    def counting(kind: str, **options: Any) -> Any:
+        built.append(kind)
+        return real(kind, **options)
+
+    monkeypatch.setattr(agent_base, "build", counting)
+    session = Session()
+    for _ in range(3):
+        session.run_context()
+    assert built == ["custom"]

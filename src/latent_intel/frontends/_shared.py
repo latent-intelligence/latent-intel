@@ -72,6 +72,9 @@ def recording(path: Path | None) -> Iterator[Callable[[ev.BaseEvent], None]]:
     if path is None:
         yield lambda event: None
         return
+    if path.parent == recordings_home():
+        # Ours to create, unlike a directory someone typed: a typo there stays an error.
+        path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("a", encoding="utf-8")
     try:
 
@@ -82,6 +85,104 @@ def recording(path: Path | None) -> Iterator[Callable[[ev.BaseEvent], None]]:
         yield write
     finally:
         handle.close()
+
+
+def recordings_home() -> Path:
+    """Where a recording named without a suffix or a directory lives."""
+    return config_module.data_home() / "recordings"
+
+
+def recording_path(name: str | Path) -> Path:
+    """Where a recording called `name` lives. Resolves; creates nothing.
+
+    A plain name — no suffix, no directory, no `~` — is a recording in the data
+    directory, so `/record demo` and `/replay demo` meet wherever each was typed.
+    Anything else is a file and is used as typed: `run.jsonl` is in the working
+    directory, as it always was, and so is a `--json` capture someone wants replayed.
+    """
+    text = str(name)
+    path = Path(text).expanduser()
+    if path.suffix or path.is_absolute() or any(c in text for c in "/\\~"):
+        return path
+    return recordings_home() / path.with_suffix(".jsonl")
+
+
+def same_context(a: ev.RunContext | None, b: ev.RunContext) -> bool:
+    """Whether two headers describe the same setup, envelopes aside."""
+    if a is None:
+        return False
+    envelope = set(ev.BaseEvent.model_fields)
+    return a.model_dump(exclude=envelope) == b.model_dump(exclude=envelope)
+
+
+def replay_file(path: Path, *, as_json: bool = False, since: int = 1) -> None:
+    """Render a recorded run, as it looked when it ran. Raises `OSError` when the file
+    cannot be read; nothing inside it is a reason to refuse.
+
+    The same renderer the live path uses, never a summary: a replay that abbreviated
+    would be a second answer to keep in step with the first. A line this build cannot
+    read — a tail cut off by an interrupt, a type invented by a newer build — renders
+    as the unknown-event line, because losing everything already received is the worse
+    failure. What is wrong with the file as a whole is said once, on stderr, after it.
+    """
+    # `errors="replace"` for the same reason a bad line is not fatal: an interrupt can
+    # cut a file mid-character, and that is not a reason to refuse the rest.
+    text = path.read_text(encoding="utf-8", errors="replace")
+
+    # `since` counts physical lines, not `sequence`: sequence is monotonic within an
+    # operation and restarts, so two runs recorded to one file — or an `ask` inside a
+    # `run` — give it several line 3s. A line number is what a person reading the file
+    # in an editor already has in the gutter.
+    newest = ev.SCHEMA_VERSION
+    headed: bool | None = None
+    foreign: set[str] = set()
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        # Every line is read, even before `since`: whether the file opens with a
+        # header is about the file, not about where this replay starts.
+        event = ev.parse_event(line)
+        if headed is None:
+            headed = isinstance(event, ev.RunContext)
+        newest = max(newest, event.schema_version)
+        if isinstance(event, ev.RunContext):
+            if event.format == ev.RECORDING_FORMAT:
+                newest = max(newest, event.format_version)
+            else:
+                # Another format's version means nothing against ours.
+                foreign.add(event.format)
+        if number < since:
+            continue
+        if as_json:
+            # The original line, byte for byte. Re-dumping the parsed event would
+            # reorder fields and rewrite timestamps, so `replay --json` would not agree
+            # with the `--json` run that produced the file.
+            print(line)
+        elif isinstance(event, ev.UserMessage):
+            # The live renderer drops this one, because the frontend that caused it
+            # has already echoed it. On replay nothing has, so the question would be
+            # missing from the answer.
+            console.print(f"[prompt]›[/] {escape(event.text)}")
+        else:
+            render_module.render(console, event)
+
+    # Named once rather than per line, and after the render rather than instead of it:
+    # the stream still reads, and saying nothing is what would let it be misread.
+    if headed is False:
+        err_console.print(
+            "[warn]![/] [dim]no run context on the first line — a --json stream, or "
+            "recorded before recordings had a header[/]"
+        )
+    for name in sorted(foreign):
+        err_console.print(
+            f"[warn]![/] [dim]a header names format '{escape(name)}', not "
+            f"{ev.RECORDING_FORMAT}[/]"
+        )
+    if newest > ev.SCHEMA_VERSION:
+        err_console.print(
+            f"[warn]![/] [dim]recorded at schema_version {newest}; this build reads "
+            f"{ev.SCHEMA_VERSION} — some lines may be misread.[/]"
+        )
 
 
 async def stream(

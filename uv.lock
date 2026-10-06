@@ -1266,6 +1266,7 @@ claude-agent-sdk = [
 dev = [
     { name = "anyio", extra = ["trio"] },
     { name = "import-linter" },
+    { name = "jsonschema" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -1284,6 +1285,7 @@ requires-dist = [
     { name = "claude-agent-sdk", marker = "extra == 'claude-agent-sdk'", specifier = ">=0.2.161,<0.3" },
     { name = "fsspec", specifier = ">=2024.0" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "latent-intel", extras = ["openai-agents", "claude-agent-sdk"], marker = "extra == 'all'" },
     { name = "mcp", specifier = ">=1.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },

@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import difflib
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ...commands import Ask, Command, Connect, Disconnect, Fetch, Find, ListSources
+from ...events import PURPOSES
 
 
 @dataclass
@@ -25,6 +26,8 @@ class Local:
 
     action: str
     argument: str = ""
+    #: `--flag value` pairs, for the commands that take any — keyed without the dashes.
+    options: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -83,8 +86,13 @@ SLASH: dict[str, Spec] = {
     "use": Spec(0, 1, "/use [source]", "which source a bare key resolves against"),
     "tools": Spec(0, 0, "/tools", "what the router exposes"),
     "record": Spec(
-        0, 1, "/record [file | off]", "tee every event to a file, for `intel replay`"
+        # 5: a file, then `--purpose p` and `--title t`, each flag and value a token.
+        0,
+        5,
+        '/record [file | off] [--purpose share|demo|eval] [--title "…"]',
+        "tee every event to a file, headed by what produced it",
     ),
+    "replay": Spec(1, 3, "/replay <file> [--since N]", "render a recording"),
     "project": Spec(0, 1, "/project [name]", "which deployment is active", "agent"),
     "runtime": Spec(0, 1, "/runtime [name]", "which backend answers `ask`", "agent"),
     "model": Spec(0, 1, "/model [name]", "which model that backend uses", "agent"),
@@ -156,12 +164,15 @@ def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
         )
 
     match name:
+        case "record":
+            return _record(args)
+        case "replay":
+            return _replay(args)
         case (
             "exit"
             | "help"
             | "clear"
             | "tools"
-            | "record"
             | "use"
             | "runtime"
             | "model"
@@ -177,6 +188,57 @@ def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
         case "connect":
             return _connect(args)
     return Invalid(f"no command /{parts[0]}", "try /help")
+
+
+def _flags(args: list[str], allowed: set[str]) -> tuple[list[str], dict[str, str]]:
+    """Split positional arguments from `--flag value` pairs. Raises `ValueError` with
+    the message to show for a flag that is unknown or has no value."""
+    positional: list[str] = []
+    options: dict[str, str] = {}
+    rest = list(args)
+    while rest:
+        token = rest.pop(0)
+        if not token.startswith("--"):
+            positional.append(token)
+            continue
+        name = token[2:]
+        if name not in allowed:
+            raise ValueError(f"unknown option {token}")
+        if not rest:
+            raise ValueError(f"{token} needs a value")
+        options[name] = rest.pop(0)
+    return positional, options
+
+
+def _record(args: list[str]) -> Parsed:
+    usage = SLASH["record"].usage
+    try:
+        positional, options = _flags(args, {"purpose", "title"})
+    except ValueError as exc:
+        return Invalid(str(exc), usage)
+    if len(positional) > 1:
+        return Invalid("/record takes one file", usage)
+    target = positional[0] if positional else ""
+    if options and target in {"", "off", "none"}:
+        return Invalid("--purpose and --title describe a new recording", usage)
+    purpose = options.get("purpose")
+    if purpose is not None and purpose not in PURPOSES:
+        return Invalid(f"no purpose '{purpose}'", f"one of {', '.join(PURPOSES)}")
+    return Local("record", target, options)
+
+
+def _replay(args: list[str]) -> Parsed:
+    usage = SLASH["replay"].usage
+    try:
+        positional, options = _flags(args, {"since"})
+    except ValueError as exc:
+        return Invalid(str(exc), usage)
+    if len(positional) != 1:
+        return Invalid("/replay takes one file", usage)
+    since = options.get("since", "1")
+    if not since.isdigit() or int(since) < 1:
+        return Invalid(f"--since takes a line number, not '{since}'", usage)
+    return Local("replay", positional[0], options)
 
 
 def _connect(args: list[str]) -> Parsed:

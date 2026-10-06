@@ -15,7 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from latent_intel import events as ev
-from latent_intel.models import Hit, Provenance
+from latent_intel.models import AttachedSource, Fingerprint, Hit, Provenance
 
 STREAMS = Path(__file__).parent / "fixtures" / "streams"
 FIXTURES = sorted(STREAMS.glob("*.jsonl"))
@@ -123,7 +123,7 @@ def test_malformed_input_does_not_raise() -> None:
 def test_known_types_matches_the_union() -> None:
     """A new event class added to the union but not exported, or vice versa, is the kind
     of drift that only shows up as a renderer silently ignoring something."""
-    assert len(ev.KNOWN_TYPES) == 17
+    assert len(ev.KNOWN_TYPES) == 18
     assert "retrieval_result" in ev.KNOWN_TYPES
     assert "unknown" not in ev.KNOWN_TYPES  # the fallback is not a member
 
@@ -199,3 +199,99 @@ def test_a_user_message_s_skills_round_trip_and_an_older_one_still_parses() -> N
     del older["skills"]
     parsed = ev.parse_event(json.dumps(older))
     assert isinstance(parsed, ev.UserMessage) and parsed.skills == []
+
+
+def test_a_run_context_round_trips_with_its_fingerprint() -> None:
+    context = ev.Emitter(uuid4()).emit(
+        ev.RunContext,
+        purpose="eval",
+        runtime="custom",
+        model="m",
+        context=Fingerprint(persona="a" * 64, skills={"s": "b" * 64}, hash="c" * 64),
+        sources=[AttachedSource(id="design", kind="wiki")],
+        case_id="q17",
+        variant_id="haiku",
+        epoch=2,
+    )
+    assert ev.parse_event(ev.dump_event(context)) == context
+    assert context.format == "latent-intel.recording"
+
+
+def test_tool_refs_are_additive() -> None:
+    """A stream recorded before `refs` existed reads as a result with none."""
+    result = ev.Emitter(uuid4()).emit(
+        ev.ToolResult, tool="t", source_id="d", refs=["d:a", "d:b"]
+    )
+    assert ev.parse_event(result.model_dump_json()) == result
+    older = result.model_dump(mode="json")
+    del older["refs"]
+    parsed = ev.parse_event(json.dumps(older))
+    assert isinstance(parsed, ev.ToolResult) and parsed.refs == []
+
+
+# -- the recording format ---------------------------------------------------
+
+ROOT = Path(__file__).parents[1]
+SCHEMA = ROOT / "schemas" / f"recording.v{ev.SCHEMA_VERSION}.json"
+RECORDINGS = sorted((ROOT / "tests/fixtures/formats/recording").glob("*.jsonl"))
+
+
+def test_the_committed_schema_is_the_one_the_models_produce() -> None:
+    """Regenerate with `just schemas` when an event changes."""
+    assert json.loads(SCHEMA.read_text()) == ev.recording_schema()
+
+
+@pytest.mark.parametrize("path", RECORDINGS, ids=lambda p: p.stem)
+def test_every_published_recording_conforms(path: Path) -> None:
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
+    lines = [json.loads(line) for line in path.read_text().splitlines()]
+    for line in lines:
+        validator.validate(line)
+    assert lines[0]["type"] == "run_context"
+    assert lines[0]["format"] == ev.RECORDING_FORMAT
+    assert lines[0]["format_version"] == ev.SCHEMA_VERSION
+    assert not any(isinstance(ev.parse_event(line), ev.UnknownEvent) for line in lines)
+
+
+def test_the_schema_rejects_a_malformed_header() -> None:
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
+    header = json.loads(RECORDINGS[0].read_text().splitlines()[0])
+    header["sources"] = [{"id": "design"}]  # no kind
+    assert not validator.is_valid(header)
+
+
+def test_what_a_session_records_conforms() -> None:
+    """The producer validates its own output, not only its hand-built samples."""
+    import jsonschema
+
+    from latent_intel.session import Session
+
+    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
+    validator.validate(json.loads(ev.dump_event(Session().run_context())))
+
+
+def test_the_schema_holds_producers_to_the_known_purposes() -> None:
+    """The model reads any purpose, so a newer one still parses as a header; the
+    schema is where a producer is held to the list."""
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
+    header = json.loads(RECORDINGS[0].read_text().splitlines()[0])
+    header["purpose"] = "benchmark"
+    assert not validator.is_valid(header)
+    assert isinstance(ev.parse_event(header), ev.RunContext)
+
+
+def test_published_headers_are_ones_the_writer_produces() -> None:
+    """A sample a consumer copies must not show a header this build cannot write."""
+    from latent_intel.session import Session
+
+    written = set(json.loads(ev.dump_event(Session().run_context())))
+    for path in RECORDINGS:
+        header = json.loads(path.read_text().splitlines()[0])
+        assert set(header) == written
+        assert header["context"]["hash"]

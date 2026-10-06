@@ -84,6 +84,8 @@ dev = [
     "mypy>=1.13",
     "types-PyYAML",
     "import-linter>=2.0",
+    # Validates the recording fixtures against the committed schema.
+    "jsonschema>=4.0",
 ]
 
 

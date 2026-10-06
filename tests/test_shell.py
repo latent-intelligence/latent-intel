@@ -591,17 +591,17 @@ def test_record_tees_the_session_and_off_reports_what_it_wrote(
     console = _shell(monkeypatch)
     recording = repl.Recording()
     path = tmp_path / "session.jsonl"
-    repl._record(recording, str(path))
+    session = Session()
+    repl._record(session, recording, Local("record", str(path)))
 
     async def search() -> None:
-        session = Session()
         await session.connect(str(corpus), kind="files", source_id="c")
         completer = repl.ShellCompleter(session)
         await repl._dispatch(session, Find(query="retrieval"), completer, recording)
         await session.aclose()
 
     anyio.run(search)
-    repl._record(recording, "off")
+    repl._record(session, recording, Local("record", "off"))
 
     written = path.read_text().splitlines()
     assert written
@@ -623,20 +623,123 @@ def test_bare_record_says_whether_anything_is_being_recorded(
 ) -> None:
     """The state has to be askable, or the only way to find out is to stop it."""
     from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
 
     console = _shell(monkeypatch)
     recording = repl.Recording()
+    session = Session()
 
-    repl._record(recording, "")
+    repl._record(session, recording, Local("record", ""))
     path = tmp_path / "session.jsonl"
-    repl._record(recording, str(path))
-    repl._record(recording, "")
+    repl._record(session, recording, Local("record", str(path)))
+    repl._record(session, recording, Local("record", ""))
 
     printed = console.export_text()
     assert "not recording" in printed
     assert str(path) in "".join(printed.split())
-    assert "(0 events)" in " ".join(printed.split())
+    assert "(share, 1 events)" in " ".join(printed.split())  # the header
     assert recording.path == path
+
+
+def test_record_takes_a_purpose_and_a_title() -> None:
+    result = parse('/record demo --purpose demo --title "first look"')
+    assert result == Local("record", "demo", {"purpose": "demo", "title": "first look"})
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "/record run --purpose archive",
+        "/record off --purpose demo",
+        "/record --title t",
+        "/record run --colour red",
+        "/record run --title",
+    ],
+)
+def test_record_refuses_options_it_cannot_honour(line: str) -> None:
+    assert isinstance(parse(line), Invalid)
+
+
+def test_replay_parses_a_file_and_a_line_number() -> None:
+    assert parse("/replay run --since 3") == Local("replay", "run", {"since": "3"})
+    assert isinstance(parse("/replay"), Invalid)
+    assert isinstance(parse("/replay run --since x"), Invalid)
+    assert isinstance(parse("/replay run --since 0"), Invalid)
+
+
+def test_a_recording_opens_with_its_header_and_adds_one_on_a_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first line says what produced the run. A later change — here a source
+    attaching — adds a header before the next command; no change adds nothing."""
+    import anyio
+
+    from latent_intel import events as ev
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    _shell(monkeypatch)
+    recording = repl.Recording()
+    path = tmp_path / "run.jsonl"
+    session = Session()
+    local = Local("record", str(path), {"purpose": "demo", "title": "t"})
+    repl._record(session, recording, local)
+
+    async def go() -> None:
+        completer = repl.ShellCompleter(session)
+        await repl._dispatch(
+            session,
+            Connect(spec=str(corpus), kind="files", source_id="c"),
+            completer,
+            recording,
+        )
+        await repl._dispatch(session, Find(query="retrieval"), completer, recording)
+        await repl._dispatch(session, Find(query="material"), completer, recording)
+        await session.aclose()
+
+    anyio.run(go)
+    events = [ev.parse_event(line) for line in path.read_text().splitlines()]
+    headers = [e for e in events if isinstance(e, ev.RunContext)]
+
+    assert isinstance(events[0], ev.RunContext)
+    assert (events[0].purpose, events[0].title) == ("demo", "t")
+    assert [[s.id for s in h.sources] for h in headers] == [[], ["c"]]
+
+
+def test_shell_replay_prints_what_intel_replay_prints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from latent_intel.frontends.cli.main import app
+    from latent_intel.frontends.shell import repl
+
+    fixture = Path(__file__).parent / "fixtures" / "streams" / "agent_turn.jsonl"
+    cli = CliRunner().invoke(app, ["replay", str(fixture)])
+
+    console = _shell(monkeypatch)
+    monkeypatch.setattr("latent_intel.frontends._shared.console", console)
+    repl._replay(Local("replay", str(fixture)))
+    assert [line.rstrip() for line in console.export_text().splitlines()] == [
+        line.rstrip() for line in cli.stdout.splitlines()
+    ]
+
+
+def test_a_plain_name_is_a_recording_and_a_filename_is_a_file() -> None:
+    """`/record demo` and `/replay demo` meet in the data directory wherever each was
+    typed; `run.jsonl` stays where it always was, so a `--json` capture replays."""
+    from latent_intel import config as config_module
+    from latent_intel.frontends._shared import recording_path
+
+    home = config_module.data_home() / "recordings"
+    assert recording_path("demo") == home / "demo.jsonl"
+    assert recording_path("run.jsonl") == Path("run.jsonl")
+    assert recording_path("./demo") == Path("./demo")
+    assert recording_path("/tmp/x.jsonl") == Path("/tmp/x.jsonl")
+    assert not home.exists()  # resolving is not writing
 
 
 def test_the_prompt_takes_a_theme_override(monkeypatch: pytest.MonkeyPatch) -> None:

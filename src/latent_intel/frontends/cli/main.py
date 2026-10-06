@@ -33,10 +33,18 @@ from .._shared import (
     err_console,
     record,
     recording,
+    recording_path,
+    replay_file,
     report,
     session_scope,
     stream,
 )
+
+#: Shared by every command that records, so the four cannot describe it differently.
+_PURPOSE = typer.Option(
+    None, "--purpose", help="What the recording is for: share, demo or eval."
+)
+_TITLE = typer.Option(None, "--title", help="A title for the recording.")
 
 #: How `doctor` heads each loop-owner group, in the order they are printed. The keys are
 #: the families `Session.runtime_reports()` returns; the wording is this frontend's,
@@ -206,11 +214,14 @@ def search(
     record_to: Path = typer.Option(
         None, "--record", help="Also append every event to this file, for `replay`."
     ),
+    purpose: str = _PURPOSE,
+    title: str = _TITLE,
 ) -> None:
     """Search every attached source. Results group by source and are never merged."""
     filters = {"type": kind} if kind else {}
     command = Find(query=query, source=source, limit=limit, filters=filters)
-    anyio.run(lambda: _stream(command, as_json, record_to))
+    recorded = _recording(record_to, purpose, title)
+    anyio.run(lambda: _stream(command, as_json, *recorded))
 
 
 @app.command()
@@ -222,9 +233,12 @@ def get(
     record_to: Path = typer.Option(
         None, "--record", help="Also append every event to this file, for `replay`."
     ),
+    purpose: str = _PURPOSE,
+    title: str = _TITLE,
 ) -> None:
     """Fetch one document in full."""
-    anyio.run(lambda: _stream(Fetch(ref=ref), as_json, record_to))
+    recorded = _recording(record_to, purpose, title)
+    anyio.run(lambda: _stream(Fetch(ref=ref), as_json, *recorded))
 
 
 @app.command()
@@ -234,15 +248,42 @@ def ask(
     record_to: Path = typer.Option(
         None, "--record", help="Also append every event to this file, for `replay`."
     ),
+    purpose: str = _PURPOSE,
+    title: str = _TITLE,
 ) -> None:
     """Ask the agent. Reports clearly that no runtime is configured yet."""
-    anyio.run(lambda: _stream(Ask(prompt=prompt), as_json, record_to))
+    recorded = _recording(record_to, purpose, title)
+    anyio.run(lambda: _stream(Ask(prompt=prompt), as_json, *recorded))
+
+
+def _recording(
+    record_to: Path | None, purpose: str | None, title: str | None
+) -> tuple[Path | None, str, str]:
+    """Where to record, and what to call it — refused before anything runs when the
+    options describe a recording nobody asked for, or a purpose there is none of."""
+    if record_to is None:
+        if purpose is not None or title is not None:
+            err_console.print(
+                "[fail]✗[/] --purpose and --title describe a recording "
+                "[dim]— add --record FILE[/]"
+            )
+            raise typer.Exit(1)
+        return None, "share", ""
+    if purpose is not None and purpose not in ev.PURPOSES:
+        err_console.print(
+            f"[fail]✗[/] no purpose '{escape(purpose)}' "
+            f"[dim]— one of {', '.join(ev.PURPOSES)}[/]"
+        )
+        raise typer.Exit(1)
+    return recording_path(record_to), purpose or "share", title or ""
 
 
 async def _stream(
     command: Connect | Find | Fetch | Ask,
     as_json: bool,
     record_to: Path | None = None,
+    purpose: str = "share",
+    title: str = "",
 ) -> None:
     # The recording is opened *outside* the session, so a path that cannot be written —
     # a directory, a read-only volume, a typo'd parent — is one `✗` line and exit 1
@@ -255,6 +296,14 @@ async def _stream(
             raise typer.Exit(1) from exc
         async with session_scope() as (session, problems):
             report(problems)
+            if record_to is not None:
+                # The header, after the sources attach so it can name them. Rendered
+                # too, so the live view and its replay stay line for line the same;
+                # never on stdout under --json, which is the headerless wire format.
+                context = session.run_context(purpose, title)
+                if not as_json:
+                    render_module.render(console, context)
+                tee(context)
             ok = await stream(session, command, as_json=as_json, tee=tee)
     if not ok:
         raise typer.Exit(1)
@@ -268,6 +317,8 @@ def run(
     record_to: Path = typer.Option(
         None, "--record", help="Also append every event to this file, for `replay`."
     ),
+    purpose: str = _PURPOSE,
+    title: str = _TITLE,
 ) -> None:
     """Run one of the active project's commands.
 
@@ -311,65 +362,29 @@ def run(
         err_console.print(f"[fail]✗[/] {escape(str(exc))}")
         raise typer.Exit(1) from exc
 
+    recorded = _recording(record_to, purpose, title)
     for command in commands:
         anyio.run(
-            lambda c=command: _stream(c, as_json, record_to)  # type: ignore[misc]
+            lambda c=command: _stream(c, as_json, *recorded)  # type: ignore[misc]
         )
 
 
 @app.command()
 def replay(
-    file: Path = typer.Argument(..., help="A file written by --record or by --json."),
+    file: Path = typer.Argument(
+        ..., help="A file written by --record or by --json; a bare name is in data."
+    ),
     as_json: bool = typer.Option(False, "--json", help="Re-emit raw events."),
     since: int = typer.Option(
         1, "--since", help="Start at this line of the file (1-based)."
     ),
 ) -> None:
     """Render a recorded run, as it looked when it ran."""
-    # The same renderer the live path uses, never a summary: a replay that abbreviated
-    # would be a second answer to keep in step with the first. A line this build cannot
-    # read — a tail cut off by an interrupt, a type invented by a newer build — renders
-    # as the unknown-event line, because losing everything already received is the
-    # worse failure.
     try:
-        # `errors="replace"` for the same reason a bad line is not fatal: an interrupt
-        # can cut a file mid-character, and that is not a reason to refuse the rest.
-        text = file.read_text(encoding="utf-8", errors="replace")
+        replay_file(recording_path(file), as_json=as_json, since=since)
     except OSError as exc:
         err_console.print(f"[fail]✗[/] {escape(str(exc))}")
         raise typer.Exit(1) from exc
-
-    # `--since` counts physical lines, not `sequence`: sequence is monotonic within an
-    # operation and restarts, so two runs recorded to one file — or an `ask` inside a
-    # `run` — give it several line 3s. A line number is what a person reading the file
-    # in an editor already has in the gutter.
-    newest = ev.SCHEMA_VERSION
-    for number, line in enumerate(text.splitlines(), start=1):
-        if number < since or not line.strip():
-            continue
-        event = ev.parse_event(line)
-        newest = max(newest, event.schema_version)
-        if as_json:
-            # The original line, byte for byte. Re-dumping the parsed event would
-            # reorder fields and rewrite timestamps, so `replay --json` would not agree
-            # with the `--json` run that produced the file.
-            print(line)
-        elif isinstance(event, ev.UserMessage):
-            # The live renderer drops this one, because the frontend that caused it has
-            # already echoed it. On replay nothing has, so the question would be missing
-            # from the answer.
-            console.print(f"[prompt]›[/] {escape(event.text)}")
-        else:
-            render_module.render(console, event)
-
-    if newest > ev.SCHEMA_VERSION:
-        # Named once rather than per line, and after the render rather than instead of
-        # it: the stream still reads, and a field this build ignores is not a reason to
-        # withhold the run. Saying nothing is what would let it be misread quietly.
-        err_console.print(
-            f"[warn]![/] [dim]recorded at schema_version {newest}; this build reads "
-            f"{ev.SCHEMA_VERSION} — some lines may be misread.[/]"
-        )
 
 
 # -- diagnosis --------------------------------------------------------------

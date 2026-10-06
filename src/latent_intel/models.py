@@ -19,6 +19,8 @@ and reported as under-declared rather than quietly trusted.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -79,6 +81,30 @@ class Ref(BaseModel):
                 f"write 'source:key' or pick one with /use"
             )
         return cls(source_id=default_source, key=text)
+
+    @staticmethod
+    def find_all(text: str, sources: Iterable[str]) -> list[str]:
+        """Each `source:key` in `text` naming one of `sources`, in order, once each.
+
+        Only attached sources count, which is what tells a ref from a URL, a clock time
+        or a third-party id — all of which contain a colon. A key runs to the first
+        space, bracket, quote or separator, less trailing sentence punctuation, so a
+        ref a model wrote inside `(…)`, `[…]` or backticks still reads cleanly. A
+        `scheme://` is skipped for the reason `parse` refuses one.
+        """
+        names = sorted(set(sources), key=len, reverse=True)
+        if not names or not text:
+            return []
+        pattern = re.compile(
+            r"(?<![\w.\-/:])(" + "|".join(map(re.escape, names)) + r"):"
+            r"([^\s<>()\[\]{}\"'`,;|*]+)"
+        )
+        found: dict[str, None] = {}
+        for match in pattern.finditer(text):
+            key = match.group(2).rstrip(".:!?")
+            if key and not key.startswith("//"):
+                found[f"{match.group(1)}:{key}"] = None
+        return list(found)
 
 
 class Provenance(BaseModel):
@@ -175,6 +201,28 @@ class Skill(BaseModel):
     description: str = ""
     model_invocable: bool = True
     user_invocable: bool = True
+
+
+class Fingerprint(BaseModel):
+    """The context engineering in force, as sha256 content hashes.
+
+    Enough to tell two runs apart, or prove them alike, without carrying a persona or a
+    skill body into a file that gets shared. `hash` covers everything else here.
+    """
+
+    #: None when the project has no persona.
+    persona: str | None = None
+    persona_mode: str = "append"
+    skills: dict[str, str] = Field(default_factory=dict)
+    agents: dict[str, str] = Field(default_factory=dict)
+    hash: str = ""
+
+
+class AttachedSource(BaseModel):
+    """A source as a recording names it — id and kind, never where it lives."""
+
+    id: str
+    kind: str
 
 
 class Artifact(BaseModel):
@@ -304,12 +352,14 @@ class RuntimeFailed(SessionError):
 __all__ = [
     "Approval",
     "Artifact",
+    "AttachedSource",
     "Capability",
     "CapabilityError",
     "ConnectError",
     "Descriptor",
     "Doc",
     "Effect",
+    "Fingerprint",
     "Hit",
     "HostReport",
     "HostStatus",
