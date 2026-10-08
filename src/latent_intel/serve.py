@@ -103,7 +103,6 @@ def build_server(connector: Any) -> Any:
     want `launch_spec`.
     """
     from mcp.server import MCPServer
-    from mcp.types import ToolAnnotations
 
     descriptor = connector.describe()
     title = descriptor.title or connector.id
@@ -115,6 +114,18 @@ def build_server(connector: Any) -> Any:
             f"fetch one in full."
         ),
     )
+    add_tools(server, connector)
+    return server
+
+
+def add_tools(server: Any, connector: Any, prefix: str = "") -> list[str]:
+    """Register a connector's own tools on `server`, optionally prefixed. Returns names.
+
+    One place for the annotation rule, shared by this server and `serve_project`.
+    """
+    from mcp.types import ToolAnnotations
+
+    names = []
     for spec in connector.tools():
         # Declared, not implied. A client that gates on effects — ours does — reads this
         # to decide what needs approval, and an absent annotation is correctly read as
@@ -123,13 +134,15 @@ def build_server(connector: Any) -> Any:
             read_only_hint=not spec.effect.writes,
             open_world_hint=spec.effect is not Effect.NONE,
         )
+        name = f"{prefix}{spec.name}"
         server.add_tool(
             _handler(connector, spec),
-            name=spec.name,
+            name=name,
             description=spec.description,
             annotations=annotations,
         )
-    return server
+        names.append(name)
+    return names
 
 
 def launch_spec(

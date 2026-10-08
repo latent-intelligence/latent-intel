@@ -431,9 +431,12 @@ Two things worth knowing:
 client kills `uv`, leaving the real server orphaned. Give it the executable —
 `/path/.venv/bin/<server> …` — and cleanup is exact.
 
-**Our own wiki does not need MCP.** `--kind wiki` reads the published store directly —
-one GET for the manifest, page bodies only when asked: no subprocess, no tool-schema
-round trip, and typed results instead of text. MCP is for servers you do not own.
+**Our own wiki does not need an MCP client.** `--kind wiki` reads the published store
+directly — one GET for the manifest, page bodies only when asked: no subprocess, no
+tool-schema round trip, and typed results instead of text. The MCP *client* is for
+servers you do not own. To give our own stores to someone else's agent, run the MCP
+*server*: `intel serve --deployment X` (see "Serving over MCP" in
+[`configuring-a-deployment.md`](configuring-a-deployment.md)).
 
 ### Bringing a server's own registration across
 

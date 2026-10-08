@@ -152,6 +152,9 @@ class Hit(BaseModel):
     #: merging, so nothing ever implies a comparison this number cannot support.
     score: float = 0.0
     provenance: Provenance
+    #: Why it matched and what it is, when the source can say: matched fields, draft,
+    #: inferred. Optional, so a source that cannot say leaves it empty.
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Doc(BaseModel):

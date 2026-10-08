@@ -1,0 +1,24 @@
+contract_version: 1
+store_id: heronsgate
+title: Heronsgate
+description: A two-page wiki over a fixture context store, for the format tests.
+run: fixture-v1
+roots: {corpus: ../context-store}
+render: {link_style: relative}
+verbatim: {n: 8, max_shared: 0}
+page_types:
+  concept:
+    fields:
+      source_docs: {type: list<uri>}
+      aliases: {type: list<string>}
+    required_fields: [source_docs]
+    existence_trigger: {min: 1, evidence: source_docs}
+  procedure:
+    fields:
+      source_docs: {type: list<uri>}
+      part_of: {type: key}
+      step: {type: int}
+    required_fields: [source_docs]
+edge_rels:
+  - {rel: cites, description: page -> page}
+  - {rel: part-of, description: procedure -> procedure}

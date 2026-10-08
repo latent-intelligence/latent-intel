@@ -1,0 +1,10 @@
+format: latent-wiki.context
+format_version: 1
+version: 1
+fields:
+  key:      {type: string, required: true, unique: true}
+  title:    {type: string, required: true}
+  kind:     {type: enum, required: true, values: [doc]}
+  captured: {type: date, required: true}
+  why:      {type: string, required: true}
+  raw_path: {type: string}

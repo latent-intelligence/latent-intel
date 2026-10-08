@@ -17,7 +17,12 @@ dependencies = [
     "prompt-toolkit>=3.0",
     "pydantic>=2.7",
     "anyio>=4.0",
-    "mcp>=1.2",
+    # 2.x: `MCPServer`, the extension API (SEP-2133) and stateless Streamable HTTP are
+    # all 2.0. Bounded below 3 because the extension API is new.
+    "mcp>=2.0,<3",
+    # The HTTP transport for `intel serve`. Already in every mcp 2.x install; named
+    # here because this package imports it.
+    "uvicorn>=0.30",
     "pyyaml>=6.0",
     # Base, not an extra: a `.env` is how a machine with no `aws configure` reaches a
     # store at all, and "out of the box" cannot have an asterisk on the first run.

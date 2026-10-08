@@ -544,6 +544,127 @@ async def _doctor() -> None:
 
 
 @app.command()
+def serve(
+    deployment: str = typer.Option(
+        ...,
+        "--deployment",
+        "-d",
+        help="A project name (as `intel project list` shows it) or a project file.",
+    ),
+    transport: str = typer.Option(
+        "", "--transport", help="stdio or http. Defaults to the project's serve block."
+    ),
+    host: str = typer.Option("", "--host", help="HTTP host. Default 127.0.0.1."),
+    port: int = typer.Option(0, "--port", help="HTTP port. Default 8765."),
+    print_config: bool = typer.Option(
+        False,
+        "--print-config",
+        help="Print the client's mcpServers block for this deployment, and exit.",
+    ),
+    command: str = typer.Option(
+        "",
+        "--command",
+        help="With --print-config: how the client should launch intel, e.g. "
+        "'uvx --from git+https://…/latent-intel@v0.4 intel'. Default: intel.",
+    ),
+    strict: bool = typer.Option(
+        False, "--strict", help="Refuse to serve a project that has any problem."
+    ),
+    insecure_local: bool = typer.Option(
+        False,
+        "--insecure-local",
+        help="Allow HTTP without a token, on a loopback host only, for a local test.",
+    ),
+) -> None:
+    """Serve a deployment over MCP to any MCP client.
+
+    Its wiki, context and files, persona, skills, commands and views. Third-party MCP
+    sources are not proxied. A client launches stdio from its .mcp.json, which
+    `--print-config` writes. Nothing but protocol reaches stdout while serving.
+    """
+    import json
+    import shlex
+
+    from ... import project as project_module
+    from ... import serve_project
+
+    loaded = _deployment(deployment)
+    if loaded.problems:
+        for note in loaded.problems:
+            err_console.print(f"[warn]![/] [dim]{escape(note)}[/]")
+        if strict:
+            raise typer.Exit(1)
+    chosen = transport or str(loaded.serve.get("transport") or "stdio")
+    if chosen not in project_module.TRANSPORTS:
+        err_console.print("[fail]✗[/] --transport must be one of stdio, http")
+        raise typer.Exit(2)
+    where = host or str(loaded.serve.get("host") or "127.0.0.1")
+    number = port or int(loaded.serve.get("port") or 8765)
+    # An option that silently does nothing is worse than an error; these say so.
+    ignored = []
+    if command and not print_config:
+        ignored.append("--command (only used with --print-config)")
+    if chosen == "stdio" and (host or port or insecure_local):
+        ignored.append("--host/--port/--insecure-local (only used over http)")
+    for note in ignored:
+        err_console.print(f"[warn]![/] [dim]ignoring {escape(note)}[/]")
+    if print_config:
+        block = serve_project.client_config(
+            loaded,
+            transport=chosen,
+            host=where,
+            port=number,
+            command=shlex.split(command) if command else None,
+        )
+        typer.echo(json.dumps(block, indent=2))
+        return
+
+    def notify(line: str) -> None:
+        err_console.print(f"[dim]{escape(line)}[/]")
+
+    try:
+        anyio.run(
+            lambda: serve_project.run(
+                loaded,
+                transport=chosen,
+                host=where,
+                port=number,
+                insecure_local=insecure_local,
+                notify=notify,
+            )
+        )
+    except serve_project.ServeError as exc:
+        err_console.print(f"[fail]✗[/] {escape(str(exc))}")
+        raise typer.Exit(1) from exc
+
+
+def _deployment(name_or_path: str) -> Any:
+    """A project by file path, else by name across the configured search paths."""
+    from ... import project as project_module
+
+    candidate = Path(name_or_path).expanduser()
+    if candidate.is_file():
+        path = candidate
+    else:
+        config = config_module.load()
+        found, _ = project_module.discover(config.project_paths, config_module.home())
+        located = found.get(name_or_path)
+        if located is None:
+            known = ", ".join(sorted(found)) or "none found"
+            err_console.print(
+                f"[fail]✗[/] no deployment '{escape(name_or_path)}' "
+                f"[dim](projects: {escape(known)}; or pass a path)[/]"
+            )
+            raise typer.Exit(1)
+        path = located
+    try:
+        return project_module.load(path)
+    except project_module.ProjectError as exc:
+        err_console.print(f"[fail]✗[/] {escape(str(exc))}")
+        raise typer.Exit(1) from exc
+
+
+@app.command()
 def version() -> None:
     """Print the version and the event schema it speaks."""
     from ... import events as ev

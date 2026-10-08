@@ -1,0 +1,20 @@
+{
+  "format": "latent-wiki.imports",
+  "format_version": 1,
+  "entries": {
+    "kelpmoor": {
+      "input": "docs",
+      "format": "doc-intelligence",
+      "artifacts": [
+        "text"
+      ],
+      "sha256": "95b6b8985aab0478b99f80383c0141d646f4526fe90a288430d433a57c2f13bc",
+      "files": [
+        "01-pools.md",
+        "work.json"
+      ],
+      "imported": "2026-10-06T00:00:00+00:00",
+      "previous": []
+    }
+  }
+}

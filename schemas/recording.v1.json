@@ -957,6 +957,11 @@
         },
         "provenance": {
           "$ref": "#/$defs/Provenance"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
         }
       },
       "required": [

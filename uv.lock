@@ -1253,6 +1253,7 @@ dependencies = [
     { name = "s3fs" },
     { name = "typer" },
     { name = "universal-pathlib" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -1287,7 +1288,7 @@ requires-dist = [
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "latent-intel", extras = ["openai-agents", "claude-agent-sdk"], marker = "extra == 'all'" },
-    { name = "mcp", specifier = ">=1.2" },
+    { name = "mcp", specifier = ">=2.0,<3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "openai", specifier = ">=1.60" },
     { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.22" },
@@ -1303,6 +1304,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "universal-pathlib", specifier = ">=0.2" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["openai-agents", "claude-agent-sdk", "all", "dev"]
 
