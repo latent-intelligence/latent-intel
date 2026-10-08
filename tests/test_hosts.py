@@ -407,3 +407,19 @@ def test_for_sdk_partitions_the_table_in_its_own_order() -> None:
     together = [name for subset in subsets.values() for name in subset]
     assert sorted(together) == sorted(hosts.HOSTS)
     assert hosts.for_sdk("bedrock") == {}
+
+
+def test_web_tools_are_declared_per_row_and_only_where_the_protocol_has_them() -> None:
+    """Never inferred from a URL: Foundry's Anthropic surface carries the basic
+    versions, the public API the current ones, and chat completions none at all."""
+    assert hosts.HOSTS["anthropic"].web_tools == (
+        "web_search_20260209",
+        "web_fetch_20260209",
+    )
+    assert hosts.HOSTS["foundry-anthropic"].web_tools == (
+        "web_search_20250305",
+        "web_fetch_20250910",
+    )
+    for name, row in hosts.HOSTS.items():
+        if row.protocol == "chat":
+            assert row.web_tools is None, name

@@ -32,6 +32,12 @@ tool was not found. `custom.py` reports such a call as a failed pair. Reproducin
 here would mean second-guessing the runner's dispatch, which is the part we chose to
 hand over.
 
+**The web is the row's, as in `custom.py`.** A web scope adds the row's hosted search
+and fetch beside our tools, as plain definitions rather than runnable tools: the runner
+sends them and dispatches only `tool_use` blocks, so a `server_tool_use` the host ran
+itself is never looked up among ours. Its pairs are read off each round's final
+message by the same code the custom loop uses.
+
 The rules `custom.py` states apply here verbatim: the SDK is imported inside the turn
 and never at module scope, reasons name variables and never their values, and every
 path ends with exactly one `AgentCompleted` or `AgentFailed`.
@@ -46,9 +52,22 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from ... import events as ev
-from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
+from ...models import (
+    HostStatus,
+    Message,
+    RuntimeUnavailable,
+    ToolSpec,
+    WebScope,
+)
 from .. import bridge, hosts, turn
-from ..protocols.messages import STOP_DONE, STOP_FAILURES
+from ..base import refuse_web
+from ..protocols.messages import (
+    STOP_DONE,
+    STOP_FAILURES,
+    HostedCalls,
+    usage_counts,
+    web_definitions,
+)
 
 #: Every host reachable through the Anthropic SDK: the rows of `hosts.HOSTS` that name
 #: this SDK. A new one is a row there, not a line here.
@@ -140,6 +159,21 @@ class AnthropicSdkRuntime:
         """A vendor's runner, driven in this process. See `agent/base.Owned`."""
         return "sdk"
 
+    def web_reason(self, scope: WebScope) -> str | None:
+        """Why this runtime cannot honour `scope` on its host, or None when it can —
+        read off the row, as `custom.py` reads it. See `agent/base.WebScoped`."""
+        if scope.mode == "off":
+            return None
+        row = HOSTS.get(self.host)
+        if row is None:
+            return hosts.unknown(self.host, HOSTS)
+        if row.web_tools is None:
+            return (
+                f"web {scope.mode} needs a host that serves it, and host "
+                f"'{self.host}' declares no hosted web tools"
+            )
+        return None
+
     # -- one turn -------------------------------------------------------------
 
     async def stream(
@@ -173,13 +207,23 @@ class AnthropicSdkRuntime:
             )
             return
 
+        # Before any request, as in `custom.py` — see `refuse_web`.
+        if refused := refuse_web(self, options.get("web") or WebScope(), emitter):
+            yield refused
+            return
+
         host = HOSTS[self.host]
+        hosted = HostedCalls()
         try:
-            async for event in self._turn(messages, tools, emitter=emitter, **options):
+            async for event in self._turn(
+                messages, tools, emitter=emitter, hosted=hosted, **options
+            ):
                 yield event
         except Exception as exc:  # noqa: BLE001 — a failure is an event, not a crash
             # Cancellation derives from BaseException and is deliberately not caught:
             # a cancelled turn has to close the stream rather than report itself.
+            for event in hosted.close(emitter):
+                yield event
             yield emitter.emit(
                 ev.AgentFailed,
                 **turn.failure(
@@ -197,12 +241,14 @@ class AnthropicSdkRuntime:
         tools: list[ToolSpec],
         *,
         emitter: ev.Emitter,
+        hosted: HostedCalls,
         **options: Any,
     ) -> AsyncIterator[ev.AgentEvent]:
         """The runner's loop, translated. `stream` is only the exception vocabulary.
 
         Ends with exactly one terminal event on every path it returns from; an SDK
         exception leaves through `stream`, which supplies the terminal event instead.
+        `hosted` is `stream`'s for the same reason as in `custom.py`.
         """
         # Inside the turn, never at module scope — `available_kinds()` loads every
         # registered runtime, and a base install has no `anthropic` to import.
@@ -258,6 +304,14 @@ class AnthropicSdkRuntime:
             )
             for name, spec in wired
         ]
+        # Plain definitions, never runnable tools, so the runner sends them and leaves
+        # their calls to the host. `stream` refused any scope the row cannot serve.
+        row = HOSTS[self.host]
+        web = (
+            web_definitions(options.get("web") or WebScope(), row.web_tools)
+            if row.web_tools is not None
+            else []
+        )
         system = turn.system_prompt(
             sources,
             persona=options.get("persona") or "",
@@ -289,7 +343,7 @@ class AnthropicSdkRuntime:
                 "model": self.model,
                 "max_tokens": self.max_tokens,
                 "messages": transcript,
-                "tools": definitions,
+                "tools": [*definitions, *web],
                 "max_iterations": self.max_tool_rounds,
                 "stream": True,
                 # The largest cost lever this runtime has — see the module docstring.
@@ -299,7 +353,7 @@ class AnthropicSdkRuntime:
                 request["system"] = system
 
             runner = client.beta.messages.tool_runner(**request)
-            if not definitions:
+            if not definitions and not web:
                 # `tools=` is required by `tool_runner`, so an empty turn cannot simply
                 # omit it the way the messages adapter does — and the API rejects an
                 # empty tool list. The SDK accepts the empty list and would send
@@ -328,7 +382,12 @@ class AnthropicSdkRuntime:
                     answer.append(event.text)
                     yield emitter.emit(ev.AssistantToken, text=event.text)
                 final = await round_stream.get_final_message()
-                usage.add(final.usage)
+                usage.add_counts(**usage_counts(final.usage))
+                # What the host ran inside the round, after its text and before the
+                # tools of ours it led to, which the relay holds for the next one. A
+                # call whose result has not come back yet is held for a later round.
+                for event in hosted.read(final.content, emitter):
+                    yield event
                 stop = final.stop_reason
                 separate = stop == "tool_use"
 
@@ -336,6 +395,9 @@ class AnthropicSdkRuntime:
         # are still held here.
         for held in relay.drain():
             yield held
+        # Every path below ends the turn, so what is still held never comes back.
+        for event in hosted.close(emitter):
+            yield event
 
         elapsed = int((time.monotonic() - began) * 1000)
 
@@ -355,6 +417,7 @@ class AnthropicSdkRuntime:
                 ev.AgentCompleted,
                 text="".join(answer),
                 streamed=True,
+                citations=hosted.citations,
                 usage=usage.totals(elapsed),
             )
             return

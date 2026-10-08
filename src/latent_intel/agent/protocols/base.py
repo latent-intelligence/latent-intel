@@ -43,6 +43,21 @@ class Call:
 
 
 @dataclass
+class Served:
+    """One tool call the host ran itself inside the round — a hosted web search, say —
+    with its result already in. Reported, never dispatched: there is nothing for us to
+    run, only something for a recording to show."""
+
+    name: str
+    arguments: dict[str, Any]
+    ok: bool = True
+    output: str = ""
+    error: str = ""
+    #: `web:<url>` per page the call returned or read, in order, once each.
+    refs: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Outcome:
     """What one round came to. Exactly one per round, and the last thing yielded."""
 
@@ -58,6 +73,10 @@ class Outcome:
     #: reads one vocabulary whichever protocol answered. A count the host did not send
     #: is absent or None and is skipped rather than counted as zero.
     counts: dict[str, int | None] = field(default_factory=dict)
+    #: The round's content blocks as the host sent them, where its protocol has tools
+    #: the host runs itself. Read by the loop rather than here, because a call and its
+    #: result can arrive a round apart — see `messages.HostedCalls`.
+    blocks: list[Any] = field(default_factory=list)
     #: The `AgentFailed` fields, when `status` is `failed`.
     kind: str = ""
     message: str = ""
@@ -115,4 +134,4 @@ class Adapter(Protocol):
         ...
 
 
-__all__ = ["Adapter", "Call", "Outcome"]
+__all__ = ["Adapter", "Call", "Outcome", "Served"]

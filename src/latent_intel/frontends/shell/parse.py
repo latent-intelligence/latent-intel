@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 from ...commands import Ask, Command, Connect, Disconnect, Fetch, Find, ListSources
 from ...events import PURPOSES
+from ...models import WEB_MODES
 
 
 @dataclass
@@ -98,6 +99,14 @@ SLASH: dict[str, Spec] = {
     "model": Spec(0, 1, "/model [name]", "which model that backend uses", "agent"),
     "host": Spec(0, 1, "/host [name]", "which host the runtime talks to", "agent"),
     "hosts": Spec(0, 0, "/hosts", "every host, and what each one needs", "agent"),
+    "scope": Spec(
+        # 3: a mode, then `--allow` or `--block` and its list, each a token.
+        0,
+        3,
+        "/scope [off|search|browse] [--allow a,b | --block a,b | --any]",
+        "how much of the web the agent may reach — this session only",
+        "agent",
+    ),
     "clear": Spec(0, 0, "/clear", "clear the screen"),
     "help": Spec(0, 1, "/help [command]", "this"),
     "exit": Spec(0, 0, "/exit", "leave"),
@@ -168,6 +177,8 @@ def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
             return _record(args)
         case "replay":
             return _replay(args)
+        case "scope":
+            return _scope(args)
         case (
             "exit"
             | "help"
@@ -239,6 +250,30 @@ def _replay(args: list[str]) -> Parsed:
     if not since.isdigit() or int(since) < 1:
         return Invalid(f"--since takes a line number, not '{since}'", usage)
     return Local("replay", positional[0], options)
+
+
+def _scope(args: list[str]) -> Parsed:
+    """`/scope [mode] [--allow a,b | --block a,b | --any]`. A list replaces the one in
+    force; `--any` drops both lists and `max_uses`; with neither, what is configured is
+    kept. `--any` takes no value, so it is lifted out before the flags are read."""
+    usage = SLASH["scope"].usage
+    bare = [arg for arg in args if arg != "--any"]
+    try:
+        positional, options = _flags(bare, {"allow", "block"})
+    except ValueError as exc:
+        return Invalid(str(exc), usage)
+    if len(bare) != len(args):
+        options["any"] = ""
+    if len(positional) > 1:
+        return Invalid("/scope takes one mode", usage)
+    mode = positional[0] if positional else ""
+    if options and not mode:
+        return Invalid("--allow, --block and --any need a mode to apply to", usage)
+    if len(options) > 1:
+        return Invalid("one of --allow, --block or --any", usage)
+    if mode and mode not in WEB_MODES:
+        return Invalid(f"no mode '{mode}'", f"one of {', '.join(WEB_MODES)}")
+    return Local("scope", mode, options)
 
 
 def _connect(args: list[str]) -> Parsed:

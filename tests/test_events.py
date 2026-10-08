@@ -295,3 +295,37 @@ def test_published_headers_are_ones_the_writer_produces() -> None:
         header = json.loads(path.read_text().splitlines()[0])
         assert set(header) == written
         assert header["context"]["hash"]
+
+
+def test_a_header_s_web_scope_is_additive_and_an_unknown_one_still_renders() -> None:
+    """Older readers ignore `web`; this build reads a header without one as "not
+    recorded", a mode it does not know as a header, and a `web` it cannot read at all
+    as an unknown event — and renders every one of them rather than raising."""
+    import io
+
+    import jsonschema
+    from rich.console import Console
+
+    from latent_intel.ui import render
+
+    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
+    header = json.loads(RECORDINGS[0].read_text().splitlines()[0])
+
+    older = {k: v for k, v in header.items() if k != "web"}
+    parsed = ev.parse_event(older)
+    assert isinstance(parsed, ev.RunContext) and parsed.web is None
+
+    newer = {**header, "web": {"mode": "crawl", "radius": 3}}
+    assert not validator.is_valid(newer)  # producers are held to the known modes
+    parsed = ev.parse_event(newer)
+    assert isinstance(parsed, ev.RunContext) and parsed.web is not None
+    assert parsed.web.mode == "crawl"
+
+    stranger = {**header, "web": ["not", "a", "scope"]}
+    assert isinstance(ev.parse_event(stranger), ev.UnknownEvent)
+
+    out = io.StringIO()
+    console = Console(file=out, width=120)
+    for payload in (older, newer, stranger):
+        render.render(console, ev.parse_event(payload))
+    assert "web crawl" in " ".join(out.getvalue().split())

@@ -23,6 +23,12 @@ trap:
 shell out on your machine is a far larger promise than `intel ask` makes, and enabling
 it by omission is not a decision anyone took.
 
+**The web is the one opening, and only by `web:`.** `search` turns on the binary's
+`WebSearch`, `browse` adds `WebFetch`, each allowed by name. A domain list and
+`max_uses` are refused rather than half-kept: `WebSearch` takes its domains from the
+model, not from us, and the binary fetches from its own list of preapproved
+documentation hosts ahead of any allow rule, so neither list could be held to.
+
 **There is no interactive approval under `--print`.** Nobody is there to answer, so the
 allow-list has to be decided up front. It is derived from each `ToolSpec`'s declared
 `Effect`: under `approval: ask` or `never` only non-writing tools are admitted, under
@@ -47,8 +53,9 @@ import anyio
 from anyio.abc import Process
 
 from ... import events as ev
-from ...models import Effect, Message, RuntimeUnavailable, ToolSpec
+from ...models import Effect, Message, RuntimeUnavailable, ToolSpec, WebScope
 from .. import turn
+from ..base import WEB_ID, refuse_web
 
 #: Usage keys that are integers in claude's payload. Everything else there is a nested
 #: dict or a float, and `AgentCompleted.usage` is `dict[str, int]`.
@@ -74,6 +81,55 @@ _MAX_LINE = 8 * 1024 * 1024
 #: to the shim's own directory (`%dp0%`). Current builds point at `bin\claude.exe`;
 #: older ones at a `cli.js` run through `node`.
 _SHIM_TARGET = re.compile(r'"%dp0%\\([^"]+)"')
+
+
+#: The binary's own web tools each mode turns on. Both read the web and nothing else,
+#: so both are `external_read` — declared here, because the binary declares none.
+WEB_TOOLS: dict[str, tuple[str, ...]] = {
+    "off": (),
+    "search": ("WebSearch",),
+    "browse": ("WebSearch", "WebFetch"),
+}
+
+
+def web_reason(runtime: str, scope: WebScope) -> str | None:
+    """Why Claude Code, run as `runtime`, cannot honour `scope`, or None when it can.
+
+    The modes map onto the binary's tools; nothing else in a scope does. Shared with
+    `claude_agent_sdk.py`, which drives the same binary. Each reason names the command
+    that drops what cannot be held, because a mode alone keeps it.
+    """
+    if scope.mode == "off":
+        return None
+    drop = (
+        f"drop it with `/scope {scope.mode} --any` (`--web {scope.mode} --any` on "
+        f"`intel ask`), or use `custom` or `anthropic-sdk` on an Anthropic host"
+    )
+    if scope.allowed_domains:
+        return (
+            f"the '{runtime}' runtime cannot hold the web to allowed_domains: Claude "
+            f"Code fetches from its own preapproved documentation hosts whatever the "
+            f"allow rules say — {drop}"
+        )
+    if scope.blocked_domains:
+        return (
+            f"the '{runtime}' runtime cannot keep blocked_domains out of search "
+            f"results: Claude Code's WebSearch takes its domains from the model — "
+            f"{drop}"
+        )
+    if scope.max_uses is not None:
+        return f"the '{runtime}' runtime has no per-tool limit for max_uses — {drop}"
+    return None
+
+
+def web_refs(tool: str, arguments: dict[str, Any]) -> list[str]:
+    """The page a `WebFetch` read, as a `web:` ref. A search's results come back as
+    the binary's own prose, which is not parsed for links — a guess at its format would
+    be a ref that is sometimes wrong."""
+    url = arguments.get("url")
+    if tool == "WebFetch" and isinstance(url, str) and url:
+        return [f"web:{url}"]
+    return []
 
 
 def resolve_command(command: Sequence[str]) -> list[str] | None:
@@ -157,11 +213,13 @@ def build_argv(
     servers: dict[str, Any] | None = None,
     allow: Sequence[str] = (),
     system_prompt: str = "",
+    web: Sequence[str] = (),
 ) -> list[str]:
     """The command line, as a pure function.
 
     Separated because it is the part most likely to be wrong and the cheapest to test:
-    the flag matrix is covered without spawning anything.
+    the flag matrix is covered without spawning anything. `web` is the built-in tools a
+    scope turns on — offered, and allowed by name, so `--print` has nothing to ask.
     """
     argv = [
         *command,
@@ -171,7 +229,9 @@ def build_argv(
         "--verbose",  # required with stream-json; without it, an error and exit 0
         "--include-partial-messages",  # what makes AssistantToken real, not one lump
         "--tools",
-        "",  # no Bash/Edit/Read — this is not a coding agent
+        # No Bash/Edit/Read — this is not a coding agent. The web tools only when a
+        # scope turns them on.
+        ",".join(web),
     ]
     if model:
         argv += ["--model", model]
@@ -183,8 +243,8 @@ def build_argv(
     # own unrelated MCP tools as its context. No servers must mean no tools.
     argv += ["--mcp-config", json.dumps({"mcpServers": servers or {}})]
     argv += ["--strict-mcp-config"]
-    if allow:
-        argv += ["--allowedTools", *allow]
+    if allow or web:
+        argv += ["--allowedTools", *allow, *web]
     if system_prompt:
         argv += ["--append-system-prompt", system_prompt]
     return argv
@@ -239,6 +299,10 @@ class ClaudeCliRuntime:
         permissions. See `agent/base.Owned`."""
         return "delegated"
 
+    def web_reason(self, scope: WebScope) -> str | None:
+        """See `web_reason` above and `agent/base.WebScoped`."""
+        return web_reason(self.id, scope)
+
     async def stream(
         self,
         messages: list[Message],
@@ -260,6 +324,13 @@ class ClaudeCliRuntime:
                 remedy="install Claude Code, or set `command:` under this runtime",
             )
             return
+
+        # Once the binary is found, so a missing one is not reported as a scope it
+        # cannot honour; before anything is spawned — see `refuse_web`.
+        scope = options.get("web") or WebScope()
+        if refused := refuse_web(self, scope, emitter):
+            yield refused
+            return
         argv = build_argv(
             resolved,
             model=self.model,
@@ -272,6 +343,7 @@ class ClaudeCliRuntime:
                 skills=options.get("skills") or (),
                 invoked=options.get("invoked") or (),
             ),
+            web=WEB_TOOLS[scope.mode],
         )
         declared = {(t.source_id, t.name): t for t in tools}
         by_server = {sanitise(s): s for s in servers}
@@ -375,12 +447,17 @@ class ClaudeCliRuntime:
                 tool = str(block.get("name") or "")
                 source_id, bare = self._split(tool, by_server)
                 spec = declared.get((source_id, bare))
+                effect = str(spec.effect) if spec else str(Effect.EXTERNAL_WRITE)
+                # The binary's web tools, which only a scope turns on, are reported
+                # under `web` with the effect declared above.
+                if tool in WEB_TOOLS["browse"]:
+                    source_id, effect = WEB_ID, str(Effect.EXTERNAL_READ)
                 event = emitter.emit(
                     ev.ToolStarted,
                     tool=bare,
                     source_id=source_id,
                     arguments=dict(block.get("input") or {}),
-                    effect=str(spec.effect) if spec else str(Effect.EXTERNAL_WRITE),
+                    effect=effect,
                 )
                 started[str(block.get("id") or "")] = event
                 out.append(event)
@@ -405,6 +482,9 @@ class ClaudeCliRuntime:
                         ok=not failed,
                         output="" if failed else text,
                         error=text if failed else "",
+                        refs=web_refs(parent.tool, parent.arguments)
+                        if parent and parent.source_id == WEB_ID and not failed
+                        else [],
                     )
                 )
             return out
@@ -459,4 +539,12 @@ async def _lines(process: Process) -> AsyncIterator[str]:
         yield buffer.decode(errors="replace")
 
 
-__all__ = ["ClaudeCliRuntime", "allowed_tools", "build_argv", "sanitise"]
+__all__ = [
+    "WEB_TOOLS",
+    "ClaudeCliRuntime",
+    "allowed_tools",
+    "build_argv",
+    "sanitise",
+    "web_reason",
+    "web_refs",
+]

@@ -34,6 +34,7 @@ from latent_intel.models import (  # noqa: E402
     Hit,
     Provenance,
     Skill,
+    WebScope,
 )
 from latent_intel.session import _fingerprint  # noqa: E402
 from latent_intel.settings import Settings  # noqa: E402
@@ -364,6 +365,8 @@ def recorded_ask() -> Recorder:
         host="anthropic",
         model="claude-haiku-4-5",
         approval="auto",
+        # Internal sources only — the scope an eval of retrieval runs under.
+        web=WebScope(),
         project="research",
         # Through the writer's own code, so the digests are ones it can produce.
         context=_fingerprint(
@@ -420,6 +423,7 @@ def recorded_search() -> Recorder:
         ev.RunContext,
         title="two sources, one query",
         latent_intel_version="0.1.0",
+        web=WebScope(),
         context=_fingerprint(Settings()),
         sources=[
             AttachedSource(id="design", kind="wiki"),

@@ -20,6 +20,6 @@ models is reached through the `openai` SDK and speaks `chat`.
 
 from __future__ import annotations
 
-from .base import Adapter, Call, Outcome
+from .base import Adapter, Call, Outcome, Served
 
-__all__ = ["Adapter", "Call", "Outcome"]
+__all__ = ["Adapter", "Call", "Outcome", "Served"]

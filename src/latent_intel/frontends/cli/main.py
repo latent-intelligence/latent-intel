@@ -252,10 +252,28 @@ def ask(
     ),
     purpose: str = _PURPOSE,
     title: str = _TITLE,
+    web: str = typer.Option(
+        None,
+        "--web",
+        help="off, search or browse, for this question only. Keeps the configured "
+        "domain list and max_uses.",
+    ),
+    unbounded: bool = typer.Option(
+        False,
+        "--any",
+        help="With --web: no domain list and no max_uses, whatever is configured.",
+    ),
 ) -> None:
     """Ask the agent. Reports clearly that no runtime is configured yet."""
+    if unbounded and web is None:
+        err_console.print("[fail]✗[/] --any applies to a mode [dim]— add --web MODE[/]")
+        raise typer.Exit(1)
     recorded = _recording(record_to, purpose, title)
-    anyio.run(lambda: _stream(Ask(prompt=prompt), as_json, *recorded))
+    anyio.run(
+        lambda: _stream(
+            Ask(prompt=prompt), as_json, *recorded, web=web, unbounded=unbounded
+        )
+    )
 
 
 def _recording(
@@ -286,6 +304,8 @@ async def _stream(
     record_to: Path | None = None,
     purpose: str = "share",
     title: str = "",
+    web: str | None = None,
+    unbounded: bool = False,
 ) -> None:
     # The recording is opened *outside* the session, so a path that cannot be written —
     # a directory, a read-only volume, a typo'd parent — is one `✗` line and exit 1
@@ -298,6 +318,14 @@ async def _stream(
             raise typer.Exit(1) from exc
         async with session_scope() as (session, problems):
             report(problems)
+            if web is not None:
+                # Refused before the header, so a recording never claims a scope the
+                # runtime would not have honoured.
+                try:
+                    session.set_web(session.web.narrowed(web, unbounded=unbounded))
+                except (ValueError, SessionError) as exc:
+                    err_console.print(f"[fail]✗[/] {escape(str(exc))}")
+                    raise typer.Exit(1) from exc
             if record_to is not None:
                 # The header, after the sources attach so it can name them. Rendered
                 # too, so the live view and its replay stay line for line the same;
@@ -472,6 +500,23 @@ async def _doctor() -> None:
         )
     if configured and (model := resolved.model_for(configured)):
         console.print(f"  [dim]model:[/] [source]{model}[/]")
+    # Which scopes each runtime honours, because one that cannot honour the scope in
+    # force refuses every question rather than quietly answering without the web.
+    console.print(
+        f"\n[accent.strong]web[/] [source]{escape(str(resolved.web))}[/] "
+        f"[dim]({resolved.origin.get('web', 'engine')})[/]"
+    )
+    for name in sorted(runtimes):
+        chosen = " [dim]← configured[/]" if name == configured else ""
+        modes = " · ".join(runtimes[name].web)
+        console.print(f"  [source]{name:<18}[/] [dim]{modes}[/]{chosen}")
+    # The modes above are bare; the scope in force can carry a domain list or
+    # `max_uses` the configured runtime has no knob for, and it would refuse every turn.
+    if configured in runtimes and (refusal := runtimes[configured].web_refusal):
+        console.print(
+            f"  [warn]![/] [source]{escape(configured)}[/] [dim]would refuse this "
+            f"scope — {escape(refusal)}[/]"
+        )
     # A project that declares delegates, answered by a runtime that cannot run them,
     # answers questions it believes it handed off.
     runs_them = {name for name, entry in runtimes.items() if entry.subagents}
@@ -522,6 +567,15 @@ async def _doctor() -> None:
             console.print(f"  [ok]✓[/] [source]{d.id}[/] [dim]{d.kind}[/]{reach}")
         if not session.sources():
             console.print("  [dim]nothing attached[/]")
+        # A page the agent fetches is a request to an address it chose, and the
+        # address can carry what the sources said. An allow-list bounds where to.
+        scope = session.web
+        if scope.mode == "browse" and session.sources() and not scope.allowed_domains:
+            console.print(
+                "  [warn]![/] [dim]web browse is on with sources attached and no "
+                "allowed_domains — a page the agent fetches can carry what the "
+                "sources said to any address[/]"
+            )
         report(problems)
 
         undeclared = [t for t in session.tools() if not t.effect_declared]

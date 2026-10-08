@@ -21,6 +21,11 @@ tool dispatch, usage, and the one terminal event. See `agent/protocols/`.
 one deployment, so an unset host is reported by name the way an unset model is.
 `LATENT_INTEL_CUSTOM_HOST` is the override, and `intel hosts` is the list.
 
+**The web is the row's to offer.** A row that declares `web_tools` serves hosted search
+and fetch, and a web scope becomes those tools on the request; any other row refuses a
+scope wider than `off` before a request is made. The host runs those calls itself, so
+they are reported as tool events under `web` rather than dispatched.
+
 The rules the two folded modules stated apply here verbatim:
 
 - **The SDK is imported inside the turn, never at module scope.** `available_kinds()`
@@ -47,11 +52,18 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from ... import events as ev
-from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
+from ...models import (
+    HostStatus,
+    Message,
+    RuntimeUnavailable,
+    ToolSpec,
+    WebScope,
+)
 from .. import hosts, turn
+from ..base import refuse_web
 from ..protocols import Adapter, Call, Outcome
 from ..protocols.chat import ChatAdapter
-from ..protocols.messages import MessagesAdapter
+from ..protocols.messages import HostedCalls, MessagesAdapter, web_definitions
 
 #: Every endpoint this build can reach. This runtime speaks both protocols, so it sees
 #: the whole table rather than one SDK's subset.
@@ -164,6 +176,30 @@ class CustomRuntime:
             )
         return None
 
+    def web_reason(self, scope: WebScope) -> str | None:
+        """Why this runtime cannot honour `scope` on its host, or None when it can.
+
+        Read off the row, never the URL: a row that declares `web_tools` serves both
+        modes, with domain lists and `max_uses`; any other refuses everything but `off`.
+        See `agent/base.WebScoped`.
+        """
+        if scope.mode == "off":
+            return None
+        row = HOSTS.get(self.host)
+        if row is not None and row.web_tools is not None:
+            return None
+        able = ", ".join(name for name, host in HOSTS.items() if host.web_tools)
+        if row is None:
+            where = "no host is set" if not self.host else f"'{self.host}' is no host"
+        elif row.protocol == "chat":
+            where = (
+                f"host '{self.host}' speaks the chat protocol, which has no hosted "
+                f"web tools"
+            )
+        else:
+            where = f"host '{self.host}' declares no hosted web tools"
+        return f"web {scope.mode} needs a host that serves it, and {where} — use {able}"
+
     def host_status(self) -> dict[str, HostStatus]:
         """Every host this runtime declares, and what each still needs.
 
@@ -192,6 +228,11 @@ class CustomRuntime:
             )
             return
 
+        # Before any request, and here as well as in the session — see `refuse_web`.
+        if refused := refuse_web(self, options.get("web") or WebScope(), emitter):
+            yield refused
+            return
+
         row = HOSTS[self.host]
         # `find_spec` said the SDK is there; a half-installed one can still fail here,
         # and that failure has to be an event like every other. By name, because which
@@ -207,12 +248,17 @@ class CustomRuntime:
             )
             return
 
+        hosted = HostedCalls()
         try:
-            async for event in self._turn(messages, tools, emitter=emitter, **options):
+            async for event in self._turn(
+                messages, tools, emitter=emitter, hosted=hosted, **options
+            ):
                 yield event
         except Exception as exc:  # noqa: BLE001 — a failure is an event, not a crash
             # Cancellation derives from BaseException and is deliberately not caught:
             # a cancelled turn has to close the stream rather than report itself.
+            for event in hosted.close(emitter):
+                yield event
             yield emitter.emit(
                 ev.AgentFailed,
                 **turn.failure(
@@ -230,12 +276,15 @@ class CustomRuntime:
         tools: list[ToolSpec],
         *,
         emitter: ev.Emitter,
+        hosted: HostedCalls,
         **options: Any,
     ) -> AsyncIterator[ev.AgentEvent]:
         """The loop itself, so `stream` is only the exception vocabulary.
 
         Ends with exactly one terminal event on every path it returns from; an SDK
         exception leaves through `stream`, which supplies the terminal event instead.
+        `hosted` is `stream`'s, so a call still held when an exception ends the turn
+        is reported there; every path here reports what is held before it ends.
         """
         call_tool = options.get("call_tool")
         sources = options.get("sources") or []
@@ -247,6 +296,12 @@ class CustomRuntime:
         wired = turn.wired(tools, self.approval)
         by_name = dict(wired)
         definitions = adapter.definitions(wired)
+        # `stream` refused any scope this row cannot serve, so a row without web tools
+        # only ever gets here under `off`.
+        if row.web_tools is not None:
+            definitions += web_definitions(
+                options.get("web") or WebScope(), row.web_tools
+            )
         system = turn.system_prompt(
             sources,
             persona=options.get("persona") or "",
@@ -300,8 +355,15 @@ class CustomRuntime:
 
                 usage.add_counts(**outcome.counts)
                 transcript.append(outcome.assistant)
+                # What the host ran inside the round, before anything the round led
+                # to: a failed round still searched, and a recording must say so. A
+                # call whose result has not come back yet is held for a later round.
+                for event in hosted.read(outcome.blocks, emitter):
+                    yield event
 
                 if outcome.status == "failed":
+                    for event in hosted.close(emitter):
+                        yield event
                     yield emitter.emit(
                         ev.AgentFailed,
                         message=outcome.message,
@@ -340,15 +402,20 @@ class CustomRuntime:
                     separate = True
                     continue
 
+                for event in hosted.close(emitter):
+                    yield event
                 elapsed = int((time.monotonic() - began) * 1000)
                 yield emitter.emit(
                     ev.AgentCompleted,
                     text="".join(answer),
                     streamed=True,
+                    citations=hosted.citations,
                     usage=usage.totals(elapsed),
                 )
                 return
 
+        for event in hosted.close(emitter):
+            yield event
         yield emitter.emit(
             ev.AgentFailed,
             message=f"stopped after {self.max_tool_rounds} rounds of tool calls",

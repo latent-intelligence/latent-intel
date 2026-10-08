@@ -100,7 +100,7 @@ def show() -> None:
         console.print("  [dim]none[/]")
 
     console.print("\n[accent.strong]settings[/]")
-    for key in ("runtime", "approval"):
+    for key in ("runtime", "approval", "web"):
         value = getattr(resolved, key) or "—"
         console.print(
             f"  [dim]{key:<10}[/] {escape(str(value))} "

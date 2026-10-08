@@ -27,6 +27,8 @@ from .. import events as ev
 from ..models import Effect, Skill, ToolSpec
 from . import hosts
 from . import tools as engine_tools
+from .base import WEB_ID
+from .protocols.base import Served
 
 #: What the router is, as a type. A `Session.call_tool` bound method satisfies it, and
 #: so does a test's lambda — a Protocol here would buy nothing over the signature.
@@ -409,6 +411,34 @@ async def dispatch(
     return started, result
 
 
+def served(call: Served, emitter: ev.Emitter) -> tuple[ev.ToolStarted, ev.ToolResult]:
+    """One call the host ran, as the pair `dispatch` emits for one of ours — the result
+    nested under its start — so a renderer and a recording read both alike.
+
+    `duration_ms` is left unset: the host ran the call inside the round and reports no
+    time for it, and the round's own time would be a number that only looks measured.
+    Here rather than beside one loop, because both loops on the messages protocol — ours
+    and the tool runner's — read the same blocks.
+    """
+    started = emitter.emit(
+        ev.ToolStarted,
+        tool=call.name,
+        source_id=WEB_ID,
+        arguments=call.arguments,
+        effect=str(Effect.EXTERNAL_READ),
+    )
+    result = emitter.nested(started).emit(
+        ev.ToolResult,
+        tool=call.name,
+        source_id=WEB_ID,
+        ok=call.ok,
+        output=call.output,
+        error=call.error,
+        refs=call.refs,
+    )
+    return started, result
+
+
 class UsageTotals:
     """Usage added up across the rounds of one turn.
 
@@ -456,6 +486,7 @@ __all__ = [
     "invalid_arguments",
     "offered",
     "result_text",
+    "served",
     "status_failure",
     "status_message",
     "system_prompt",
