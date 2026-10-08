@@ -21,7 +21,7 @@ from latent_intel import config as config_module
 from latent_intel import events as ev
 from latent_intel.agent import hosts
 from latent_intel.frontends.cli.main import app
-from latent_intel.models import Capability, Descriptor
+from latent_intel.models import Capability, Descriptor, WebScope
 from latent_intel.ui import banner, render
 from latent_intel.ui.theme import THEME
 
@@ -995,3 +995,105 @@ def test_an_unwritable_data_directory_is_one_line_not_a_traceback(
     assert result.exit_code == 1
     assert "✗" in result.stderr
     assert not isinstance(result.exception, OSError)
+
+
+# -- the web scope ------------------------------------------------------------
+
+
+def test_connect_refuses_the_web_s_id(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    result = runner.invoke(
+        app, ["connect", str(corpus), "--kind", "files", "--as", "web"]
+    )
+    assert result.exit_code == 1
+    assert "reserved for web" in " ".join(result.output.split())
+
+
+def test_ask_refuses_a_web_scope_the_runtime_cannot_honour_before_asking() -> None:
+    config = config_module.load()
+    config.runtime = "openai-agents"
+    config_module.save(config)
+    result = runner.invoke(app, ["ask", "anything new?", "--web", "search"])
+    assert result.exit_code == 1
+    assert "honours only `web: off`" in " ".join(result.output.split())
+
+    result = runner.invoke(app, ["ask", "anything new?", "--web", "everything"])
+    assert result.exit_code == 1
+    assert "no mode 'everything'" in " ".join(result.output.split())
+
+
+def test_doctor_lists_the_modes_each_runtime_honours_and_warns_on_open_browse(
+    tmp_path: Path,
+) -> None:
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "note.md").write_text("# Note\n")
+    runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
+    config = config_module.load()
+    config.web = "browse"
+    config_module.save(config)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    rows = {line.split()[0]: line for line in lines}
+    assert "web browse (user)" in result.stdout
+    # Declares nothing; and `custom` with no host set has no row to serve the web.
+    assert rows["openai-agents"].split()[1:] == ["off"]
+    assert rows["custom"].split()[1:] == ["off"]
+    for name in ("anthropic-sdk", "claude-agent-sdk", "claude-cli"):
+        assert rows[name].split()[1:6] == ["off", "·", "search", "·", "browse"]
+    printed = " ".join(result.stdout.split())
+    assert "web browse is on with sources attached and no allowed_domains" in printed
+
+    config.web = {"mode": "browse", "allowed_domains": ["arxiv.org"]}
+    config_module.save(config)
+    result = runner.invoke(app, ["doctor"])
+    assert "no allowed_domains" not in " ".join(result.stdout.split())
+
+
+def test_any_drops_a_configured_cap_the_claude_code_runtimes_cannot_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mode alone keeps `max_uses`, which `claude-cli` refuses; `--any` is the way to
+    use it without editing the config. The header names the scope the turn ran under."""
+    from latent_intel.session import Session
+
+    async def answered(self: Session, prompt: str, **_: Any) -> Any:
+        yield ev.Emitter(self.session_id).emit(
+            ev.AgentCompleted, text="ok", streamed=False
+        )
+
+    monkeypatch.setattr(Session, "ask", answered)
+    config = config_module.load()
+    config.runtime = "claude-cli"
+    config.web = {"mode": "search", "max_uses": 5}
+    config_module.save(config)
+
+    refused = runner.invoke(app, ["ask", "anything?", "--web", "search"])
+    assert refused.exit_code == 1
+    assert "/scope search --any" in " ".join(refused.output.split())
+
+    path = tmp_path / "run.jsonl"
+    result = runner.invoke(
+        app, ["ask", "anything?", "--web", "search", "--any", "--record", str(path)]
+    )
+    assert result.exit_code == 0, result.output
+    header = ev.parse_event(path.read_text().splitlines()[0])
+    assert header.web == WebScope(mode="search")  # type: ignore[union-attr]
+
+    alone = runner.invoke(app, ["ask", "anything?", "--any"])
+    assert alone.exit_code == 1
+    assert "--web" in alone.output
+
+
+def test_doctor_warns_when_the_configured_runtime_would_refuse_the_scope() -> None:
+    config = config_module.load()
+    config.runtime = "claude-cli"
+    config.web = {"mode": "search", "max_uses": 5}
+    config_module.save(config)
+    result = runner.invoke(app, ["doctor"])
+    printed = " ".join(result.stdout.split())
+    assert "claude-cli would refuse this scope" in printed
+    assert "max_uses" in printed

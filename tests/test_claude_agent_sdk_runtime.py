@@ -17,7 +17,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel.agent import hosts
-from latent_intel.agent.base import Delegating
+from latent_intel.agent.base import WEB_REMEDY, Delegating
 from latent_intel.agent.runtimes.claude_agent_sdk import (
     AGENT_TOOL,
     ENV_HOST,
@@ -27,7 +27,14 @@ from latent_intel.agent.runtimes.claude_agent_sdk import (
     ClaudeAgentSdkRuntime,
     environment,
 )
-from latent_intel.models import Effect, Message, RuntimeUnavailable, Skill, ToolSpec
+from latent_intel.models import (
+    Effect,
+    Message,
+    RuntimeUnavailable,
+    Skill,
+    ToolSpec,
+    WebScope,
+)
 from latent_intel.subagents import Subagent
 from tests.fixtures.fake_claude_agent import Call, FakeQuery, Raise, Result, Text
 
@@ -469,48 +476,106 @@ async def test_two_tools_cut_to_one_served_name_are_refused(credentials: None) -
     assert "s.xxx" in failed.message and fake.calls == 0
 
 
-# -- the binary's own web tools, opted into ---------------------------------
+# -- the binary's own web tools, by the session's scope -----------------------
+
+SEARCH = WebScope(mode="search")
+BROWSE = WebScope(mode="browse")
 
 
-def test_only_the_web_reading_tools_can_be_opted_into() -> None:
-    """Local files belong to our `files` connector, with declared effects; nothing
-    that writes is offered at all."""
+def test_builtin_tools_is_refused_by_name_with_where_it_went() -> None:
+    """It once opened the web; `web:` does now, and two settings that could disagree
+    would make a recording's header a guess."""
     with pytest.raises(RuntimeUnavailable) as caught:
-        ClaudeAgentSdkRuntime(builtin_tools=["WebSearch", "Bash"])
-    assert "Bash" in str(caught.value)
-    assert "WebSearch" in str(caught.value) and "WebFetch" in str(caught.value)
+        ClaudeAgentSdkRuntime(builtin_tools=["WebSearch"])
+    message = str(caught.value)
+    assert "`builtin_tools`" in message and "replaced by `web:`" in message
+    assert "defaults.web: browse" in message
 
 
 @pytest.mark.anyio
-async def test_an_opted_in_tool_is_offered_and_allowed(credentials: None) -> None:
+@pytest.mark.parametrize(
+    ("scope", "web"),
+    [
+        (WebScope(), []),
+        (SEARCH, ["WebSearch"]),
+        (BROWSE, ["WebSearch", "WebFetch"]),
+    ],
+)
+async def test_each_mode_offers_and_allows_its_web_tools_and_nothing_else(
+    credentials: None, scope: WebScope, web: list[str]
+) -> None:
     fake = FakeQuery(Result())
-    await collect(runtime(fake, builtin_tools=["WebSearch"]), [spec("search")])
-    assert fake.options.tools == ["WebSearch"]
-    assert fake.options.allowed_tools == [f"{PREFIX}design_search", "WebSearch"]
+    await collect(runtime(fake), [spec("search")], web=scope)
+    assert fake.options.tools == web
+    assert fake.options.allowed_tools == [f"{PREFIX}design_search", *web]
+    assert not fake.options.disallowed_tools
 
 
 @pytest.mark.anyio
-async def test_a_web_tool_call_is_a_pair_built_from_the_binary_s_messages(
+@pytest.mark.parametrize(
+    ("scope", "named"),
+    [
+        (WebScope(mode="browse", allowed_domains=["a.example.org"]), "allowed_domains"),
+        (WebScope(mode="browse", blocked_domains=["b.example.org"]), "blocked_domains"),
+        (WebScope(mode="search", blocked_domains=["b.example.org"]), "blocked_domains"),
+        (WebScope(mode="search", max_uses=3), "max_uses"),
+    ],
+)
+async def test_what_the_binary_cannot_hold_to_is_refused_before_it_starts(
+    credentials: None, scope: WebScope, named: str
+) -> None:
+    """Its WebSearch takes domains from the model, and its WebFetch reads a list of
+    preapproved hosts ahead of any allow rule: a list here would be half kept."""
+    fake = FakeQuery(Result())
+    failed = terminal(await collect(runtime(fake), web=scope))
+    assert isinstance(failed, ev.AgentFailed) and failed.kind == "web_scope"
+    assert failed.remedy == WEB_REMEDY
+    assert named in failed.message
+    assert fake.calls == 0
+    assert runtime().web_reason(scope) == failed.message
+
+
+def test_off_with_a_list_still_reaches_nothing_and_is_honoured() -> None:
+    assert runtime().web_reason(WebScope(allowed_domains=["a.example.org"])) is None
+
+
+@pytest.mark.anyio
+async def test_a_web_tool_call_is_a_pair_under_web_built_from_the_binary_s_messages(
     credentials: None,
 ) -> None:
     fake = FakeQuery(
         Call(
             "WebSearch", {"query": "compaction"}, id="toolu_w", output="three results"
         ),
-        Call("WebFetch", {"url": "u"}, id="toolu_f", output="refused", is_error=True),
+        Call(
+            "WebFetch",
+            {"url": "https://a.example.org/c", "prompt": "summarise"},
+            id="toolu_f",
+            output="the page",
+        ),
+        Call(
+            "WebFetch",
+            {"url": "https://b.example.org"},
+            id="toolu_x",
+            output="refused",
+            is_error=True,
+        ),
         Text("Done."),
         Result(),
     )
-    events = await collect(runtime(fake, builtin_tools=["WebSearch", "WebFetch"]))
+    events = await collect(runtime(fake), web=BROWSE)
 
     starts = [e for e in events if isinstance(e, ev.ToolStarted)]
     results = [e for e in events if isinstance(e, ev.ToolResult)]
-    assert [s.tool for s in starts] == ["WebSearch", "WebFetch"]
-    assert {s.source_id for s in starts} == {"claude-agent-sdk"}
+    assert [s.tool for s in starts] == ["WebSearch", "WebFetch", "WebFetch"]
+    assert {s.source_id for s in starts} == {"web"}
     assert {s.effect for s in starts} == {str(Effect.EXTERNAL_READ)}
     assert starts[0].arguments == {"query": "compaction"}
     assert results[0].ok and results[0].output == "three results"
-    assert not results[1].ok and results[1].error == "refused"
+    assert results[0].refs == []
+    assert results[1].refs == ["web:https://a.example.org/c"]
+    assert not results[2].ok and results[2].error == "refused"
+    assert results[2].refs == []
     assert [r.parent_id for r in results] == [s.event_id for s in starts]
 
 
@@ -521,7 +586,7 @@ async def test_a_subagent_s_web_call_is_reported_too(credentials: None) -> None:
         Text("Answer."),
         Result(),
     )
-    events = await collect(runtime(fake, builtin_tools=["WebSearch"]))
+    events = await collect(runtime(fake), web=SEARCH)
     assert [type(e).__name__ for e in events if isinstance(e, ev.ToolStarted)] == [
         "ToolStarted"
     ]
@@ -548,8 +613,9 @@ async def test_subagents_are_defined_with_their_tools_renamed(
     `None`, which would hand it every tool the main agent has."""
     fake = FakeQuery(Result())
     await collect(
-        runtime(fake, builtin_tools=["WebSearch"]),
+        runtime(fake),
         [spec("search")],
+        web=SEARCH,
         agents=[
             delegate("reviewer", ("design.search", "WebSearch", "nope.tool")),
             delegate("generalist", None),
@@ -623,9 +689,14 @@ def test_this_runtime_declares_it_runs_subagents_and_with_what() -> None:
     """Delegating is declared by implementing it; what a subagent may name passes the
     same effect gate the main agent's tools do."""
     tools = [spec("search"), spec("delete", Effect.DESTRUCTIVE)]
-    cautious = ClaudeAgentSdkRuntime(builtin_tools=["WebFetch"])
+    cautious = ClaudeAgentSdkRuntime()
     assert isinstance(cautious, Delegating)
-    assert cautious.subagent_tools(tools) == {"design.search", "WebFetch"}
+    assert cautious.subagent_tools(tools, web=BROWSE) == {
+        "design.search",
+        "WebSearch",
+        "WebFetch",
+    }
+    assert cautious.subagent_tools(tools) == {"design.search"}
     permissive = ClaudeAgentSdkRuntime(approval="auto")
     assert permissive.subagent_tools(tools) == {"design.search", "design.delete"}
 
@@ -650,7 +721,7 @@ async def test_a_failure_mid_turn_reports_what_ran_and_closes_what_did_not(
         Raise(sdk.ProcessError("exited", exit_code=1)),
     )
     events = await collect(
-        runtime(fake, builtin_tools=["WebSearch"]), [spec("search")], call_tool=router
+        runtime(fake), [spec("search")], call_tool=router, web=SEARCH
     )
 
     assert router.calls == [("design", "search", {"q": "x"})]

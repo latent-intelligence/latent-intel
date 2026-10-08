@@ -51,6 +51,7 @@ from .commands import (
 )
 from .connectors import base as connectors
 from .models import (
+    WEB_MODES,
     AttachedSource,
     Capability,
     CapabilityError,
@@ -68,6 +69,7 @@ from .models import (
     Skill,
     SourceRequest,
     ToolSpec,
+    WebScope,
 )
 
 
@@ -119,6 +121,10 @@ class Session:
         #: The runtime `run_context` built to read, with the kind and options it was
         #: built from — see `_probe`.
         self._probed: tuple[str, dict[str, Any], agent.Runtime | None] | None = None
+        #: This session's web scope, set by `/scope` or `--web`, and the project it
+        #: was set under. None means the resolved one. Never persisted — see `set_web`.
+        self._web: WebScope | None = None
+        self._web_in: str | None = None
 
     # -- typed API ------------------------------------------------------------
 
@@ -343,6 +349,14 @@ class Session:
             reason=Session._verdict(runtime),
             family=Session._family(runtime),
             subagents=isinstance(runtime, agent.Delegating),
+            web=[
+                mode
+                for mode in WEB_MODES
+                if agent.web_reason(runtime, WebScope(mode=mode)) is None
+            ],
+            # The scope in force as well as the bare modes: a mode the runtime honours
+            # can still come with a domain list or `max_uses` it would refuse.
+            web_refusal=agent.web_reason(runtime, settings_module.load().web),
         )
 
     @staticmethod
@@ -447,6 +461,45 @@ class Session:
         }
 
     @property
+    def web(self) -> WebScope:
+        """The web scope a turn runs under: this session's own, or the resolved one."""
+        override = self.web_override
+        return override if override is not None else settings_module.load().web
+
+    @property
+    def web_override(self) -> WebScope | None:
+        """This session's own scope, or None when the resolved one is in force.
+
+        Dropped when the project changes, as an invoked skill is: a scope set under one
+        deployment is a decision about that deployment's sources, and carrying it into
+        another would answer there under a scope nobody chose for it.
+        """
+        if self._web is not None and self._web_in != self._project():
+            self._web = None
+        return self._web
+
+    @staticmethod
+    def _project() -> str | None:
+        return settings_module.load().project_name
+
+    def set_web(self, scope: WebScope | None) -> None:
+        """Set the web scope for this session only, or None to return to the resolved
+        one.
+
+        Never persisted, unlike `/runtime`: a scope left on by yesterday's shell is
+        the failure the setting exists to prevent. Checked against the runtime
+        that would answer, so a scope it cannot honour fails where it was typed rather
+        than at the next question. With no runtime configured there is nothing to check
+        yet; the turn checks again, against whatever answers it.
+        """
+        if scope is not None:
+            runtime = self._answering()
+            reason = agent.web_reason(runtime, scope) if runtime else None
+            if reason is not None:
+                raise SessionError(reason)
+        self._web, self._web_in = scope, self._project()
+
+    @property
     def runtime_kind(self) -> str | None:
         """Which runtime will answer, if one is chosen."""
         return self._runtime_kind
@@ -483,8 +536,8 @@ class Session:
 
     def subagent_problems(self) -> list[str]:
         """Tools a project's subagents name that the configured runtime would not give
-        them — a source not attached, a writing tool withheld under `ask`, a built-in
-        not opted into, a typo.
+        them — a source not attached, a writing tool withheld under `ask`, a web tool
+        the scope in force does not turn on, a typo.
 
         Asked of the runtime rather than worked out here, because only it knows what it
         offers. Empty when there is nothing to check or no runtime that runs subagents:
@@ -501,7 +554,7 @@ class Session:
             return []
         if not isinstance(runtime, agent.Delegating):
             return []
-        usable = runtime.subagent_tools(self.tools())
+        usable = agent.subagent_tools(runtime, self.tools(), self.web)
         return [
             f"agents: {delegate.name}: `{name}` is not a tool "
             f"'{resolved.runtime}' can give it here — dropped"
@@ -627,8 +680,20 @@ class Session:
         """
         runtime = self._resolve_runtime()
         resolved = settings_module.load()
-        self._invoke(skills or {}, resolved.project_name, resolved.skills)
         emitter = ev.Emitter(self.session_id)
+        # Checked here as well as by a runtime that declares web access, because one
+        # that does not may never read `web=` at all — and a scope ignored in silence
+        # is an internal-only answer that read the web, or the reverse. Before the
+        # question joins the history: nothing was asked. Only of a runtime that can
+        # run: one that cannot says why in its own first event, and a missing host
+        # reported as a web scope sends someone to fix the wrong thing.
+        scope = self.web
+        if runtime.available() and (
+            refused := agent.refuse_web(runtime, scope, emitter)
+        ):
+            yield refused
+            return
+        self._invoke(skills or {}, resolved.project_name, resolved.skills)
         self._history.append(Message(role="user", text=prompt))
         async for event in runtime.stream(
             list(self._history),
@@ -648,6 +713,7 @@ class Session:
             ],
             call_tool=self.call_tool,
             agents=resolved.agents,
+            web=scope,
         ):
             if isinstance(event, ev.ToolResult) and not event.refs:
                 event = event.model_copy(
@@ -655,10 +721,13 @@ class Session:
                 )
             elif isinstance(event, ev.AgentCompleted):
                 self._history.append(Message(role="assistant", text=event.text))
-                if not event.citations:
-                    event = event.model_copy(
-                        update={"citations": Ref.find_all(event.text, self._connectors)}
-                    )
+                # A union, not a fallback: a runtime's own citations — the URLs a web
+                # search answer rests on — say nothing about the `source:key` refs the
+                # same answer quotes, and filling only an empty list dropped those.
+                found = Ref.find_all(event.text, self._connectors)
+                cited = list(dict.fromkeys([*event.citations, *found]))
+                if cited != event.citations:
+                    event = event.model_copy(update={"citations": cited})
             yield event
 
     def _invoke(
@@ -718,7 +787,7 @@ class Session:
             )
         resolved = settings_module.load()
         kind = self._runtime_kind or resolved.runtime
-        runtime = self._runtime or (self._probe(kind) if kind else None)
+        runtime = self._answering()
         context: ev.RunContext = ev.Emitter(self.session_id).emit(
             ev.RunContext,
             purpose=purpose,
@@ -728,11 +797,19 @@ class Session:
             host=self._setting(runtime, "host") if runtime else None,
             model=self._setting(runtime, "model") if runtime else None,
             approval=resolved.approval,
+            web=self.web,
             project=resolved.project_name,
             context=_fingerprint(resolved),
             sources=[AttachedSource(id=d.id, kind=d.kind) for d in self.sources()],
         )
         return context
+
+    def _answering(self) -> agent.Runtime | None:
+        """The runtime that would answer now — the session's own when one is built,
+        otherwise one built to be read. None when none is configured or it cannot be
+        built."""
+        kind = self._runtime_kind or settings_module.load().runtime
+        return self._runtime or (self._probe(kind) if kind else None)
 
     def _probe(self, kind: str) -> agent.Runtime | None:
         """A runtime built to be read, not run — kept while its options are unchanged,
@@ -871,12 +948,17 @@ def _fingerprint(resolved: settings_module.Settings) -> Fingerprint:
 
 
 def _claim(source_id: str) -> None:
-    """Refuse the id the engine's own tools are qualified by. A source under it would
-    shadow `load_skill`, or have its tools shadowed by the engine's."""
+    """Refuse the ids the engine reports under itself. A source under `engine` would
+    shadow `load_skill`, or have its tools shadowed by the engine's; one under `web`
+    would make its refs indistinguishable from the open web's."""
     if source_id == engine_tools.ENGINE_ID:
         raise ConnectError(
             f"'{source_id}' is reserved for the engine's own tools — attach it under "
             f"another id"
+        )
+    if source_id == agent.WEB_ID:
+        raise ConnectError(
+            f"'{source_id}' is reserved for web tool calls — attach it under another id"
         )
 
 

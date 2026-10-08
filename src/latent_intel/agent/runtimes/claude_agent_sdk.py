@@ -19,10 +19,12 @@ with `--strict-mcp-config`. So: no built-in tools, no settings sources, none of 
 Code's own skills (the project's arrive through `load_skill`, served like any other
 tool), strict MCP config, `dontAsk` so anything off the allow-list is refused rather
 than prompted for, and prompts delivered verbatim so an `@/path` in a question cannot
-make the binary read a file. The one opening is `builtin_tools:`, which may name the
-binary's two web-reading tools and nothing else; their effects are declared in
-`BUILTINS`, and their pairs are built from its messages since our router never sees
-them.
+make the binary read a file. The one opening is the session's `web:` scope, which turns
+on the binary's two web-reading tools and nothing else — mapped and refused exactly as
+under `claude-cli`, whose `WEB_TOOLS` declares their effects — and their pairs are built
+from its messages since our router never sees them. The `builtin_tools:` option that
+used to open them is refused by name: two settings that could disagree about whether a
+turn read the web would make a recording's header a guess.
 
 **The environment is chosen, not inherited.** The child process gets ours merged with
 what is passed here, so a variable is taken away only by setting it empty. The chosen
@@ -70,10 +72,18 @@ from typing import Any
 from uuid import UUID
 
 from ... import events as ev
-from ...models import Effect, HostStatus, Message, RuntimeUnavailable, ToolSpec
+from ...models import (
+    Effect,
+    HostStatus,
+    Message,
+    RuntimeUnavailable,
+    ToolSpec,
+    WebScope,
+)
 from ...subagents import Subagent
 from .. import bridge, hosts, turn
-from . import anthropic_sdk
+from ..base import WEB_ID, refuse_web
+from . import anthropic_sdk, claude_cli
 
 #: How the binary is told to use each row. Its own table rather than a field on `Host`:
 #: this is how one runtime dials a row, and a row added to `hosts.HOSTS` should not be
@@ -139,14 +149,6 @@ _QUIET = {
 #: How much of the binary's stderr to keep for a failure message.
 _STDERR_LINES = 20
 
-#: The binary's own tools a turn may opt into, each with its effect declared here —
-#: the binary declares none. Reading the web only: local files are our `files`
-#: connector's, with its own declared effects, and nothing that writes is on the list.
-BUILTINS: dict[str, Effect] = {
-    "WebSearch": Effect.EXTERNAL_READ,
-    "WebFetch": Effect.EXTERNAL_READ,
-}
-
 #: The binary's tool for handing a task to a subagent. Offered only when the project
 #: declares one. It changes nothing itself — what the subagent does is reported as the
 #: calls it makes — so its effect is `none`.
@@ -186,10 +188,17 @@ class ClaudeAgentSdkRuntime:
         max_budget_usd: float | None = None,
         cwd: str | None = None,
         cli_path: str | None = None,
-        builtin_tools: Sequence[str] = (),
         query_factory: Callable[[], Any] | None = None,
         **unknown: Any,
     ) -> None:
+        # Named rather than lumped in with the unknown keys: it worked once, and a
+        # config still carrying it needs to be told where its meaning went.
+        if "builtin_tools" in unknown:
+            raise RuntimeUnavailable(
+                f"`builtin_tools` under runtime '{self.id}' was replaced by `web:` — "
+                f"set `defaults.web: browse` (or `search`) in the project, or `web:` "
+                f"in config, and remove `builtin_tools`"
+            )
         # Rejected, not ignored, for the reason `custom.py` gives: a key nothing reads
         # is a setting the file says is on and no one honours.
         if unknown:
@@ -207,12 +216,6 @@ class ClaudeAgentSdkRuntime:
             raise RuntimeUnavailable(
                 f"`max_budget_usd` must be above zero for runtime '{self.id}'"
             )
-        unsupported = [name for name in builtin_tools if name not in BUILTINS]
-        if unsupported:
-            raise RuntimeUnavailable(
-                f"`builtin_tools` for runtime '{self.id}' may name only "
-                f"{', '.join(BUILTINS)} — not {', '.join(unsupported)}"
-            )
         self.model = model or DEFAULT_MODEL
         self.host = host or os.environ.get(ENV_HOST) or DEFAULT_HOST
         self.approval = approval
@@ -220,7 +223,6 @@ class ClaudeAgentSdkRuntime:
         self.max_budget_usd = None if max_budget_usd is None else float(max_budget_usd)
         self.cwd = cwd
         self.cli_path = cli_path
-        self.builtin_tools = list(dict.fromkeys(builtin_tools))
         #: The test seam: returns the callable used in place of the SDK's `query`, so
         #: no test spawns the binary.
         self.query_factory = query_factory
@@ -260,19 +262,18 @@ class ClaudeAgentSdkRuntime:
         See `agent/base.Owned`."""
         return "sdk"
 
-    def subagent_tools(self, tools: Sequence[ToolSpec]) -> frozenset[str]:
+    def subagent_tools(
+        self, tools: Sequence[ToolSpec], web: WebScope | None = None
+    ) -> frozenset[str]:
         """What a subagent's `tools:` may name here: our tools this turn would offer, as
-        `source.tool`, and the built-ins opted into. See `agent/base.Delegating`."""
+        `source.tool`, and the web tools `web` turns on. See `agent/base.Delegating`."""
         offered = {spec.qualified for spec in turn.offered(tools, self.approval)}
-        return frozenset({*offered, *self._builtins()})
+        return frozenset({*offered, *claude_cli.WEB_TOOLS[(web or WebScope()).mode]})
 
-    def _builtins(self) -> list[str]:
-        """The opted-in built-ins that pass the effect gate our own tools pass."""
-        return [
-            name
-            for name in self.builtin_tools
-            if self.approval == "auto" or not BUILTINS[name].writes
-        ]
+    def web_reason(self, scope: WebScope) -> str | None:
+        """The same binary as `claude-cli`, so the same answer. See
+        `claude_cli.web_reason` and `agent/base.WebScoped`."""
+        return claude_cli.web_reason(self.id, scope)
 
     # -- one turn -------------------------------------------------------------
 
@@ -305,6 +306,11 @@ class ClaudeAgentSdkRuntime:
                 kind="runtime_unavailable",
                 remedy="reinstall `latent-intel[claude-agent-sdk]`",
             )
+            return
+
+        # Before anything is spawned — see `refuse_web`.
+        if refused := refuse_web(self, options.get("web") or WebScope(), emitter):
+            yield refused
             return
 
         stderr: deque[str] = deque(maxlen=_STDERR_LINES)
@@ -347,10 +353,11 @@ class ClaudeAgentSdkRuntime:
         # into the one terminal event this turn gets. The cap leaves room for the prefix
         # the binary puts on every name it serves.
         wired = turn.wired(tools, self.approval, limit=_MAX_NAME - len(PREFIX))
-        builtins = self._builtins()
+        # `stream` refused any scope this runtime cannot honour.
+        builtins = list(claude_cli.WEB_TOOLS[(options.get("web") or WebScope()).mode])
         delegates: Sequence[Subagent] = options.get("agents") or []
         #: The binary's own tools this turn offers, with their declared effects.
-        harness = {name: BUILTINS[name] for name in builtins}
+        harness = dict.fromkeys(builtins, Effect.EXTERNAL_READ)
         if delegates:
             harness[AGENT_TOOL] = Effect.NONE
         #: The binary runs these itself, so their pairs are built from its messages
@@ -441,7 +448,11 @@ class ClaudeAgentSdkRuntime:
                                 started = emitter.emit(
                                     ev.ToolStarted,
                                     tool=block.name,
-                                    source_id=self.id,
+                                    # A web call is the web's, as on every runtime;
+                                    # a hand-off is this harness's own.
+                                    source_id=self.id
+                                    if block.name == AGENT_TOOL
+                                    else WEB_ID,
                                     arguments=dict(block.input or {}),
                                     effect=str(harness[block.name]),
                                 )
@@ -466,6 +477,11 @@ class ClaudeAgentSdkRuntime:
                                     output="" if failed else text,
                                     error=text if failed else "",
                                     duration_ms=int((time.monotonic() - at) * 1000),
+                                    refs=[]
+                                    if failed
+                                    else claude_cli.web_refs(
+                                        started.tool, started.arguments
+                                    ),
                                 )
                             )
                     elif isinstance(message, sdk.ResultMessage):
@@ -810,7 +826,6 @@ def _usage(result: Any, elapsed_ms: int) -> dict[str, int]:
 
 __all__ = [
     "AGENT_TOOL",
-    "BUILTINS",
     "DEFAULT_HOST",
     "DEFAULT_MODEL",
     "ENV_HOST",

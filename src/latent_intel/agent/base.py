@@ -22,12 +22,20 @@ same bargain connectors get by returning values instead of events.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+import inspect
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from importlib.metadata import entry_points
 from typing import Any, Protocol, cast, runtime_checkable
 
 from .. import events as ev
-from ..models import HostStatus, Message, RuntimeUnavailable, ToolSpec
+from ..models import (
+    WEB_MODES,
+    HostStatus,
+    Message,
+    RuntimeUnavailable,
+    ToolSpec,
+    WebScope,
+)
 
 #: The entry-point group a third party publishes into. Our own runtimes use it too, so
 #: the extension path is the one we take ourselves and cannot rot unnoticed.
@@ -148,8 +156,97 @@ class Delegating(Protocol):
     def subagent_tools(self, tools: Sequence[ToolSpec]) -> frozenset[str]:
         """Every name a subagent's `tools:` may list on this runtime, given the tools
         attached: ours as `source.tool`, where this runtime would offer them, and any
-        of its own it has been told to supply."""
+        of its own it supplies.
+
+        An implementation may also take `web: WebScope | None = None`, the scope in
+        force, and is then passed it — see `subagent_tools` below. Optional so that a
+        runtime written to the one-argument form keeps working.
+        """
         ...
+
+
+def subagent_tools(
+    runtime: Delegating, tools: Sequence[ToolSpec], web: WebScope
+) -> frozenset[str]:
+    """What `runtime` would give a subagent, passing `web` only where the method takes
+    it — by name or through `**kwargs`. A third-party runtime written before the scope
+    existed would otherwise fail on an argument it never asked for."""
+    method: Callable[..., Iterable[str]] = runtime.subagent_tools
+    parameters = inspect.signature(method).parameters.values()
+    if any(p.name == "web" or p.kind is p.VAR_KEYWORD for p in parameters):
+        return frozenset(method(tools, web=web))
+    return frozenset(method(tools))
+
+
+#: The source id a web tool call is reported under, so `web:<url>` reads like any other
+#: ref. Reserved by the session: a source attached under it would be indistinguishable.
+WEB_ID = "web"
+
+
+@runtime_checkable
+class WebScoped(Protocol):
+    """A runtime that can reach the open web, and says under which scopes.
+
+    Optional, and composed the way `Hosted` is. A runtime that declares nothing honours
+    `off` only — never inferred from a tool list or a host, because a scope a runtime
+    silently ignored is an "internal-only" answer that read the web, or the reverse.
+    Asked per scope rather than for a list, because the answer can turn on more than
+    the mode: a host with no web tools, a domain list the runtime has no knob for.
+    """
+
+    def web_reason(self, scope: WebScope) -> str | None:
+        """Why this runtime cannot honour `scope` as built, or None when it can.
+
+        Asked through `web_reason` below, which answers `off` and a mode this build
+        does not know before asking — so an implementation reads only what is its own.
+        """
+        ...
+
+
+#: What to do about a refused scope, the same whichever runtime refused it. The reason
+#: beside it is the runtime's own and names the specific way out.
+WEB_REMEDY = (
+    "`/scope off` (or `--web off`) to answer without the web, `/scope <mode> --any` "
+    "to drop a domain list and max_uses, or a runtime that honours it — "
+    "`intel doctor` lists which do"
+)
+
+
+def web_reason(runtime: Runtime, scope: WebScope) -> str | None:
+    """Why `runtime` cannot honour `scope`, asked of it where it declares an answer.
+
+    The one place the default lives, so the session's check, `doctor`'s listing and a
+    runtime refusing its own turn cannot disagree — about `off`, about a mode this
+    build does not know, or about a runtime that declares nothing.
+    """
+    if scope.mode == "off":
+        return None
+    if scope.mode not in WEB_MODES:
+        return f"no web mode '{scope.mode}' — one of {', '.join(WEB_MODES)}"
+    if isinstance(runtime, WebScoped):
+        return runtime.web_reason(scope)
+    return (
+        f"the '{runtime.id}' runtime does not declare web access, so it honours only "
+        f"`web: off`"
+    )
+
+
+def refuse_web(
+    runtime: Runtime, scope: WebScope, emitter: ev.Emitter
+) -> ev.AgentFailed | None:
+    """The `AgentFailed` a turn ends on, before any request, when `runtime` cannot
+    honour `scope` — or None when it can.
+
+    Shared by the session and every runtime that checks for itself: a runtime is usable
+    on its own, and a scope it cannot honour must not be quietly dropped.
+    """
+    reason = web_reason(runtime, scope)
+    if reason is None:
+        return None
+    failed: ev.AgentFailed = emitter.emit(
+        ev.AgentFailed, message=reason, kind="web_scope", remedy=WEB_REMEDY
+    )
+    return failed
 
 
 def available_kinds() -> dict[str, type]:
@@ -185,11 +282,17 @@ __all__ = [
     "DEFAULT_FAMILY",
     "ENTRY_POINT_GROUP",
     "FAMILIES",
+    "WEB_ID",
+    "WEB_REMEDY",
     "Delegating",
     "Diagnosable",
     "Hosted",
     "Owned",
     "Runtime",
+    "WebScoped",
     "available_kinds",
     "build",
+    "refuse_web",
+    "subagent_tools",
+    "web_reason",
 ]

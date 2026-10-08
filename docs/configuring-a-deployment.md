@@ -215,9 +215,9 @@ supports and which it does not, and return that as a short list.
 ```
 
 `name`, `description` and a body are required. `tools` names tools the way `/tools`
-prints them — `source.tool` — or a web tool the runtime has been told to supply; leave
-it out and the subagent may use everything the main agent can. `disallowedTools` takes
-the same names and is honoured. `model` is optional, an alias such as `haiku` or a full
+prints them — `source.tool` — or a web tool the `web:` scope turns on (`WebSearch`,
+`WebFetch`); leave it out and the subagent may use everything the main agent can.
+`disallowedTools` takes the same names and is honoured. `model` is optional, an alias such as `haiku` or a full
 model name. A file that sets `permissionMode` is refused rather than loaded — the
 runtime's own permission policy decides, and ignoring the key could only widen what the
 subagent may do. Other Claude Code keys are reported and ignored.
@@ -226,7 +226,8 @@ subagent may do. Other Claude Code keys are reported and ignored.
 built-in subagents are not offered. Under any other runtime they are not sent, and
 `intel doctor` says so — along with any tool a subagent names that the runtime would not
 give it: a source not attached, a writing tool withheld under `approval: ask`, a web tool
-not turned on, a typo. A file missing a required field is reported and skipped.
+the `web:` scope does not turn on, a typo. A file missing a required field is reported and
+skipped.
 
 ---
 
@@ -268,6 +269,41 @@ read from the variable named in `serve.auth.token_env`, is required on every req
 without one the server refuses to start, unless `--insecure-local` on a loopback host.
 `--print-config --transport http` writes the client block with the token as `${VAR}`.
 Hosting it for others: `reference-architectures/deployments/mcp-on-aws.md`.
+
+---
+
+## The web
+
+Whether the agent may reach the open web is the deployment's to default, under
+`defaults:`. It is off unless something turns it on.
+
+```yaml
+# ~/deployments/research/research.yaml
+defaults:
+  web: off                       # or search, or browse — or the long form:
+  # web: {mode: browse, allowed_domains: [arxiv.org, docs.python.org], max_uses: 5}
+```
+
+`search` returns result titles and URLs; `browse` also reads the pages. Either
+`allowed_domains` or `blocked_domains`, never both, as plain hostnames — no scheme, path
+or wildcard; they are compared lowercase, without a trailing dot. `max_uses` caps calls
+per web tool per question. A user's own `web:` in their config wins over this, and
+`/scope` or `intel ask --web` changes it for one session without writing anywhere — a
+mode alone keeps this list and `max_uses`, and `--any` drops them. A session's `/scope`
+is dropped when it switches to another project, whose own `web:` then applies. A value
+that does not parse turns the web off and is reported by `intel doctor`, rather than
+falling back to something wider.
+
+Not every runtime can honour every mode; one that cannot refuses the question rather than
+answering without the web. Domain lists and `max_uses` hold on `custom` and
+`anthropic-sdk` with an Anthropic host and are refused by the Claude Code runtimes, which
+take only the bare mode — `intel doctor` warns when the configured runtime would refuse
+this scope, and `/scope <mode> --any` uses it without them. The full table is in the
+[user guide](user-guide.md#research-scope).
+
+`browse` with sources attached and no `allowed_domains` is flagged by `intel doctor`: a
+page the agent fetches is an address it chose, and the address can carry what the
+sources said. Ship `browse` with an allow-list, or default to `search`.
 
 ---
 

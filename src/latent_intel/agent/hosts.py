@@ -129,6 +129,10 @@ class Host:
     #: formatted with `{resource}`, a constant where a gateway publishes one URL, and
     #: None where the SDK's own default applies.
     url: str | None = None
+    #: The hosted web tools this endpoint serves, as `(search, fetch)` type versions,
+    #: or None where it serves none. Declared, never inferred from a URL: the same API
+    #: on another surface carries older versions, or none.
+    web_tools: tuple[str, str] | None = None
     #: This row's values, as the kwargs its client class is constructed with. A row
     #: whose client takes `base_url` needs nothing here; one that spells its endpoint
     #: some other way supplies its own rather than making `_client` grow a branch.
@@ -192,6 +196,7 @@ HOSTS: dict[str, Host] = {
         required=("ANTHROPIC_API_KEY",),
         remedy_404="check the model id against the ones the API publishes",
         default_model="claude-sonnet-5",
+        web_tools=("web_search_20260209", "web_fetch_20260209"),
     ),
     "foundry-anthropic": Host(
         sdk="anthropic",
@@ -212,6 +217,9 @@ HOSTS: dict[str, Host] = {
             "the deployment exists on this resource"
         ),
         default_model="claude-sonnet-5",
+        # The basic versions: a resource hosted on Azure serves only these, and which
+        # kind a resource is cannot be told offline.
+        web_tools=("web_search_20250305", "web_fetch_20250910"),
         # No `url`, and no constructor of its own: a resource name is passed to this
         # client by leaving `base_url` alone and letting the SDK read the variable it
         # already knows. Passing the pair ourselves meant handing it an empty resource

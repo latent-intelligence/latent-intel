@@ -1309,6 +1309,17 @@
           "title": "Approval",
           "type": "string"
         },
+        "web": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WebScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "project": {
           "anyOf": [
             {
@@ -1859,6 +1870,50 @@
         "text"
       ],
       "title": "UserMessage",
+      "type": "object"
+    },
+    "WebScope": {
+      "description": "Whether a turn may reach the open web, and where.\n\nA property of the session, like `approval`, rather than of one runtime: each\nruntime translates it or refuses it, because a scope silently ignored produces an\n\"internal-only\" answer that read the web, or the reverse.\n\n`mode` is a string rather than a Literal for the reason `RunContext.purpose` is: a\nmode added later still parses here as part of a header. `parse` holds a person's\ninput to `WEB_MODES`, and a runtime refuses a mode it does not know.",
+      "properties": {
+        "mode": {
+          "default": "off",
+          "enum": [
+            "off",
+            "search",
+            "browse"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "allowed_domains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Domains",
+          "type": "array"
+        },
+        "blocked_domains": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocked Domains",
+          "type": "array"
+        },
+        "max_uses": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Uses"
+        }
+      },
+      "title": "WebScope",
       "type": "object"
     }
   },

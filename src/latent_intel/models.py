@@ -24,7 +24,13 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 class Effect(StrEnum):
@@ -68,13 +74,14 @@ class Ref(BaseModel):
     def parse(cls, text: str, *, default_source: str | None = None) -> Ref:
         """Split `source:key`. A bare key resolves against the current source.
 
-        A `scheme://` URL is not a ref — it has no source prefix, and reading one as
-        though it did would silently address the wrong store.
+        A bare `scheme://` URL is not a ref — it has no source prefix, and reading one
+        as though it did would silently address the wrong store. A URL *after* a
+        prefix is a key like any other, which is how `web:https://…` round-trips: the
+        rule is the one `find_all` applies, a key may not start `//`.
         """
-        if "://" not in text:
-            source, sep, key = text.partition(":")
-            if sep and source and key:
-                return cls(source_id=source, key=key)
+        source, sep, key = text.partition(":")
+        if sep and source and key and not key.startswith("//"):
+            return cls(source_id=source, key=key)
         if not default_source:
             raise ValueError(
                 f"{text!r} has no source prefix and no source is selected — "
@@ -105,6 +112,130 @@ class Ref(BaseModel):
             if key and not key.startswith("//"):
                 found[f"{match.group(1)}:{key}"] = None
         return list(found)
+
+
+#: How much of the open web a turn may reach, narrowest first. `search` returns result
+#: snippets and URLs; `browse` also reads pages.
+WEB_MODES = ("off", "search", "browse")
+
+#: A hostname and nothing else — no scheme, port, path or wildcard. A rule that also
+#: matched paths would be read differently by every surface that enforces it.
+_HOSTNAME = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$"
+)
+
+
+class WebScope(BaseModel):
+    """Whether a turn may reach the open web, and where.
+
+    A property of the session, like `approval`, rather than of one runtime: each
+    runtime translates it or refuses it, because a scope silently ignored produces an
+    "internal-only" answer that read the web, or the reverse.
+
+    `mode` is a string rather than a Literal for the reason `RunContext.purpose` is: a
+    mode added later still parses here as part of a header. `parse` holds a person's
+    input to `WEB_MODES`, and a runtime refuses a mode it does not know.
+    """
+
+    mode: str = Field(default="off", json_schema_extra={"enum": list(WEB_MODES)})
+    #: At most one of the two lists — every surface that enforces them refuses both.
+    allowed_domains: list[str] = Field(default_factory=list)
+    blocked_domains: list[str] = Field(default_factory=list)
+    #: Calls per web tool per request, where the runtime has such a knob.
+    max_uses: int | None = Field(default=None, ge=1)
+
+    @field_validator("allowed_domains", "blocked_domains")
+    @classmethod
+    def _normalised(cls, names: list[str]) -> list[str]:
+        # Case-folded, and one trailing dot dropped: `Example.ORG.` names the same host
+        # as `example.org`, and a list that kept both spellings would read as two rules.
+        return [name.lower().removesuffix(".") for name in names]
+
+    @model_validator(mode="after")
+    def _checked(self) -> WebScope:
+        if self.allowed_domains and self.blocked_domains:
+            raise ValueError(
+                "allowed_domains and blocked_domains cannot both be set — choose one"
+            )
+        for name in (*self.allowed_domains, *self.blocked_domains):
+            if not _HOSTNAME.match(name):
+                raise ValueError(
+                    f"'{name}' is not a plain hostname — write 'example.org', with no "
+                    f"scheme, port, path or wildcard"
+                )
+        return self
+
+    def __str__(self) -> str:
+        details: list[str] = []
+        if self.allowed_domains:
+            details.append("allow " + ", ".join(self.allowed_domains))
+        if self.blocked_domains:
+            details.append("block " + ", ".join(self.blocked_domains))
+        if self.max_uses is not None:
+            details.append(f"max {self.max_uses}")
+        return self.mode + (f" ({'; '.join(details)})" if details else "")
+
+    @classmethod
+    def parse(cls, raw: Any) -> WebScope:
+        """Read `web:` as a person wrote it: `search`, or the mapping form.
+
+        Raises `ValueError` with one sentence to report. YAML reads a bare `off` as
+        False, so False is `off`; True is refused, because "on" does not say which.
+        """
+        if raw is None or raw is False:
+            return cls()
+        if isinstance(raw, str):
+            raw = {"mode": raw}
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"web: expected one of {', '.join(WEB_MODES)} or a mapping, not {raw!r}"
+            )
+        mode = raw.get("mode", "off")
+        if mode is False:
+            mode = "off"
+        if mode not in WEB_MODES:
+            raise ValueError(f"web: no mode {mode!r} — one of {', '.join(WEB_MODES)}")
+        # As strings: YAML reads `1:` or `yes:` as a key that is not one, and sorting
+        # an int beside a str raises where this must report.
+        unknown = sorted(str(key) for key in raw if key not in cls.model_fields)
+        if unknown:
+            raise ValueError(f"web: unknown key(s) {', '.join(unknown)}")
+        try:
+            return cls.model_validate({**raw, "mode": mode})
+        except ValidationError as exc:
+            reasons = "; ".join(
+                str(e["msg"]).removeprefix("Value error, ") for e in exc.errors()
+            )
+            raise ValueError(f"web: {reasons}") from None
+
+    def narrowed(
+        self,
+        mode: str,
+        *,
+        allowed: list[str] | None = None,
+        blocked: list[str] | None = None,
+        unbounded: bool = False,
+    ) -> WebScope:
+        """This scope with another mode, as `/scope` and `--web` set it.
+
+        The domain lists and `max_uses` in force are kept unless a list is given, which
+        replaces both lists: a project's allow-list must not vanish because someone
+        turned search on for one question. `unbounded` — the `--any` flag — drops both
+        lists and `max_uses`, the one way to widen a configured scope short of `off`.
+        """
+        if unbounded and (allowed is not None or blocked is not None):
+            raise ValueError("--any drops the domain lists — give it no list")
+        if unbounded:
+            return WebScope.parse({"mode": mode})
+        lists = (
+            {"allowed_domains": allowed or [], "blocked_domains": blocked or []}
+            if allowed is not None or blocked is not None
+            else {
+                "allowed_domains": self.allowed_domains,
+                "blocked_domains": self.blocked_domains,
+            }
+        )
+        return WebScope.parse({"mode": mode, **lists, "max_uses": self.max_uses})
 
 
 class Provenance(BaseModel):
@@ -314,6 +445,13 @@ class RuntimeReport(BaseModel):
     family: str = "custom"
     #: Whether it runs a project's subagents — `agent.base.Delegating`, declared.
     subagents: bool = False
+    #: The `WEB_MODES` it honours — `agent.base.WebScoped`, declared. `off` alone for
+    #: a runtime that declares nothing.
+    web: list[str] = Field(default_factory=lambda: ["off"])
+    #: Why it would refuse the resolved `web:` scope, or None when it would honour it.
+    #: Apart from `web` because a mode it honours can still come with a domain list or
+    #: `max_uses` it has no knob for.
+    web_refusal: str | None = None
 
 
 class Message(BaseModel):
@@ -376,4 +514,6 @@ __all__ = [
     "Skill",
     "SourceRequest",
     "ToolSpec",
+    "WEB_MODES",
+    "WebScope",
 ]

@@ -45,6 +45,7 @@ header repeats `format` and `format_version`, so files can be concatenated freel
 | `latent_intel_version` | string | the package that wrote it |
 | `runtime`, `host`, `model` | string or null | what answers `ask`; null when none is configured. The runtime's other options are left out — a `cwd` or a binary path is a location |
 | `approval` | string | `ask`, `auto`, … |
+| `web` | object or null | how much of the open web the turns after it could reach: `mode` (`off` · `search` · `browse`), `allowed_domains`, `blocked_domains`, `max_uses`. Null in a header written before the field existed — "not recorded", not `off` |
 | `project` | string or null | the active project's name, never its path |
 | `context` | object | the context engineering in force — see below |
 | `sources` | list of `{id, kind}` | attached sources; never a path or a target |
@@ -65,14 +66,22 @@ field. What a reader scoring a run usually needs:
 | `tool_started` | `tool`, `source_id`, `arguments`, `effect` |
 | `tool_result` | `tool`, `source_id`, `ok`, `output`, `error`, `duration_ms`, `refs`; `parent_id` is its `tool_started` |
 | `retrieval_result` | `source_id`, `query`, `hits` — one event per source, never merged |
-| `agent_completed` | `text`, `citations`, `usage` (integer token counts), `cost_usd` (null when the runtime does not report one) |
+| `agent_completed` | `text`, `citations`, `usage` (integer counts: tokens, and `web_search_requests` / `web_fetch_requests` where the host ran web tools), `cost_usd` (null when the runtime does not report one) |
 | `agent_failed` | `message`, `kind`, `remedy` |
 
 **Refs.** `tool_result.refs` lists the `source:key` refs in `output`, in order, once each.
-`agent_completed.citations` lists those in the answer, unless the runtime supplied its
-own. Only an attached source's id makes a ref, so a URL or a clock time never does. A
-key runs to the first whitespace, bracket, quote, comma, semicolon, pipe or asterisk,
-less trailing `. : ! ?`.
+`agent_completed.citations` lists the runtime's own citations, then those in the answer.
+Only an attached source's id makes a ref, so a URL or a clock time never does. A key runs
+to the first whitespace, bracket, quote, comma, semicolon, pipe or asterisk, less trailing
+`. : ! ?`.
+
+**The web.** A call the host ran — `web_search`, `web_fetch` — is a `tool_started` /
+`tool_result` pair with `source_id` `web`, `effect` `external_read` and no `duration_ms`.
+Its refs, and any citations of the pages it found, are `web:` followed by the full URL.
+`output` lists titles and URLs, never page text. Under the Claude Code runtimes the same
+pair is named `WebSearch` / `WebFetch`, is timed, and carries the binary's own output;
+only a fetch has a ref, the URL it read. `web` is reserved: no source attaches
+under it.
 
 ## Reading a recording
 

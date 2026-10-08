@@ -85,6 +85,10 @@ def _context(console: Console, event: ev.RunContext) -> None:
         parts.append(f"[dim]project[/] [source]{escape(event.project)}[/]")
     if event.context.hash:
         parts.append(f"[dim]context[/] {escape(event.context.hash[:8])}")
+    # Only when on: `off` is what every header without this part means, and naming it
+    # on every line would bury the one header where it is not.
+    if event.web is not None and event.web.mode != "off":
+        parts.append(f"[dim]web[/] {escape(str(event.web))}")
     if event.sources:
         names = ", ".join(s.id for s in event.sources)
         parts.append(f"[dim]sources[/] [source]{escape(names)}[/]")

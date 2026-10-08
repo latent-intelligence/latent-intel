@@ -23,9 +23,27 @@ import anthropic
 import pytest
 
 from latent_intel import events as ev
+from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.agent.runtimes.custom import ENV_HOST, CustomRuntime
-from latent_intel.models import Effect, Message, RuntimeUnavailable, Skill, ToolSpec
-from tests.fixtures.fake_anthropic import FakeClient, Round, Usage
+from latent_intel.models import (
+    Effect,
+    Message,
+    RuntimeUnavailable,
+    Skill,
+    ToolSpec,
+    WebScope,
+)
+from tests.fixtures.fake_anthropic import (
+    FakeClient,
+    Round,
+    Usage,
+    cited,
+    cited_page,
+    fetch,
+    hits,
+    page,
+    search,
+)
 
 try:  # the installed SDK (1.x) builds its errors from httpx2; the 0.x line used httpx
     import httpx2 as httpx
@@ -191,7 +209,9 @@ def test_an_empty_resource_is_named_rather_than_read_as_unset(
     exclusive` at the first question, naming neither this file nor the fix."""
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "")
-    monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://private.example/anthropic")
+    monkeypatch.setenv(
+        "ANTHROPIC_FOUNDRY_BASE_URL", "https://private.example/anthropic"
+    )
     reason = runtime().unavailable_reason()
     assert reason is not None
     assert "ANTHROPIC_FOUNDRY_RESOURCE" in reason
@@ -483,9 +503,7 @@ async def test_every_writing_tool_is_withheld_unless_approval_is_auto(
     assert [t["name"] for t in cautious.requests[0]["tools"]] == ["design_read"]
 
     permissive = FakeClient(Round(text=("hi",)))
-    await collect(
-        runtime(client_factory=permissive, approval="auto"), tools=tools
-    )
+    await collect(runtime(client_factory=permissive, approval="auto"), tools=tools)
     assert len(permissive.requests[0]["tools"]) == 2
 
 
@@ -652,9 +670,7 @@ async def test_a_404_carries_the_host_s_own_remedy(credentials: None) -> None:
         )
     )
     failed = terminal(
-        await collect(
-            runtime(client_factory=client, model="claude-sonnet-5-20260101")
-        )
+        await collect(runtime(client_factory=client, model="claude-sonnet-5-20260101"))
     )
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "model_not_found"
@@ -685,9 +701,7 @@ async def test_any_other_status_reports_the_status(credentials: None) -> None:
     report."""
     client = FakeClient(
         Round(
-            raises=anthropic.APIStatusError(
-                "boom", response=_response(500), body=None
-            )
+            raises=anthropic.APIStatusError("boom", response=_response(500), body=None)
         )
     )
     failed = terminal(await collect(runtime(client_factory=client)))
@@ -752,9 +766,7 @@ async def test_an_unreachable_default_endpoint_names_no_variable_at_all(
             )
         )
     )
-    failed = terminal(
-        await collect(runtime(host="anthropic", client_factory=client))
-    )
+    failed = terminal(await collect(runtime(host="anthropic", client_factory=client)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "connection"
     assert "ANTHROPIC_BASE_URL" not in failed.remedy
@@ -903,3 +915,267 @@ async def test_with_load_skill_offered_skills_are_a_listing_not_bodies(
     assert "`engine_load_skill`" in system
     assert "Cite inline." not in system
     assert "## deploy\n\nShip it." in system
+
+
+# -- the web, as the host runs it -------------------------------------------
+#
+# The blocks are the SDK's own types — see the builders in `fixtures/fake_anthropic`.
+
+
+@pytest.mark.anyio
+async def test_each_hosted_call_is_one_tool_pair_with_refs_and_citations(
+    credentials: None,
+) -> None:
+    """A search and a fetch the host ran inside the round become the pairs a renderer
+    already draws, under `web`, with `web:<url>` refs; the URLs the text cites join the
+    answer's citations. Nothing is dispatched: the router is never called."""
+    from anthropic.types import ServerToolUsage
+
+    content = (
+        search("srv_1", "context compaction"),
+        hits(
+            "srv_1",
+            ("Compaction", "https://a.example.org/compaction"),
+            ("Collapse", "https://b.example.org/collapse"),
+        ),
+        fetch("srv_2", "https://a.example.org/compaction"),
+        page("srv_2", "https://a.example.org/compaction", "Compaction, in full"),
+        cited("It is lossy.", "https://a.example.org/compaction"),
+    )
+    client = FakeClient(
+        Round(
+            text=("It is lossy.",),
+            content=content,
+            usage=Usage(
+                input_tokens=10,
+                output_tokens=5,
+                server_tool_use=ServerToolUsage(
+                    web_search_requests=1, web_fetch_requests=1
+                ),
+            ),
+        )
+    )
+
+    async def never(source_id: str, name: str, arguments: dict[str, Any]) -> str:
+        raise AssertionError("a hosted call is not ours to run")
+
+    events = await collect(
+        runtime(client_factory=client),
+        call_tool=never,
+        web=WebScope(mode="browse", allowed_domains=["a.example.org"], max_uses=3),
+    )
+
+    started = [e for e in events if isinstance(e, ev.ToolStarted)]
+    results = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert [(e.tool, e.source_id, e.effect) for e in started] == [
+        ("web_search", "web", "external_read"),
+        ("web_fetch", "web", "external_read"),
+    ]
+    assert started[0].arguments == {"query": "context compaction"}
+    assert [r.parent_id for r in results] == [s.event_id for s in started]
+    assert all(r.ok for r in results)
+    assert results[0].refs == [
+        "web:https://a.example.org/compaction",
+        "web:https://b.example.org/collapse",
+    ]
+    assert results[1].refs == ["web:https://a.example.org/compaction"]
+    assert "Compaction, in full" in results[1].output
+    assert "the page text" not in results[1].output  # a recording is not a crawl
+
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert done.citations == ["web:https://a.example.org/compaction"]
+    assert done.usage["web_search_requests"] == 1
+    assert done.usage["web_fetch_requests"] == 1
+
+    offered = client.requests[0]["tools"]
+    assert offered == [
+        {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "allowed_domains": ["a.example.org"],
+            "max_uses": 3,
+        },
+        {
+            "type": "web_fetch_20250910",
+            "name": "web_fetch",
+            "allowed_domains": ["a.example.org"],
+            "max_uses": 3,
+            "citations": {"enabled": True},
+        },
+    ]
+
+
+@pytest.mark.anyio
+async def test_the_row_declares_the_tool_versions_and_search_offers_nofetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "never-printed-key")
+    client = FakeClient(Round(text=("ok",)))
+    await collect(
+        runtime(host="anthropic", client_factory=client),
+        web=WebScope(mode="search", blocked_domains=["b.example.org"]),
+    )
+    assert client.requests[0]["tools"] == [
+        {
+            "type": "web_search_20260209",
+            "name": "web_search",
+            "blocked_domains": ["b.example.org"],
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_off_offers_no_web_tool(credentials: None) -> None:
+    client = FakeClient(Round(text=("ok",)))
+    await collect(runtime(client_factory=client), web=WebScope())
+    assert "tools" not in client.requests[0]
+
+
+@pytest.mark.anyio
+async def test_a_hosted_error_is_a_failed_result_not_a_failed_turn(
+    credentials: None,
+) -> None:
+    """The host reports a failed search as a result carrying an error code, never as an
+    exception — and the turn goes on, as it does when one of our tools fails."""
+    from anthropic.types import (
+        WebFetchToolResultBlock,
+        WebFetchToolResultErrorBlock,
+        WebSearchToolResultBlock,
+        WebSearchToolResultError,
+    )
+
+    content = (
+        search("srv_1", "anything"),
+        WebSearchToolResultBlock(
+            tool_use_id="srv_1",
+            type="web_search_tool_result",
+            content=WebSearchToolResultError(
+                error_code="max_uses_exceeded", type="web_search_tool_result_error"
+            ),
+        ),
+        fetch("srv_2", "https://c.example.org"),
+        WebFetchToolResultBlock(
+            tool_use_id="srv_2",
+            type="web_fetch_tool_result",
+            content=WebFetchToolResultErrorBlock(
+                error_code="url_not_accessible", type="web_fetch_tool_result_error"
+            ),
+        ),
+        search("srv_3", "never answered"),
+    )
+    client = FakeClient(Round(text=("could not look",), content=content))
+    events = await collect(runtime(client_factory=client), web=WebScope(mode="browse"))
+
+    results = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert [(r.tool, r.ok) for r in results] == [
+        ("web_search", False),
+        ("web_fetch", False),
+        ("web_search", False),
+    ]
+    assert "max_uses_exceeded" in results[0].error
+    assert "url_not_accessible" in results[1].error
+    assert "no result" in results[2].error
+    assert all(r.refs == [] for r in results)
+    assert isinstance(terminal(events), ev.AgentCompleted)
+
+
+@pytest.mark.anyio
+async def test_a_pause_between_a_hosted_call_and_its_result_is_not_a_failure(
+    credentials: None,
+) -> None:
+    """A `pause_turn` can end a round after the call and before its result; the result
+    opens the next round. One successful pair, with its refs — not a failure reported
+    for the first round and the result dropped from the second."""
+    client = FakeClient(
+        Round(
+            text=("looking",),
+            stop_reason="pause_turn",
+            content=(search("srv_1", "compaction"),),
+        ),
+        Round(
+            text=(" found it",),
+            content=(
+                hits("srv_1", ("Compaction", "https://a.example.org/compaction")),
+                cited(" found it", "https://a.example.org/compaction"),
+            ),
+        ),
+    )
+    events = await collect(runtime(client_factory=client), web=WebScope(mode="search"))
+
+    results = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert [(r.tool, r.ok) for r in results] == [("web_search", True)]
+    assert results[0].refs == ["web:https://a.example.org/compaction"]
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert done.citations == ["web:https://a.example.org/compaction"]
+
+
+@pytest.mark.anyio
+async def test_a_call_still_waiting_when_the_turn_fails_is_reported_before_it(
+    credentials: None,
+) -> None:
+    """Held across rounds, but not past the end: a call whose result never came is a
+    failed pair, before the turn's one terminal event."""
+    client = FakeClient(
+        Round(
+            text=("half",),
+            stop_reason="max_tokens",
+            content=(search("srv_1", "compaction"),),
+        ),
+    )
+    events = await collect(runtime(client_factory=client), web=WebScope(mode="search"))
+
+    results = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert [(r.ok, "no result" in r.error) for r in results] == [(False, True)]
+    assert isinstance(events[-1], ev.AgentFailed)
+    assert events.index(results[0]) < len(events) - 1
+
+
+@pytest.mark.anyio
+async def test_a_fetched_page_the_answer_cites_joins_its_citations(
+    credentials: None,
+) -> None:
+    """Fetch is asked for citations, and a fetched page is cited by its position among
+    the turn's fetched pages rather than by URL — resolved to that page's URL, and
+    dropped rather than guessed when the position or title does not match."""
+    client = FakeClient(
+        Round(
+            text=("It is lossy.",),
+            content=(
+                fetch("srv_1", "https://a.example.org/compaction"),
+                page("srv_1", "https://a.example.org/compaction", "Compaction"),
+                cited_page("It is lossy.", 0, "Compaction"),
+                cited_page(" Also this.", 0, "Some other page"),
+                cited_page(" And this.", 3, None),
+            ),
+        ),
+    )
+    events = await collect(runtime(client_factory=client), web=WebScope(mode="browse"))
+
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert done.citations == ["web:https://a.example.org/compaction"]
+    offered = {t["name"]: t for t in client.requests[0]["tools"]}
+    assert offered["web_fetch"]["citations"] == {"enabled": True}
+
+
+@pytest.mark.anyio
+async def test_a_scope_the_runtime_was_not_built_for_fails_before_any_request(
+    credentials: None,
+) -> None:
+    """Handed straight to the runtime, without the session's own check: a mode this
+    build does not know is refused, not offered as something nearby."""
+    client = FakeClient()
+    events = await collect(runtime(client_factory=client), web=WebScope(mode="crawl"))
+    failed = terminal(events)
+    assert isinstance(failed, ev.AgentFailed) and failed.kind == "web_scope"
+    assert failed.remedy == WEB_REMEDY
+    assert client.requests == []
+
+
+def test_every_anthropic_row_declares_its_web_tools_and_says_so() -> None:
+    assert runtime(host="anthropic").web_reason(WebScope(mode="browse")) is None
+    assert runtime().web_reason(WebScope(mode="search")) is None
+    unset = CustomRuntime().web_reason(WebScope(mode="search"))
+    assert unset is not None and "no host is set" in unset

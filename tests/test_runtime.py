@@ -17,6 +17,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel.agent import base as agent
+from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.agent.runtimes import claude_cli
 from latent_intel.agent.runtimes.claude_cli import (
     ClaudeCliRuntime,
@@ -24,7 +25,14 @@ from latent_intel.agent.runtimes.claude_cli import (
     build_argv,
     sanitise,
 )
-from latent_intel.models import Effect, Message, RuntimeUnavailable, Skill, ToolSpec
+from latent_intel.models import (
+    Effect,
+    Message,
+    RuntimeUnavailable,
+    Skill,
+    ToolSpec,
+    WebScope,
+)
 
 FAKE = Path(__file__).parent / "fixtures" / "fake_claude.py"
 
@@ -113,6 +121,81 @@ def test_built_in_tools_are_disabled() -> None:
     """`claude -p` defaults to Bash/Edit/Write. An access layer must not ship that."""
     argv = build_argv(["claude"])
     assert argv[argv.index("--tools") + 1] == ""
+    assert "--allowedTools" not in argv
+
+
+@pytest.mark.parametrize(
+    ("mode", "web"),
+    [("off", ""), ("search", "WebSearch"), ("browse", "WebSearch,WebFetch")],
+)
+def test_a_web_scope_turns_on_the_web_tools_and_allows_them_by_name(
+    mode: str, web: str
+) -> None:
+    """`--print` has no one to ask, so a tool offered and not allowed is a tool refused
+    — the web tools are allowed by name beside ours, and nothing else is turned on."""
+    allow = ["mcp__design__wiki_get"]
+    argv = build_argv(["claude"], allow=allow, web=claude_cli.WEB_TOOLS[mode])
+    assert argv[argv.index("--tools") + 1] == web
+    # Last on the line when there is no system prompt, so the rest is the list.
+    assert argv[argv.index("--allowedTools") + 1 :] == [
+        *allow,
+        *filter(None, web.split(",")),
+    ]
+
+
+@pytest.mark.anyio
+async def test_each_mode_reaches_the_command_line_from_the_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+    real = claude_cli.build_argv
+
+    def record(command: list[str], **options: object) -> list[str]:
+        seen.update(options)
+        return real(command, **options)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(claude_cli, "build_argv", record)
+    await collect("text", web=WebScope(mode="browse"))
+    assert seen["web"] == ("WebSearch", "WebFetch")
+    await collect("text")
+    assert seen["web"] == ()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "scope",
+    [
+        WebScope(mode="browse", allowed_domains=["a.example.org"]),
+        WebScope(mode="search", blocked_domains=["b.example.org"]),
+        WebScope(mode="search", max_uses=2),
+    ],
+)
+async def test_what_the_binary_cannot_hold_to_is_refused_before_it_is_spawned(
+    scope: WebScope,
+) -> None:
+    """The scenario would answer if spawned; the refusal is the only event."""
+    events = await collect("text", web=scope)
+    assert [type(e).__name__ for e in events] == ["AgentFailed"]
+    failed = events[0]
+    assert isinstance(failed, ev.AgentFailed) and failed.kind == "web_scope"
+    assert failed.remedy == WEB_REMEDY
+
+
+@pytest.mark.anyio
+async def test_a_web_call_is_reported_under_web_as_a_read_with_its_page() -> None:
+    """Shaped like the recorded `tool_call` stream rather than recorded itself: the
+    binary's web tools carry no server prefix, so neither a declared effect nor a
+    source; both are supplied here."""
+    events = await collect("web_call", web=WebScope(mode="browse"))
+    started = [e for e in events if isinstance(e, ev.ToolStarted)]
+    results = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert [(e.tool, e.source_id, e.effect) for e in started] == [
+        ("WebSearch", "web", "external_read"),
+        ("WebFetch", "web", "external_read"),
+    ]
+    assert results[0].refs == []
+    assert results[1].refs == ["web:https://a.example.org/compaction"]
+    assert isinstance(events[-1], ev.AgentCompleted)
 
 
 def test_strict_mcp_config_is_never_conditional() -> None:
@@ -268,6 +351,25 @@ async def test_silence_with_a_bad_exit_is_reported_rather_than_looking_empty() -
 
 def test_a_missing_binary_is_unavailable_not_an_exception() -> None:
     assert not ClaudeCliRuntime(command="definitely-not-a-real-binary").available()
+
+
+@pytest.mark.anyio
+async def test_a_missing_binary_is_reported_before_a_scope_it_would_refuse() -> None:
+    """The binary is what needs fixing first; a web refusal would send someone to
+    change a scope on a runtime that cannot run either way."""
+    missing = ClaudeCliRuntime(command="definitely-not-a-real-binary")
+    events = [
+        event
+        async for event in missing.stream(
+            [Message(text="q")],
+            [],
+            emitter=ev.Emitter(uuid4()),
+            web=WebScope(mode="search", max_uses=2),
+        )
+    ]
+    assert [(type(e).__name__, getattr(e, "kind", "")) for e in events] == [
+        ("AgentFailed", "runtime_error")
+    ]
 
 
 # -- resolving the executable -------------------------------------------------

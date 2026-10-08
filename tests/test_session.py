@@ -16,6 +16,7 @@ import pytest
 
 from latent_intel import events as ev
 from latent_intel import registry
+from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.commands import Ask, Connect, Fetch, Find, ListSources
 from latent_intel.connectors import base as connectors
 from latent_intel.connectors.files import FilesConnector
@@ -31,6 +32,7 @@ from latent_intel.models import (
     Skill,
     SourceRequest,
     ToolSpec,
+    WebScope,
 )
 from latent_intel.session import Session
 from tests.test_mcp import probe_command
@@ -195,6 +197,16 @@ def test_ref_parsing_follows_the_colon_rule() -> None:
     assert Ref.parse("https://x/y", default_source="d").key == "https://x/y"
     with pytest.raises(ValueError, match="no source prefix"):
         Ref.parse("bare")
+
+
+def test_a_url_after_a_prefix_is_a_key_and_a_bare_one_is_still_refused() -> None:
+    """`web:<url>` is how a page the web tools read is cited; the rule is the one
+    `find_all` applies — a key may not start `//`."""
+    ref = Ref.parse("web:https://a.example.org/x?q=1")
+    assert (ref.source_id, ref.key) == ("web", "https://a.example.org/x?q=1")
+    assert str(ref) == "web:https://a.example.org/x?q=1"
+    with pytest.raises(ValueError, match="no source prefix"):
+        Ref.parse("https://a.example.org")
 
 
 def test_refs_in_text_are_found_in_order_once_each() -> None:
@@ -769,7 +781,8 @@ def test_a_subagent_tool_the_runtime_cannot_give_is_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Asked of the configured runtime, because only it knows what it offers: a tool
-    not attached, a writing tool withheld under `ask`, a built-in not opted into."""
+    not attached, a writing tool withheld under `ask`, a web tool the scope does not
+    turn on."""
     from latent_intel import config as config_module
 
     _agents(
@@ -779,7 +792,7 @@ def test_a_subagent_tool_the_runtime_cannot_give_is_named(
     )
     config = config_module.load()
     config.runtime = "claude-agent-sdk"
-    config.runtimes = {"claude-agent-sdk": {"builtin_tools": ["WebSearch"]}}
+    config.web = "search"
     config_module.save(config)
 
     session = Session()
@@ -1288,11 +1301,18 @@ async def test_ask_fills_tool_refs_and_answer_citations(corpus: Path) -> None:
     await session.aclose()
 
 
-async def test_citations_a_runtime_reports_are_kept(corpus: Path) -> None:
+async def test_citations_a_runtime_reports_are_kept_and_joined_by_the_text_s(
+    corpus: Path,
+) -> None:
+    """A union, not a fallback: a runtime citing the URLs a web search returned says
+    nothing about the `source:key` refs the same answer quotes."""
     session = Session(runtime=CitingRuntime(citations=["notes:note.md"]))
     await session.connect(str(corpus), kind="files", source_id="notes")
     events = [e async for e in session.ask("q")]
-    assert events[-1].citations == ["notes:note.md"]  # type: ignore[union-attr]
+    assert events[-1].citations == [  # type: ignore[union-attr]
+        "notes:note.md",
+        "notes:second.md",
+    ]
     await session.aclose()
 
 
@@ -1394,3 +1414,188 @@ def test_headers_build_a_runtime_once_per_setup(
     for _ in range(3):
         session.run_context()
     assert built == ["custom"]
+
+
+# -- the web scope ----------------------------------------------------------
+
+
+class ScopedRuntime(FakeRuntime):
+    """A runtime that declares web access, honouring `search` and nothing wider."""
+
+    id = "scoped"
+
+    def web_reason(self, scope: WebScope) -> str | None:
+        return None if scope.mode in ("off", "search") else "search only, here"
+
+
+async def test_connecting_under_the_web_s_id_is_refused(corpus: Path) -> None:
+    """A source under `web` would make its refs indistinguishable from a page's."""
+    session = Session()
+    with pytest.raises(ConnectError, match="reserved for web"):
+        await session.connect(str(corpus), kind="files", source_id="web")
+
+
+async def test_a_scope_set_for_the_session_reaches_the_runtime_and_is_never_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from latent_intel import config as config_module
+    from latent_intel import settings as settings_module
+
+    _project(tmp_path, monkeypatch, "defaults: {web: off}\n")
+    config_module.save(config_module.load())
+    before = config_module.config_path().read_bytes()
+
+    runtime = ScopedRuntime()
+    session = Session(runtime=runtime)
+    session.set_web(WebScope(mode="search"))
+    async for _ in session.ask("what changed this week?"):
+        pass
+
+    assert runtime.saw["options"]["web"] == WebScope(mode="search")
+    assert session.run_context().web == WebScope(mode="search")
+    assert config_module.config_path().read_bytes() == before
+    assert settings_module.load().web.mode == "off"
+    # A second session reads the layers again, and they still say off.
+    assert Session(runtime=ScopedRuntime()).web.mode == "off"
+
+    session.set_web(None)
+    assert session.web.mode == "off"
+
+
+def test_a_scope_the_runtime_cannot_honour_is_refused_with_its_reason() -> None:
+    session = Session(runtime=ScopedRuntime())
+    with pytest.raises(SessionError, match="search only, here"):
+        session.set_web(WebScope(mode="browse"))
+    assert session.web.mode == "off"
+
+    undeclared = Session(runtime=FakeRuntime())
+    with pytest.raises(SessionError, match="honours only `web: off`"):
+        undeclared.set_web(WebScope(mode="search"))
+
+
+async def test_a_turn_under_a_scope_the_runtime_cannot_honour_never_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A runtime that declares nothing may never read `web=` at all, so the session
+    refuses the turn itself — before the question joins the history."""
+    _project(tmp_path, monkeypatch, "defaults: {web: search}\n")
+    runtime = FakeRuntime()
+    session = Session(runtime=runtime)
+    events = [e async for e in session.ask("anything new?")]
+
+    (failed,) = events
+    assert isinstance(failed, ev.AgentFailed) and failed.kind == "web_scope"
+    assert failed.remedy == WEB_REMEDY
+    assert "/scope off" in failed.remedy
+    assert not hasattr(runtime, "saw")
+    assert session._history == []
+
+
+def test_a_runtime_that_declares_nothing_is_reported_as_off_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _installed(monkeypatch, fabricated=_Fabricated)
+    assert Session.runtime_reports()["fabricated"].web == ["off"]
+
+
+def test_doctor_s_report_says_which_scopes_custom_honours_on_its_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "anthropic")
+    assert Session.runtime_reports()["custom"].web == ["off", "search", "browse"]
+    monkeypatch.setenv("LATENT_INTEL_CUSTOM_HOST", "openai")
+    assert Session.runtime_reports()["custom"].web == ["off"]
+
+
+def test_doctor_s_report_says_when_the_scope_in_force_would_be_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bare modes say `search` is honoured; the configured scope carries a
+    `max_uses` the binary has no knob for, and would be refused every turn."""
+    from latent_intel import config as config_module
+    from latent_intel import settings as settings_module
+
+    config = config_module.load()
+    config.runtime = "claude-cli"
+    config.web = {"mode": "search", "max_uses": 5}
+    config_module.save(config)
+    settings_module.invalidate()
+
+    report = Session.runtime_reports()["claude-cli"]
+    assert "search" in report.web
+    assert report.web_refusal is not None and "max_uses" in report.web_refusal
+    assert "/scope search --any" in report.web_refusal
+
+    config.web = "search"
+    config_module.save(config)
+    settings_module.invalidate()
+    assert Session.runtime_reports()["claude-cli"].web_refusal is None
+
+
+def test_switching_project_drops_the_session_s_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scope set under one deployment is a decision about its sources; the next
+    project's own layering applies, and the header follows."""
+    from latent_intel import settings as settings_module
+
+    _project(tmp_path, monkeypatch, "defaults: {web: off}\n")
+    session = Session(runtime=ScopedRuntime())
+    session.set_web(WebScope(mode="search"))
+    assert session.web_override == WebScope(mode="search")
+
+    (tmp_path / "projects" / "other.yaml").write_text("name: other\n")
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "other")
+    settings_module.invalidate()
+
+    assert session.web_override is None
+    assert session.web.mode == "off"
+    assert session.run_context().web == WebScope()
+
+
+class _Unavailable(FakeRuntime):
+    """Cannot run here, and says so in its own first event — as every runtime does."""
+
+    def available(self) -> bool:
+        return False
+
+    async def stream(self, messages, tools, *, emitter, **options):  # type: ignore[no-untyped-def]
+        yield emitter.emit(
+            ev.AgentFailed, message="no host is set", kind="runtime_unavailable"
+        )
+
+
+@pytest.mark.anyio
+async def test_a_runtime_that_cannot_run_says_so_before_any_web_scope_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing host reported as a web scope sends someone to fix the wrong thing."""
+    _project(tmp_path, monkeypatch, "defaults: {web: search}\n")
+    session = Session(runtime=_Unavailable())
+    events = [e async for e in session.ask("anything new?")]
+
+    (failed,) = events
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "runtime_unavailable"
+
+
+class _OldDelegate(_Fabricated):
+    """A third party's runtime, written to the one-argument `subagent_tools`."""
+
+    def subagent_tools(self, tools: Any) -> frozenset[str]:
+        return frozenset({"design.search"})
+
+
+def test_a_delegating_runtime_without_the_web_argument_still_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from latent_intel import config as config_module
+
+    _installed(monkeypatch, fabricated=_OldDelegate)
+    _agents(tmp_path, monkeypatch, "design.search, nope.tool")
+    config = config_module.load()
+    config.runtime = "fabricated"
+    config_module.save(config)
+
+    named = "\n".join(Session().subagent_problems())
+    assert "`nope.tool`" in named and "`design.search`" not in named

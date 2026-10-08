@@ -24,7 +24,11 @@ from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any
 
-from anthropic.lib.tools import ToolError
+from anthropic.lib.tools import (
+    BetaAsyncBuiltinFunctionTool,
+    BetaAsyncFunctionTool,
+    ToolError,
+)
 
 
 @dataclass
@@ -65,6 +69,8 @@ class Usage:
     output_tokens: int | None = None
     cache_creation_input_tokens: int | None = None
     cache_read_input_tokens: int | None = None
+    #: `ServerToolUsage` — `web_search_requests`, `web_fetch_requests` — or None.
+    server_tool_use: Any = None
 
 
 @dataclass
@@ -82,12 +88,13 @@ class Round:
     #: `(id, name, arguments)` per tool_use block.
     tools: tuple[tuple[str, str, dict[str, Any]], ...] = ()
     stop_reason: str | None = "end_turn"
-    usage: Usage = field(
-        default_factory=lambda: Usage(input_tokens=1, output_tokens=1)
-    )
+    usage: Usage = field(default_factory=lambda: Usage(input_tokens=1, output_tokens=1))
     thinking: str = ""
     #: Raised when the request is made, the way the SDK raises on a bad response.
     raises: BaseException | None = None
+    #: The final message's content exactly, in place of the blocks built from `text`
+    #: and `tools` — for hosted tool blocks, which arrive interleaved with the text.
+    content: tuple[Any, ...] | None = None
 
 
 class FakeClient:
@@ -151,12 +158,17 @@ class _FakeRunner:
     returns* reads the final message, runs any tool calls and appends both the
     assistant message and the results to the transcript. A `ToolError` becomes a
     `tool_result` with `is_error`, any other exception becomes its `repr` with the
-    same flag, and a name that is not among the tools never reaches one.
+    same flag, and a name that is not among the tools never reaches one. A definition
+    that is not a runnable tool — a hosted tool's dict — is sent and never dispatched,
+    and only `tool_use` blocks are run, as the real runner does;
+    `tests/test_anthropic_sdk_runtime.py` holds that runner to the same.
     """
 
     def __init__(self, client: FakeClient, request: dict[str, Any]) -> None:
         self._client = client
-        self._tools = list(request["tools"])
+        runnable = (BetaAsyncFunctionTool, BetaAsyncBuiltinFunctionTool)
+        self._tools = [t for t in request["tools"] if isinstance(t, runnable)]
+        raw = [t for t in request["tools"] if not isinstance(t, runnable)]
         self._max_iterations = request.get("max_iterations")
         self._params: dict[str, Any] = {
             key: value
@@ -164,7 +176,7 @@ class _FakeRunner:
             if key not in ("tools", "stream", "max_iterations")
         }
         self._params["messages"] = list(request["messages"])
-        self._params["tools"] = [tool.to_dict() for tool in self._tools]
+        self._params["tools"] = [*(tool.to_dict() for tool in self._tools), *raw]
 
     def set_messages_params(
         self, params: Callable[[dict[str, Any]], dict[str, Any]] | dict[str, Any]
@@ -299,6 +311,12 @@ class _Stream:
             yield TextEvent(text=chunk)
 
     async def get_final_message(self) -> FinalMessage:
+        if self._round.content is not None:
+            return FinalMessage(
+                content=list(self._round.content),
+                stop_reason=self._round.stop_reason,
+                usage=self._round.usage,
+            )
         content: list[Any] = []
         if self._round.thinking:
             content.append(ThinkingBlock(thinking=self._round.thinking))
@@ -311,3 +329,108 @@ class _Stream:
             stop_reason=self._round.stop_reason,
             usage=self._round.usage,
         )
+
+
+# -- hosted web blocks --------------------------------------------------------
+#
+# The SDK's own types, not lookalikes: a hosted call arrives as a `server_tool_use`
+# beside a result block carrying either the pages or an error object, and a fake that
+# guessed the shape would test the guess. Shared by both loops on this protocol.
+
+
+def search(identifier: str, query: str) -> Any:
+    from anthropic.types import ServerToolUseBlock
+
+    return ServerToolUseBlock(
+        id=identifier, name="web_search", input={"query": query}, type="server_tool_use"
+    )
+
+
+def hits(identifier: str, *pages: tuple[str, str]) -> Any:
+    from anthropic.types import WebSearchResultBlock, WebSearchToolResultBlock
+
+    return WebSearchToolResultBlock(
+        tool_use_id=identifier,
+        type="web_search_tool_result",
+        content=[
+            WebSearchResultBlock(
+                encrypted_content="opaque",
+                title=title,
+                url=url,
+                type="web_search_result",
+            )
+            for title, url in pages
+        ],
+    )
+
+
+def fetch(identifier: str, url: str) -> Any:
+    from anthropic.types import ServerToolUseBlock
+
+    return ServerToolUseBlock(
+        id=identifier, name="web_fetch", input={"url": url}, type="server_tool_use"
+    )
+
+
+def page(identifier: str, url: str, title: str) -> Any:
+    from anthropic.types import (
+        DocumentBlock,
+        PlainTextSource,
+        WebFetchBlock,
+        WebFetchToolResultBlock,
+    )
+
+    return WebFetchToolResultBlock(
+        tool_use_id=identifier,
+        type="web_fetch_tool_result",
+        content=WebFetchBlock(
+            url=url,
+            type="web_fetch_result",
+            content=DocumentBlock(
+                type="document",
+                title=title,
+                source=PlainTextSource(
+                    data="the page text", media_type="text/plain", type="text"
+                ),
+            ),
+        ),
+    )
+
+
+def cited(text: str, *urls: str) -> Any:
+    from anthropic.types import CitationsWebSearchResultLocation, TextBlock
+
+    return TextBlock(
+        type="text",
+        text=text,
+        citations=[
+            CitationsWebSearchResultLocation(
+                cited_text="…",
+                encrypted_index="opaque",
+                url=url,
+                type="web_search_result_location",
+            )
+            for url in urls
+        ],
+    )
+
+
+def cited_page(text: str, index: int, title: str | None) -> Any:
+    """Text citing a fetched page, as the host cites one: by its position among the
+    documents the turn fetched, with no URL on the citation."""
+    from anthropic.types import CitationCharLocation, TextBlock
+
+    return TextBlock(
+        type="text",
+        text=text,
+        citations=[
+            CitationCharLocation(
+                cited_text="…",
+                document_index=index,
+                document_title=title,
+                start_char_index=0,
+                end_char_index=1,
+                type="char_location",
+            )
+        ],
+    )

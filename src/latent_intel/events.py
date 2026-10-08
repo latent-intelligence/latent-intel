@@ -43,6 +43,7 @@ from .models import (
     Fingerprint,
     Hit,
     ToolSpec,
+    WebScope,
 )
 
 #: Bumped when a change would make an older consumer misread a newer stream. Additive
@@ -279,6 +280,10 @@ class RunContext(BaseEvent):
     host: str | None = None
     model: str | None = None
     approval: str = "ask"
+    #: How much of the open web the turns after it could reach. None in a header
+    #: written before the field existed, which is "not recorded" rather than `off`.
+    #: Optional and additive, so `SCHEMA_VERSION` does not move.
+    web: WebScope | None = None
     project: str | None = None
     context: Fingerprint = Field(default_factory=Fingerprint)
     sources: list[AttachedSource] = Field(default_factory=list)

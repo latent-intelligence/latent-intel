@@ -820,3 +820,131 @@ def test_get_is_not_a_slash_built_in_so_a_skill_may_take_it() -> None:
 def test_a_built_in_is_read_before_a_skill_of_the_same_name() -> None:
     """A project cannot shadow `/exit`, whether it tries with a command or a skill."""
     assert isinstance(parse("/exit", procedures={"exit": object()}), Local)
+
+
+# -- /scope -------------------------------------------------------------------
+
+
+def test_scope_parses_a_mode_and_one_domain_list() -> None:
+    assert parse("/scope") == Local("scope", "")
+    assert parse("/scope search") == Local("scope", "search")
+    assert parse("/scope browse --allow a.org,b.org") == Local(
+        "scope", "browse", {"allow": "a.org,b.org"}
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "/scope everything",
+        "/scope --allow a.org",
+        "/scope search --allow a.org --block b.org",
+        "/scope search --domains a.org",
+        "/scope search browse",
+    ],
+)
+def test_scope_refuses_what_it_cannot_honour(line: str) -> None:
+    assert isinstance(parse(line), Invalid)
+
+
+def test_scope_on_a_runtime_that_cannot_honour_it_is_refused_with_the_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    console = _shell(monkeypatch)
+    session = Session()
+    session.set_runtime("openai-agents")
+    repl._local(session, Local("scope", "browse"), repl.Recording())
+
+    printed = " ".join(console.export_text().split())
+    assert "✗" in printed and "honours only `web: off`" in printed
+    assert session.web.mode == "off"
+
+
+class _Searching:
+    """A runtime that honours every scope and is never asked anything."""
+
+    id = "searching"
+
+    def available(self) -> bool:
+        return True
+
+    def web_reason(self, scope: Any) -> str | None:
+        return None
+
+    def stream(self, *args: Any, **options: Any) -> Any:  # pragma: no cover
+        raise NotImplementedError
+
+
+def test_scope_heads_a_recording_again_and_writes_no_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The file says which scope the next answer ran under before anything runs under
+    it; the config says nothing, because a scope is this session's alone."""
+    from latent_intel import config as config_module
+    from latent_intel import events as ev
+    from latent_intel.frontends.shell import repl
+    from latent_intel.models import WebScope
+    from latent_intel.session import Session
+
+    config_module.save(config_module.load())
+    before = config_module.config_path().read_bytes()
+    console = _shell(monkeypatch)
+    recording = repl.Recording()
+    path = tmp_path / "run.jsonl"
+    session = Session(runtime=_Searching())  # type: ignore[arg-type]
+    repl._record(session, recording, Local("record", str(path)))
+    repl._local(
+        session, Local("scope", "search", {"block": "b.example.org"}), recording
+    )
+
+    headers = [ev.parse_event(line) for line in path.read_text().splitlines()]
+    assert [h.web for h in headers] == [  # type: ignore[union-attr]
+        WebScope(),
+        WebScope(mode="search", blocked_domains=["b.example.org"]),
+    ]
+    assert "this session only" in console.export_text()
+    assert config_module.config_path().read_bytes() == before
+
+
+def test_scope_any_drops_the_lists_and_the_cap() -> None:
+    assert parse("/scope search --any") == Local("scope", "search", {"any": ""})
+    for line in ("/scope --any", "/scope search --any --allow a.org"):
+        assert isinstance(parse(line), Invalid)
+
+
+def test_scope_any_reaches_the_session_without_the_configured_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.models import WebScope
+    from latent_intel.session import Session
+
+    config = config_module.load()
+    config.web = {"mode": "search", "allowed_domains": ["a.org"], "max_uses": 5}
+    config_module.save(config)
+    _shell(monkeypatch)
+    session = Session(runtime=_Searching())  # type: ignore[arg-type]
+    repl._local(session, Local("scope", "browse", {"any": ""}), repl.Recording())
+    assert session.web == WebScope(mode="browse")
+
+
+def test_switching_project_says_the_session_s_scope_was_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    console = _shell(monkeypatch)
+    session = Session(runtime=_Searching())  # type: ignore[arg-type]
+    repl._local(session, Local("scope", "search"), repl.Recording())
+    (tmp_path / "other.yaml").write_text("name: other\n")
+    monkeypatch.setenv("LATENT_INTEL_PROJECTS", str(tmp_path))
+    repl._local(session, Local("project", "other"), repl.Recording())
+
+    printed = " ".join(console.export_text().split())
+    assert "was for the project you left" in printed
+    assert session.web.mode == "off"

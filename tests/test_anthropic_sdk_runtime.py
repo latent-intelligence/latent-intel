@@ -21,9 +21,27 @@ import anthropic
 import pytest
 
 from latent_intel import events as ev
+from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.agent.runtimes.anthropic_sdk import ENV_HOST, AnthropicSdkRuntime
-from latent_intel.models import Effect, Message, RuntimeUnavailable, Skill, ToolSpec
-from tests.fixtures.fake_anthropic import FakeClient, Round, Usage
+from latent_intel.models import (
+    Effect,
+    Message,
+    RuntimeUnavailable,
+    Skill,
+    ToolSpec,
+    WebScope,
+)
+from tests.fixtures.fake_anthropic import (
+    FakeClient,
+    Round,
+    Usage,
+    cited,
+    cited_page,
+    fetch,
+    hits,
+    page,
+    search,
+)
 
 try:  # the installed SDK (1.x) builds its errors from httpx2; the 0.x line used httpx
     import httpx2 as httpx
@@ -920,3 +938,366 @@ async def test_with_load_skill_offered_skills_are_a_listing_not_bodies(
     assert "`engine_load_skill`" in system
     assert "Cite inline." not in system
     assert "## deploy\n\nShip it." in system
+
+
+# -- the web, as the host runs it -------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_each_hosted_call_is_one_tool_pair_with_refs_and_citations(
+    credentials: None,
+) -> None:
+    """The custom loop's case, with the runner driving: a search and a fetch the host
+    ran become pairs under `web` with `web:<url>` refs, the cited URLs join the
+    answer's citations, and the runner calls nothing — not ours, and not the host's."""
+    from anthropic.types import ServerToolUsage
+
+    content = (
+        search("srv_1", "context compaction"),
+        hits(
+            "srv_1",
+            ("Compaction", "https://a.example.org/compaction"),
+            ("Collapse", "https://b.example.org/collapse"),
+        ),
+        fetch("srv_2", "https://a.example.org/compaction"),
+        page("srv_2", "https://a.example.org/compaction", "Compaction, in full"),
+        cited("It is lossy.", "https://a.example.org/compaction"),
+    )
+    client = FakeClient(
+        Round(
+            text=("It is lossy.",),
+            content=content,
+            usage=Usage(
+                input_tokens=10,
+                output_tokens=5,
+                server_tool_use=ServerToolUsage(
+                    web_search_requests=1, web_fetch_requests=1
+                ),
+            ),
+        )
+    )
+
+    async def never(source_id: str, name: str, arguments: dict[str, Any]) -> str:
+        raise AssertionError("a hosted call is not ours to run")
+
+    events = await collect(
+        AnthropicSdkRuntime(client_factory=client),
+        [spec("search")],
+        call_tool=never,
+        web=WebScope(mode="browse", allowed_domains=["a.example.org"], max_uses=3),
+    )
+
+    assert client.calls == []
+    started = [e for e in events if isinstance(e, ev.ToolStarted)]
+    results = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert [(e.tool, e.source_id, e.effect) for e in started] == [
+        ("web_search", "web", "external_read"),
+        ("web_fetch", "web", "external_read"),
+    ]
+    assert [r.parent_id for r in results] == [s.event_id for s in started]
+    assert results[0].refs == [
+        "web:https://a.example.org/compaction",
+        "web:https://b.example.org/collapse",
+    ]
+    assert results[1].refs == ["web:https://a.example.org/compaction"]
+
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert done.citations == ["web:https://a.example.org/compaction"]
+    assert done.usage["web_search_requests"] == 1
+    assert done.usage["web_fetch_requests"] == 1
+
+    offered = client.requests[0]["tools"]
+    assert [tool["name"] for tool in offered] == [
+        "design_search",
+        "web_search",
+        "web_fetch",
+    ]
+    assert offered[1:] == [
+        {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "allowed_domains": ["a.example.org"],
+            "max_uses": 3,
+        },
+        {
+            "type": "web_fetch_20250910",
+            "name": "web_fetch",
+            "allowed_domains": ["a.example.org"],
+            "max_uses": 3,
+            "citations": {"enabled": True},
+        },
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_round_with_hosted_and_own_calls_reports_both_and_runs_ours(
+    credentials: None,
+) -> None:
+    """Hosted calls are reported with their round, ours as the runner runs them; only
+    ours reach the router, and the results message answers only ours."""
+    from tests.fixtures.fake_anthropic import ToolUseBlock
+
+    client = FakeClient(
+        Round(
+            stop_reason="tool_use",
+            content=(
+                search("srv_1", "compaction"),
+                hits("srv_1", ("Compaction", "https://a.example.org/c")),
+                ToolUseBlock(id="toolu_1", name="design_search", input={"q": "c"}),
+            ),
+        ),
+        Round(text=("Both.",)),
+    )
+    events = await collect(
+        AnthropicSdkRuntime(client_factory=client),
+        [spec("search")],
+        call_tool=_router,
+        web=WebScope(mode="search"),
+    )
+
+    assert client.calls == [("design_search", {"q": "c"})]
+    started = [(e.tool, e.source_id) for e in events if isinstance(e, ev.ToolStarted)]
+    assert started == [("web_search", "web"), ("search", "design")]
+    assert [r["tool_use_id"] for r in results_of(client, 1)] == ["toolu_1"]
+    assert isinstance(terminal(events), ev.AgentCompleted)
+
+
+@pytest.mark.anyio
+async def test_search_offers_no_fetch_and_off_offers_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "never-printed-key")
+    client = FakeClient(Round(text=("ok",)))
+    await collect(
+        AnthropicSdkRuntime(host="anthropic", client_factory=client),
+        web=WebScope(mode="search", blocked_domains=["b.example.org"]),
+    )
+    assert client.requests[0]["tools"] == [
+        {
+            "type": "web_search_20260209",
+            "name": "web_search",
+            "blocked_domains": ["b.example.org"],
+        }
+    ]
+
+    client = FakeClient(Round(text=("ok",)))
+    await collect(
+        AnthropicSdkRuntime(host="anthropic", client_factory=client), web=WebScope()
+    )
+    assert "tools" not in client.requests[0]
+
+
+@pytest.mark.anyio
+async def test_a_pause_between_a_hosted_call_and_its_result_is_not_a_failure(
+    credentials: None,
+) -> None:
+    """A `pause_turn` can end a round after the call and before its result; the result
+    opens the next round. One successful pair, with its refs — not a failure reported
+    for the first round and the result dropped from the second."""
+    client = FakeClient(
+        Round(
+            text=("looking",),
+            stop_reason="pause_turn",
+            content=(search("srv_1", "compaction"),),
+        ),
+        Round(
+            text=(" found it",),
+            content=(
+                hits("srv_1", ("Compaction", "https://a.example.org/compaction")),
+                cited(" found it", "https://a.example.org/compaction"),
+            ),
+        ),
+    )
+    events = await collect(
+        AnthropicSdkRuntime(client_factory=client), web=WebScope(mode="search")
+    )
+
+    results = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert [(r.tool, r.ok) for r in results] == [("web_search", True)]
+    assert results[0].refs == ["web:https://a.example.org/compaction"]
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert done.citations == ["web:https://a.example.org/compaction"]
+
+
+@pytest.mark.anyio
+async def test_a_call_still_waiting_when_the_turn_fails_is_reported_before_it(
+    credentials: None,
+) -> None:
+    """Held across rounds, but not past the end: a call whose result never came is a
+    failed pair, before the turn's one terminal event."""
+    client = FakeClient(
+        Round(
+            text=("half",),
+            stop_reason="max_tokens",
+            content=(search("srv_1", "compaction"),),
+        ),
+    )
+    events = await collect(
+        AnthropicSdkRuntime(client_factory=client), web=WebScope(mode="search")
+    )
+
+    results = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert [(r.ok, "no result" in r.error) for r in results] == [(False, True)]
+    assert isinstance(events[-1], ev.AgentFailed)
+    assert events.index(results[0]) < len(events) - 1
+
+
+@pytest.mark.anyio
+async def test_a_fetched_page_the_answer_cites_joins_its_citations(
+    credentials: None,
+) -> None:
+    """Fetch is asked for citations, and a fetched page is cited by its position among
+    the turn's fetched pages rather than by URL — resolved to that page's URL, and
+    dropped rather than guessed when the position or title does not match."""
+    client = FakeClient(
+        Round(
+            text=("It is lossy.",),
+            content=(
+                fetch("srv_1", "https://a.example.org/compaction"),
+                page("srv_1", "https://a.example.org/compaction", "Compaction"),
+                cited_page("It is lossy.", 0, "Compaction"),
+                cited_page(" Also this.", 0, "Some other page"),
+                cited_page(" And this.", 3, None),
+            ),
+        ),
+    )
+    events = await collect(
+        AnthropicSdkRuntime(client_factory=client), web=WebScope(mode="browse")
+    )
+
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert done.citations == ["web:https://a.example.org/compaction"]
+    offered = {t["name"]: t for t in client.requests[0]["tools"]}
+    assert offered["web_fetch"]["citations"] == {"enabled": True}
+
+
+@pytest.mark.anyio
+async def test_a_scope_the_runtime_cannot_honour_fails_before_any_request(
+    credentials: None,
+) -> None:
+    client = FakeClient()
+    events = await collect(
+        AnthropicSdkRuntime(client_factory=client), web=WebScope(mode="crawl")
+    )
+    failed = terminal(events)
+    assert isinstance(failed, ev.AgentFailed) and failed.kind == "web_scope"
+    assert failed.remedy == WEB_REMEDY
+    assert client.requests == []
+
+
+def test_this_runtime_declares_both_modes_on_every_row() -> None:
+    for host in ("anthropic", "foundry-anthropic"):
+        runtime = AnthropicSdkRuntime(host=host)
+        for mode in ("off", "search", "browse"):
+            assert runtime.web_reason(WebScope(mode=mode)) is None
+
+
+@pytest.mark.anyio
+async def test_the_real_runner_sends_hosted_tools_and_dispatches_only_tool_use() -> (
+    None
+):
+    """The SDK's own runner rather than our fake of it, offline: its request is
+    answered here, never by the network. Hosted definitions go out beside ours; a round
+    carrying a `server_tool_use` and a `tool_use` runs only the second, and the results
+    message answers it alone — no "tool not found" for the host's call. What the fake
+    above assumes, held against the code it copies."""
+    from anthropic.lib.tools import beta_async_tool
+    from anthropic.types.beta import BetaMessage
+
+    def message(content: list[dict[str, Any]], stop: str) -> BetaMessage:
+        return BetaMessage.model_validate(
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "m",
+                "content": content,
+                "stop_reason": stop,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+        )
+
+    rounds = [
+        message(
+            [
+                {
+                    "type": "server_tool_use",
+                    "id": "srvtoolu_1",
+                    "name": "web_search",
+                    "input": {"query": "compaction"},
+                },
+                {
+                    "type": "web_search_tool_result",
+                    "tool_use_id": "srvtoolu_1",
+                    "content": [
+                        {
+                            "type": "web_search_result",
+                            "url": "https://a.example.org/c",
+                            "title": "C",
+                            "encrypted_content": "opaque",
+                        }
+                    ],
+                },
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "lookup",
+                    "input": {"q": "c"},
+                },
+            ],
+            "tool_use",
+        ),
+        message([{"type": "text", "text": "done"}], "end_turn"),
+    ]
+    sent: list[dict[str, Any]] = []
+
+    class _Stream:
+        def __init__(self, final: BetaMessage) -> None:
+            self._final = final
+
+        async def __aenter__(self) -> _Stream:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def get_final_message(self) -> BetaMessage:
+            return self._final
+
+    def stream(**request: Any) -> _Stream:
+        sent.append({**request, "messages": list(request["messages"])})
+        return _Stream(rounds[len(sent) - 1])
+
+    client = anthropic.AsyncAnthropic(api_key="never-sent")
+    client.beta.messages.stream = stream  # type: ignore[method-assign]
+    ran: list[str] = []
+
+    @beta_async_tool
+    async def lookup(q: str) -> str:
+        """Look something up."""
+        ran.append(q)
+        return "found"
+
+    hosted = {"type": "web_search_20260209", "name": "web_search"}
+    runner = client.beta.messages.tool_runner(
+        model="m",
+        max_tokens=16,
+        messages=[{"role": "user", "content": "what is compaction?"}],
+        tools=[lookup, hosted],  # type: ignore[list-item]
+        stream=True,
+    )
+    async for _ in runner:
+        pass
+
+    assert ran == ["c"]
+    assert sent[0]["tools"][1] == hosted
+    assert sent[1]["messages"][-1] == {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "found"}
+        ],
+    }

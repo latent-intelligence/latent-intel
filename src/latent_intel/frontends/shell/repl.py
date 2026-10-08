@@ -38,7 +38,7 @@ from ... import events as ev
 from ... import procedures as procedures_module
 from ... import settings as settings_module
 from ...commands import Ask, Command, Connect
-from ...models import Descriptor, RuntimeUnavailable, Skill
+from ...models import Descriptor, RuntimeUnavailable, SessionError, Skill
 from ...session import Session
 from ...ui import banner
 from ...ui import render as render_module
@@ -395,6 +395,8 @@ def _local(
             print_hosts()
         case "project":
             _project(session, local.argument)
+        case "scope":
+            _scope(session, local, recording)
     return False
 
 
@@ -410,11 +412,19 @@ def _project(session: Session, name: str) -> None:
         console.print(f"[dim]project[/] [source]{resolved.project_name or 'none'}[/]")
         return
 
+    overridden = session.web_override is not None
     config = config_module.load()
     config.project = None if name in {"none", "off"} else name
     config_module.save(config)
     settings_module.invalidate()
     console.print(f"[dim]project[/] [source]{escape(name)}[/]")
+    # The session drops its own scope with the project it was set under; say so, or
+    # the next answer runs under a scope nobody was told about.
+    if overridden:
+        console.print(
+            f"[dim]web[/] [source]{escape(str(session.web))}[/] "
+            "[dim]— this session's /scope was for the project you left[/]"
+        )
     console.print("[dim]restart the shell to attach its sources[/]")
 
 
@@ -489,6 +499,46 @@ def _head(
     tee(context)
     recording.context = context
     recording.count += 1
+
+
+def _scope(session: Session, local: Local, recording: Recording) -> None:
+    """Report or set how much of the web the agent may reach — for this session only.
+
+    Never persisted, unlike `/runtime` or `/model`: a scope left on by yesterday's
+    shell is the failure the setting exists to prevent. A mode alone keeps the domain
+    list and `max_uses` in force, so a project's allow-list survives someone turning
+    search on; a list given replaces it, and `--any` drops both lists and `max_uses`.
+    Refused, with the runtime's own reason, when what would answer
+    cannot honour it. A recording in progress is headed again now, so the file says
+    which scope the next answer ran under before anything runs under it.
+    """
+    if not local.argument:
+        console.print(f"[dim]web[/] [source]{escape(str(session.web))}[/]")
+        return
+
+    def hostnames(key: str) -> list[str] | None:
+        value = local.options.get(key)
+        if value is None:
+            return None
+        return [name.strip() for name in value.split(",") if name.strip()]
+
+    try:
+        scope = session.web.narrowed(
+            local.argument,
+            allowed=hostnames("allow"),
+            blocked=hostnames("block"),
+            unbounded="any" in local.options,
+        )
+        session.set_web(scope)
+    except (ValueError, SessionError) as exc:
+        console.print(f"[fail]✗[/] {escape(str(exc))}")
+        return
+    console.print(
+        f"[dim]web[/] [source]{escape(str(scope))}[/] [dim]— this session only[/]"
+    )
+    if recording.path is not None:
+        with open_recording(recording.path) as tee:
+            _head(session, recording, tee)
 
 
 def _replay(local: Local) -> None:

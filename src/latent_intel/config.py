@@ -109,6 +109,12 @@ class Config:
     #: `ask` before anything that writes, `never` to refuse writes outright, `auto` to
     #: allow declared-safe effects through. The default is the cautious one.
     approval: str = "ask"
+    #: The user's `web:` scope, as written — `search`, or the mapping form. Kept raw and
+    #: resolved by `settings`, so a value this build cannot read is reported there
+    #: rather than dropped here and lost on the next `save`. Never written by `/scope`,
+    #: which is session-only: a scope left on by yesterday's shell is the failure the
+    #: setting exists to prevent.
+    web: Any = None
     #: Top-level keys this build does not recognise, kept so that writing the file never
     #: deletes something a person put there by hand. `save` rebuilds the payload from
     #: scratch, which was harmless while only `connect` wrote it and is not once a
@@ -235,6 +241,7 @@ def load() -> Config:
         "runtime",
         "runtimes",
         "approval",
+        "web",
         "project",
         "project_paths",
         "overlays",
@@ -254,6 +261,7 @@ def load() -> Config:
         runtime=data.get("runtime") or None,
         runtimes=runtimes,
         approval=str(data.get("approval") or "ask"),
+        web=data.get("web"),
         extra={k: v for k, v in data.items() if k not in known},
     )
 
@@ -288,6 +296,8 @@ def save(config: Config) -> Path:
     if config.project_paths:
         payload["project_paths"] = config.project_paths
     payload["approval"] = config.approval
+    if config.web is not None:
+        payload["web"] = config.web
     if config.runtime:
         payload["runtime"] = config.runtime
     if config.runtimes:

@@ -24,13 +24,14 @@ import openai
 import pytest
 
 from latent_intel import events as ev
+from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.agent.hosts import base_url
 from latent_intel.agent.runtimes.custom import (
     ENV_HOST,
     HOSTS,
     CustomRuntime,
 )
-from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
+from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec, WebScope
 from tests.fixtures.fake_openai import (
     FakeClient,
     PromptTokensDetails,
@@ -1543,3 +1544,31 @@ async def test_an_unusable_runtime_fails_as_an_event_not_an_exception() -> None:
     failed = terminal(await collect(CustomRuntime()))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "runtime_unavailable"
+
+
+# -- the web ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["search", "browse"])
+def test_a_chat_row_refuses_the_web_and_names_the_rows_that_serve_it(mode: str) -> None:
+    """Chat completions has no hosted web tool, so any scope wider than `off` is
+    refused with a reason rather than dropped."""
+    for host in (name for name, row in HOSTS.items() if row.protocol == "chat"):
+        reason = runtime(host=host).web_reason(WebScope(mode=mode))
+        assert reason is not None and "chat protocol" in reason
+        assert "anthropic" in reason
+    assert runtime().web_reason(WebScope()) is None
+
+
+@pytest.mark.anyio
+async def test_a_chat_row_handed_a_web_scope_fails_before_any_request(
+    credentials: None,
+) -> None:
+    client = FakeClient()
+    events = await collect(
+        runtime(client_factory=client), web=WebScope(mode="search")
+    )
+    failed = terminal(events)
+    assert isinstance(failed, ev.AgentFailed) and failed.kind == "web_scope"
+    assert failed.remedy == WEB_REMEDY
+    assert client.requests == []

@@ -320,6 +320,92 @@ pack declares.
 
 ---
 
+## Research scope
+
+Whether the agent may reach the open web is one setting, `web:`, and it is off unless
+something turns it on.
+
+| Mode | The agent may |
+|---|---|
+| `off` | use the attached sources only — the default |
+| `search` | also search the web, seeing result titles and URLs |
+| `browse` | also read the pages it finds |
+
+A deployment sets a default under `defaults: web:`
+([configuring a deployment](configuring-a-deployment.md#the-web)); `web:` in your own
+config wins over it; and a session can change it for itself:
+
+```
+/scope                                         # what is in force
+/scope search                                  # this shell session only — never saved
+/scope browse --allow arxiv.org,docs.python.org
+/scope search --any                            # no domain list, no max_uses
+/scope off
+intel ask "what changed this week?" --web search
+intel ask "what changed this week?" --web search --any
+```
+
+A mode alone keeps the domain list and `max_uses` in force, so a deployment's allow-list
+survives you turning search on; `--allow` or `--block` replaces the list, and `--any`
+drops both lists and `max_uses` — the way to use a configured scope on a runtime that
+refuses them, short of `off`. Hostnames are compared lowercase, without a trailing dot.
+`/scope` is never written to your config: a scope left on by yesterday's shell is the
+mistake this setting exists to stop. It also lasts only as long as the project it was set
+under: `/project` to another one drops it, says so, and that project's own `web:` applies.
+
+**A runtime honours the scope or refuses the question.** Answering without the web while
+the scope said `search` — or the reverse — would make an internal-only answer
+indistinguishable from one that read the web. `web:` is the only way to turn the web on,
+so a recording's header is always true. What each runtime makes of it:
+
+| Runtime | `search` · `browse` become | Domain lists | `max_uses` |
+|---|---|---|---|
+| `custom`, `anthropic-sdk` on `anthropic` | the API's hosted `web_search` · `+ web_fetch` (`_20260209` versions) | yes, on both tools | yes |
+| same, on `foundry-anthropic` | the same tools at the basic versions (`web_search_20250305`, `web_fetch_20250910`) | yes | yes |
+| `custom` on a chat host, `openai-agents` | refused — chat completions has no hosted web tool | — | — |
+| `claude-agent-sdk`, `claude-cli` | Claude Code's `WebSearch` · `+ WebFetch` | refused | refused |
+
+Claude Code refuses both domain lists rather than half-keeping them: its `WebSearch` takes
+domains from the model rather than from us, so a blocked domain could still appear in
+search results; and its `WebFetch` reads a built-in list of documentation hosts without
+asking, ahead of any allow rule, so an allow-list could not hold. For a domain list, use
+`custom` or `anthropic-sdk` on an Anthropic host; to use Claude Code under a configured
+list or `max_uses`, `/scope search --any`. A scope of `off` carrying a list is honoured
+everywhere — it reaches nothing. A refused question names the runtime's reason, and the
+same remedy whichever runtime refused it.
+
+`intel doctor` lists the modes each runtime honours as configured — `custom` with no
+host set, for instance, honours `off` only — and warns when the configured runtime would
+refuse the scope in force because of its domain list or `max_uses`:
+
+```
+web off (engine)
+  anthropic-sdk      off · search · browse
+  claude-agent-sdk   off · search · browse
+  claude-cli         off · search · browse
+  custom             off
+  openai-agents      off
+```
+
+`builtin_tools`, the older switch on `claude-agent-sdk`, is gone: a config that still sets
+it is refused by name, pointing here. Set `web: browse` (or `search`) instead.
+
+**What a run records.** Each search or page read is a tool call under `web` —
+`web_search`, `web_fetch`, or Claude Code's `WebSearch`, `WebFetch` — with the pages it
+returned as `web:<url>` refs, and the URLs the answer cites — search results and, on the
+Anthropic hosts, the fetched pages — join its citations. Claude Code's search results
+arrive as its own prose, so there only a fetched page is a ref. A failed call is a failed tool result, not a failed
+answer. A recording's header carries the scope, and `/scope` adds a new header.
+
+**Browsing with sources attached.** A page the agent reads is a request to an address it
+chose, and an address can carry what your sources said — a fetch is a way out as well as
+a way in. `intel doctor` warns when `browse` is on, sources are attached and no
+`allowed_domains` bounds where it may go. On the Claude Code runtimes, which cannot hold
+an allow-list, the only bound is `search` instead of `browse`: turn `browse` on there only
+with sources you would publish.
+
+---
+
 ## Scripting with `--json`
 
 Any streaming command takes `--json` and emits one event per line, envelope included:
@@ -619,10 +705,9 @@ runs the loop we wrote, and three hand the loop to a vendor's SDK while tools st
     under `~/.claude/projects/`. Switching runtime, host or model mid-conversation
     starts a fresh session with only the latest question.
   - **Options of its own:** `max_budget_usd` stops a run by cost, and every completed
-    turn reports its cost — the binary's own estimate. `builtin_tools: [WebSearch,
-    WebFetch]` opts into the binary's web tools; nothing else can be named. **WebFetch
-    can carry what your sources said to any URL**, so turn it on only for sources you
-    would publish. `cwd` and `cli_path` are as for `claude-cli`.
+    turn reports its cost — the binary's own estimate. `cwd` and `cli_path` are as for
+    `claude-cli`. Its web tools are turned on by `web:`, not by an option here — see
+    [research scope](#research-scope).
   - **Subagents** from the project's `agents/` directory run here and nowhere else —
     see [configuring a deployment](configuring-a-deployment.md#subagents).
   - **Two differences from `custom`:** a tool name the model invented, or arguments that
@@ -674,7 +759,6 @@ runtimes:
     model: claude-sonnet-5
     max_tool_rounds: 10
     max_budget_usd: 0.50     # optional — stops a run by cost
-    builtin_tools: [WebSearch]  # optional — WebSearch, WebFetch, nothing else
 ```
 
 The same block may be written by a project, under `agent:` — which is how a deployment

@@ -24,7 +24,7 @@ from . import config as config_module
 from . import project as project_module
 from . import subagents as subagents_module
 from .config import SourceSpec
-from .models import Skill
+from .models import Skill, WebScope
 
 #: One resolved view per process. `config.load()` is called up to four times in a single
 #: `/runtime` keystroke and three times in `doctor`; this is the fix for all of them.
@@ -45,6 +45,9 @@ class Settings:
     runtime: str | None = None
     runtimes: dict[str, dict[str, Any]] = field(default_factory=dict)
     approval: str = "ask"
+    #: How much of the open web a turn may reach. Layered like `approval`; a session
+    #: may narrow or widen it for itself without writing it anywhere.
+    web: WebScope = field(default_factory=lambda: WebScope())
     #: The deployment's voice and standing knowledge, as the project declared them. No
     #: user layer: a project is composition, and the engine writes only the user's own
     #: config — so there is nothing here for a later layer to win over.
@@ -151,6 +154,22 @@ def load(name: str | None = None) -> Settings:
         if config.approval != "ask"
         else ("project" if defaults.get("approval") else "engine")
     )
+
+    # A value that does not parse resolves to `off`, not to the layer beneath: a user
+    # narrowing a project's open `browse` with a mistyped domain must not get the open
+    # one. Reported, never fatal — `doctor` has to work on the machine that has it.
+    layer, raw = (
+        ("user", config.web)
+        if config.web is not None
+        else ("project", defaults["web"])
+        if defaults.get("web") is not None
+        else ("engine", None)
+    )
+    try:
+        settings.web = WebScope.parse(raw)
+    except ValueError as exc:
+        problems.append(f"{exc} ({layer}) — the web is off until it is fixed")
+    origin["web"] = layer
 
     settings.runtime = config.runtime or agent.get("runtime")
     origin["runtime"] = (

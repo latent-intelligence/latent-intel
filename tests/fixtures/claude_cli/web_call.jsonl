@@ -1,0 +1,7 @@
+{"type":"system","subtype":"init","session_id":"S","tools":["WebSearch","WebFetch"],"mcp_servers":[]}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_s","name":"WebSearch","input":{"query":"context compaction"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_s","content":[{"type":"text","text":"Web search results for query: \"context compaction\""}],"is_error":false}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_f","name":"WebFetch","input":{"url":"https://a.example.org/compaction","prompt":"summarise"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_f","content":[{"type":"text","text":"Compaction is lossy."}],"is_error":false}]}}
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"It is lossy."}}}
+{"type":"result","subtype":"success","is_error":false,"result":"It is lossy.","usage":{"input_tokens":8,"output_tokens":3}}
