@@ -1,0 +1,70 @@
+{
+  "format": "latent-wiki.store",
+  "format_version": 1,
+  "manifest_version": 1,
+  "contract_version": 1,
+  "store_id": "heronsgate",
+  "pack": "heronsgate",
+  "title": "Heronsgate",
+  "description": "A two-page wiki over a fixture context store, for the format tests.",
+  "run": "fixture-v1",
+  "config_digest": "sha256:a4689265d70f",
+  "generated": "2026-10-06",
+  "page_count": 2,
+  "pages_digest": "sha256:44d2052a59c9",
+  "pages": [
+    {
+      "key": "count-limpets",
+      "file": "count-limpets.md",
+      "lead": "Count every limpet in the pool at low tide.",
+      "frontmatter": {
+        "key": "count-limpets",
+        "type": "procedure",
+        "title": "Count limpets",
+        "captured": "2026-10-06",
+        "status": "draft",
+        "why": "The one step the fixture survey prescribes.",
+        "source_docs": [
+          "corpus:kelpmoor-ch01-pools"
+        ],
+        "step": 1,
+        "links": [
+          {
+            "to": "tide-pool",
+            "rel": "cites",
+            "derivation": "extracted"
+          }
+        ]
+      }
+    },
+    {
+      "key": "tide-pool",
+      "file": "tide-pool.md",
+      "lead": "A tide pool is water left behind on the shore when the tide goes out.",
+      "frontmatter": {
+        "key": "tide-pool",
+        "type": "concept",
+        "title": "Tide pool",
+        "captured": "2026-10-06",
+        "status": "active",
+        "why": "The habitat the fixture procedure surveys.",
+        "tags": [
+          "habitat"
+        ],
+        "aliases": [
+          "rock pool"
+        ],
+        "source_docs": [
+          "corpus:kelpmoor-ch01-pools"
+        ],
+        "links": [
+          {
+            "to": "count-limpets",
+            "rel": "cites",
+            "derivation": "inferred"
+          }
+        ]
+      }
+    }
+  ]
+}

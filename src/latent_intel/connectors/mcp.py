@@ -18,10 +18,10 @@ declare nothing. A tool with no annotation becomes `EXTERNAL_WRITE` with
 under-declared. That is the safe end of the guess, and it is recorded as a guess.
 
 **Point at the server, not at a wrapper.** `stdio_client` terminates the process it
-started. Give it `uv run … lw serve` and it kills `uv`, leaving the actual server as an
+started. Give it `uv run … <server>` and it kills `uv`, leaving the actual server as an
 orphan holding whatever file descriptors it inherited — measured, and it survives the
-client exiting. Give it the executable itself (`/path/.venv/bin/lw serve --store …`) and
-cleanup is exact. `lw serve --print-config` emits the direct form for this reason.
+client exiting. Give it the executable itself (`/path/.venv/bin/<server> …`) and cleanup
+is exact. `intel serve --print-config` emits the direct form for this reason.
 
 **The four keys a server registration carries, and what each becomes here.** `command`
 and `args` are the target, one string split with `shlex`. `env` is a list, each item a
@@ -176,8 +176,8 @@ class McpConnector:
                 (str(r.uri), r.name or str(r.uri), r.description or "")
                 for r in listed_resources.resources[:_LIST_LIMIT]
             ]
-            # Declaring the capability is not the same as having any. `lw serve`
-            # advertises `resources` and registers none, and claiming SEARCH there
+            # Declaring the capability is not the same as having any. A server may
+            # advertise `resources` and register none, and claiming SEARCH there
             # would put an always-empty heading in every result set.
             if self._resources:
                 self._capabilities.extend([Capability.SEARCH, Capability.FETCH])

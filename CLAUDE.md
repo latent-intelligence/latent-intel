@@ -4,8 +4,12 @@
 
 `latent-intel` is the access layer over heterogeneous context: an LLM-wiki
 (`latent-wiki`), a vector index (`latent-records`), a directory of markdown, and
-third-party MCP servers, reachable together. It is a *client* — `lw serve` is the server
-side and stays in `latent-wiki`.
+third-party MCP servers, reachable together. It is a client of every store, and the
+server for the stores we own: `intel serve --deployment X` exposes a deployment's wiki,
+context and files — with its persona, skills, commands and views — to any MCP client,
+over stdio or HTTP. `latent-wiki` produces stores and no longer serves them; third-party
+MCP servers are attached, never re-served. How it works: `serve_project.py`; the tool
+contract: [`docs/formats/wiki-tools.md`](docs/formats/wiki-tools.md).
 
 Three frontends are planned. Two exist: a scriptable Typer/Rich CLI and a keyboard-first
 `prompt_toolkit` shell. A web workbench comes later, and the whole design exists so that
@@ -44,14 +48,14 @@ packages it fronts. If a connector needs domain logic, the logic belongs upstrea
 the connector calls it.
 
 **But a client may not depend on the producer to read a published artifact.** A wiki
-store publishes a versioned format — `manifest.json` plus `pages/` — and
-`connectors/wiki.py` reads *that*, over fsspec, on a base install with no `latent-wiki`
-anywhere. Installing the engine, pointing a project at `s3://…` and having it work is
+store publishes a versioned format — `latent-wiki.store` v1, `manifest.json` plus
+`pages/`, paired with a `latent-wiki.context` v1 store — and `connectors/wiki.py` reads
+*that*, over fsspec, on a base install with no `latent-wiki` anywhere. Installing the engine, pointing a project at `s3://…` and having it work is
 the acceptance criterion; an install-time dependency on the package that *built* the
-store defeats it. The two measured ranking decisions (filter-before-rank, rank over the
-lead) are therefore reproduced in the connector with their reasons attached, and
-`manifest_version` is the guard: a store this build cannot read is refused loudly rather
-than misread quietly. The `wiki` extra remains, for one case only — an authoring machine
+store defeats it. The measured ranking decisions (filter before rank; rank over the
+gist, now with FTS5) live in the connector with their reasons attached, and the format
+stamp is the guard: a store this build cannot read — or one with no stamp — is refused
+loudly rather than misread quietly. The `wiki` extra remains, for one case only — an authoring machine
 reading a store that has never been published, which has no manifest to read.
 
 **Search never merges rankings across sources.** A lexical count and a vector cosine are

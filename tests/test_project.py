@@ -564,3 +564,69 @@ def test_subagents_resolve_against_the_project_file_not_the_cwd(
     missing = project.load(write(tmp_path / "other", "other", "agents: ./nowhere\n"))
     assert missing.agents == []
     assert any(problem.startswith("agents:") for problem in missing.problems)
+
+
+# -- serve and views ----------------------------------------------------------
+
+
+def test_unknown_top_level_key_is_a_problem(tmp_path: Path) -> None:
+    loaded = project.load(write(tmp_path, "p", "name: p\nserv:\n  transport: http\n"))
+    assert any("serv" in p and "unknown top-level" in p for p in loaded.problems)
+
+
+def test_serve_block_is_read_and_checked(tmp_path: Path) -> None:
+    loaded = project.load(
+        write(
+            tmp_path,
+            "p",
+            "serve:\n  transport: http\n  port: 8765\n  auth: {token_env: P_TOKEN}\n",
+        )
+    )
+    assert loaded.serve == {
+        "transport": "http",
+        "port": 8765,
+        "auth": {"token_env": "P_TOKEN"},
+    }
+    assert loaded.problems == []
+
+
+def test_a_bad_transport_is_refused_not_guessed(tmp_path: Path) -> None:
+    loaded = project.load(write(tmp_path, "p", "serve:\n  transport: sse\n"))
+    assert "transport" not in loaded.serve
+    assert any("serve.transport" in p for p in loaded.problems)
+
+
+def test_views_parse_and_unknown_kind_refused(tmp_path: Path) -> None:
+    loaded = project.load(
+        write(
+            tmp_path,
+            "p",
+            "views:\n"
+            "  - {name: steps, kind: tree, root_type: procedure, parent: part_of,\n"
+            "     order: step, fields: [roles]}\n"
+            "  - {name: map, kind: graph, root_type: x, parent: y}\n"
+            "  - {name: half, kind: tree, root_type: procedure}\n",
+        )
+    )
+    assert [v.name for v in loaded.views] == ["steps"]
+    assert loaded.views[0].fields == ("roles",)
+    assert any("views.map" in p and "graph" in p for p in loaded.problems)
+    assert any("views.half" in p for p in loaded.problems)
+
+
+def test_a_relative_context_resolves_against_the_project_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wiki's paired store is a place, like `cwd`; read against the cwd it breaks."""
+    loaded = project.load(
+        write(
+            tmp_path / "deploy",
+            "p",
+            "sources:\n  - {id: w, kind: wiki, target: ../store/wiki,\n"
+            "     options: {context: ../store/context, pattern: '**/*.md'}}\n",
+        )
+    )
+    monkeypatch.chdir(tmp_path.parent)
+    options = loaded.sources[0].options
+    assert options["context"] == str((tmp_path / "store" / "context").resolve())
+    assert options["pattern"] == "**/*.md"

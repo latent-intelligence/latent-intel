@@ -65,6 +65,8 @@ def store(tmp_path: Path) -> Path:
         ),
     ]
     manifest = {
+        "format": "latent-wiki.store",
+        "format_version": 1,
         "manifest_version": 1,
         "contract_version": 1,
         "store_id": "design",
@@ -228,8 +230,8 @@ async def test_filters_before_ranking(store: Path) -> None:
 async def test_key_and_title_outrank_prose(store: Path) -> None:
     hits = await connect(store).search("gist")
     assert hits[0].ref == "design:gist-ranking"
-    # key (5) + title (3) + one occurrence each in key, title and lead.
-    assert hits[0].score >= 8
+    assert hits[0].score > 0
+    assert {"key", "title"} <= set(hits[0].metadata["matched_on"])
 
 
 @pytest.mark.anyio
@@ -318,10 +320,13 @@ def test_raw_pages_a_long_source(store: Path, tmp_path: Path) -> None:
 def test_every_tool_declares_a_read_effect(store: Path) -> None:
     tools = connect(store).tools()
     assert {t.name for t in tools} == {
+        "wiki_overview",
+        "wiki_index",
         "wiki_search",
         "wiki_get",
         "wiki_neighbors",
         "wiki_trace",
+        "wiki_evidence",
         "wiki_raw",
     }
     assert all(t.effect.value == "external_read" for t in tools)

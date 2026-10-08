@@ -230,6 +230,47 @@ not turned on, a typo. A file missing a required field is reported and skipped.
 
 ---
 
+## Serving over MCP
+
+`intel serve --deployment X` gives a deployment to any MCP client — Claude Code, Claude
+Desktop, a Copilot-class workbench — from this same file. What is served:
+
+| from the project | becomes |
+|---|---|
+| `sources:` of our own kinds (`wiki` with `context:`, `files`, `code`) | the connectors' own tools — for a wiki, the ladder in [`formats/wiki-tools.md`](formats/wiki-tools.md) |
+| `agent.persona` | the server's instructions, followed by how to climb the ladder |
+| `skills/` | MCP skills (`skill://<name>/SKILL.md`, `skills/list`, `skills/get`), MCP prompts, and a `load_skill` tool |
+| `commands/` | MCP prompts |
+| `views:` | `wiki_view` and a `view://<name>` resource |
+
+A `kind: mcp` source — or a registry name that resolves to one — is **not** re-served: a
+client attaches that server directly. `--print-config` lists it beside ours.
+
+```yaml
+views:
+  - name: workflows        # a tree over frontmatter: the project names the fields
+    kind: tree
+    root_type: workflow
+    parent: part_of
+    order: step
+    fields: [level, roles, inputs, outputs]
+serve:
+  transport: stdio         # or http
+  auth: {token_env: MY_MCP_TOKEN}   # the variable's NAME; the token lives in the env
+```
+
+**Stdio** — the client starts the server. Get its config block with
+`intel serve -d X --print-config`, or for a machine with nothing installed,
+`--command "uvx --from git+https://…/latent-intel@<tag> intel"`.
+
+**HTTP** — you run it: `intel serve -d X --transport http --port 8765`. A bearer token,
+read from the variable named in `serve.auth.token_env`, is required on every request;
+without one the server refuses to start, unless `--insecure-local` on a loopback host.
+`--print-config --transport http` writes the client block with the token as `${VAR}`.
+Hosting it for others: `reference-architectures/deployments/mcp-on-aws.md`.
+
+---
+
 ## Checking it
 
 ```bash

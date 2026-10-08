@@ -1,0 +1,35 @@
+{
+  "format": "latent-wiki.work",
+  "format_version": 1,
+  "doc_id": "kelpmoor",
+  "sha256": "95b6b8985aab0478b99f80383c0141d646f4526fe90a288430d433a57c2f13bc",
+  "pages": 4,
+  "title": "Kelpmoor Survey Manual",
+  "outline": [
+    {
+      "level": 1,
+      "title": "Pools",
+      "page": 1
+    }
+  ],
+  "chapters": [
+    {
+      "file": "01-pools.md",
+      "pages": [
+        1,
+        4
+      ]
+    }
+  ],
+  "extraction": {
+    "format": "doc-intelligence",
+    "tool": "anydoc",
+    "fallback": null,
+    "versions": {},
+    "run_ids": [
+      "anydoc-default"
+    ],
+    "fallback_chapters": [],
+    "missing": []
+  }
+}
