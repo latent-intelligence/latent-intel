@@ -109,7 +109,7 @@ def test_an_unset_variable_is_a_named_problem_not_a_local_path(
     tmp_path: Path,
 ) -> None:
     """An unresolved `${VAR}` used to stay in the string, which the path rule then
-    joined to the project directory: `<project>/${LI_S3}/wikis/sbm`, a local path that
+    joined to the project directory: `<project>/${LI_S3}/wikis/w`, a local path that
     exists nowhere, reported much later as a store with no manifest. The source is
     skipped and the variable named, so the fix is one line in `vars:` or one export."""
     path = write(

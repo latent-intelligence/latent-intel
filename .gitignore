@@ -22,16 +22,19 @@ htmlcov/
 
 # Secrets — credentials never live beside configuration
 .env
+.env.*
 *.pem
+
+# Local agent instructions
+CLAUDE.local.md
 
 # Editors
 .vscode/
 .idea/
 .DS_Store
 
-# Local data — recorded sessions, caches, scratch stores.
-# Never versioned; see ../house-rules/paths.md.
+# Local data — recorded sessions, caches, scratch stores. Never versioned.
 /data
 
-# Design records, plans and working notes — private for now (house-rules/plans.md)
+# Design records, plans and working notes — private for now
 /docs/context/
