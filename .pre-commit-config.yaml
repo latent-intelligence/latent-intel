@@ -1,0 +1,15 @@
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        stages: [pre-commit]
+  - repo: local
+    hooks:
+      - id: gitleaks-commit-msg
+        name: gitleaks (commit message)
+        entry: bash -c 'gitleaks stdin --no-banner --redact < "$1"' --
+        language: system
+        stages: [commit-msg]
