@@ -406,7 +406,7 @@ def test_a_registry_entry_falls_back_to_its_mirror(
         f"    kind: wiki\n"
         f"    paths: {{root: {tmp_path}/absent, mirror: 's3://bucket/w'}}\n"
     )
-    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w")
+    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w/pages")
 
     # An empty directory is a placeholder, not a store. A synced folder leaves one on a
     # machine that never pulled the data, and a deployment that keeps no local copy by
@@ -414,13 +414,16 @@ def test_a_registry_entry_falls_back_to_its_mirror(
     local = tmp_path / "absent"
     local.mkdir()
     registry.clear_cache()
-    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w")
+    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w/pages")
 
     (local / "manifest.json").write_text("{}")  # now the local copy is really there
     registry.clear_cache()
-    assert registry.resolve("w", str(path)) == ("files", str(local))
+    assert registry.resolve("w", str(path)) == ("files", f"{local}/pages")
     # …and --remote still forces the mirror, which is how you check it is current.
-    assert registry.resolve("w", str(path), remote=True) == ("files", "s3://bucket/w")
+    assert registry.resolve("w", str(path), remote=True) == (
+        "files",
+        "s3://bucket/w/pages",
+    )
 
 
 def test_a_registered_wiki_is_served_by_lw_when_it_is_installed(

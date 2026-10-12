@@ -97,8 +97,9 @@ from a directory's contents would be wrong exactly when it matters:
 intel connect ~/knowledge/context/raw --kind files --as notes
 ```
 
-A registered wiki connects as `files`: its pages are Markdown. For a wiki's own tools —
-ranked search, evidence, views — attach its server instead, `lw serve`, as an MCP source.
+A registered wiki connects through its own server, `lw serve`, when `lw` is on `PATH`,
+and as `files` over its pages when it is not. Its own tools — ranked search, evidence,
+views — come only through the server, so attach it as an MCP source where they matter.
 The wiki and the material it summarises are a **pair**, and `--context` says so:
 
 ```yaml
@@ -145,16 +146,16 @@ published one is current:
 intel connect design-wiki --remote --as design
 ```
 
-A registered wiki connects through its own server, `lw serve`, when latent-wiki is
-installed (`uv tool install 'latent-wiki[serve]'`); without it, its pages connect as
-`files`. `intel stores` shows which kind each source became.
+A registered wiki connects through its own server, `lw serve`, when `lw` is on `PATH`
+(`uv tool install 'latent-wiki[serve]'`); without it, its pages connect as `files`.
+`intel stores` shows which kind each source became.
 
 **What is attached, and what else is reachable:**
 
 ```
 $ intel stores
 attached
-  handbook           wiki     148 pages      search fetch tools
+  handbook           mcp      157 items      search fetch tools
 
 available (intel connect <id>)
   manuals            files    Technical manuals — 11 volumes, 170 files
@@ -639,7 +640,7 @@ runs the loop we wrote, and three hand the loop to a vendor's SDK while tools st
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
-  MCP servers: `files` and `vector` are invisible to it.
+  MCP servers: `files` and `code` are served to it, `vector` is invisible to it.
 - **`custom`** runs the turn in this process, so our tool router runs and **every**
   attached source's tools are visible to it. One loop over any row in the table below:
   the **row carries the protocol**, so the same runtime reaches an Anthropic Messages
@@ -758,8 +759,9 @@ A model name is never validated here — we cannot enumerate them and a hardcode
 stale. An unknown name fails when you ask, with the runtime's own message.
 
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
-MCP servers, so under `claude-cli` only `mcp` and `wiki` sources are visible to it —
-`files` and `vector` run in this process and have no server to point at. `intel doctor`
+MCP servers, so under `claude-cli` an `mcp` source is reached as itself and a `files` or
+`code` source through a server this program starts for it — `vector` runs in this process
+and has no server to point at. `intel doctor`
 marks the difference under `attached`. Under `custom`, `anthropic-sdk`, `openai-agents`
 and `claude-agent-sdk` the distinction does not apply: the tool router is ours either
 way — whoever drives the loop — so everything attached is a tool.

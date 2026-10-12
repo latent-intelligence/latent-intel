@@ -232,7 +232,7 @@ class McpConnector:
             k for k, v in filters.items() if v not in (None, "", [], {})
         ):
             raise ConnectError(
-                f"{self.id}: an MCP resource listing has no fields to filter on "
+                f"an MCP resource listing has no fields to filter on "
                 f"({', '.join(given)}); ask the agent, which can use the server's tools"
             )
         needle = query.lower().strip()

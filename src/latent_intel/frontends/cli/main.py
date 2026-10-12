@@ -135,7 +135,8 @@ def connect(
     kind: str = typer.Option(
         None,
         "--kind",
-        help="files | code | mcp. Required for a raw path; a wiki is mcp (lw serve).",
+        help="files | code | mcp | vector. Required for a raw path; a wiki is mcp "
+        "(lw serve).",
     ),
     name: str = typer.Option(None, "--as", help="Attach it under a different id."),
     remote: bool = typer.Option(

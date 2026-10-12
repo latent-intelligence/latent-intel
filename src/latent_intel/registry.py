@@ -206,15 +206,18 @@ def resolve(
     wiki = entry.kind == "files" and entry.registry_kind == "wiki"
     if wiki and (served := served_wiki(target, source_id or name, context)):
         return "mcp", served
+    if wiki:
+        # Without `lw`, the pages and nothing else: a store root also holds its
+        # manifest, config, index and log, which are not pages.
+        target = f"{target.rstrip('/')}/pages"
     return entry.kind, target
 
 
 def served_wiki(store: str, source_id: str, context: str = "") -> str | None:
     """The `lw serve` command for a registered wiki, or None when `lw` is not installed.
 
-    A wiki's tools — ranked search, evidence, views — are its own server's. The
-    executable itself, not a wrapper, so the client's cleanup stops the real process.
-    `--id` makes the refs it prints the ones this client resolves (`<source>:<key>`).
+    A wiki's tools — ranked search, evidence, views — are its own server's. `--id`
+    makes the refs it prints the ones this client resolves (`<source>:<key>`).
     """
     lw = shutil.which("lw")
     if lw is None:
