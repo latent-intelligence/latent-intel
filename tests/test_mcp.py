@@ -494,3 +494,14 @@ async def test_a_filter_the_listing_cannot_apply_is_refused() -> None:
             await connector.search("retrieval", type="concept")
     finally:
         await connector.aclose()
+
+
+async def test_a_tool_s_input_schema_reaches_the_spec() -> None:
+    """The schema is what tells a model a tool's parameters; an empty one hides them."""
+    connector = await connect(build_server())
+    try:
+        echo = next(t for t in connector.tools() if t.name == "echo")
+    finally:
+        await connector.aclose()
+    assert echo.input_schema["properties"]["text"]["type"] == "string"
+    assert echo.input_schema["required"] == ["text"]

@@ -51,6 +51,7 @@ async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve() -> None:
         assert {"wiki_overview", "wiki_search", "wiki_get", "wiki_view"} <= set(tools)
         assert all(t.effect is Effect.EXTERNAL_READ for t in tools.values())
         assert all(t.effect_declared for t in tools.values())
+        assert tools["wiki_search"].input_schema["required"] == ["query"]
         answer = await connector.call("wiki_search", {"query": "limpets"})
         assert "cut:" in answer
         # Refs in tool output are this client's refs, so citations resolve.

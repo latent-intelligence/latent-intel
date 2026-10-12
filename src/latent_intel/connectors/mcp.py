@@ -508,7 +508,9 @@ def _tool_spec(source_id: str, tool: Any) -> ToolSpec:
         description=(getattr(tool, "description", "") or "").strip(),
         effect=effect,
         effect_declared=declared,
-        input_schema=getattr(tool, "inputSchema", None) or {},
+        # snake_case in SDK v2, like `is_error`: the camelCase name read nothing, so
+        # every tool reached a model with no parameters at all.
+        input_schema=getattr(tool, "input_schema", None) or {},
     )
 
 
