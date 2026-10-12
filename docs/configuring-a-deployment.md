@@ -235,7 +235,7 @@ skipped.
 
 A deployment's stores have their own servers, so another agent attaches them directly:
 in Claude Code, `claude mcp add design -- lw serve --deployment <latent-wiki deployment>`. `lw serve --transport http` serves a store behind a bearer token, for a
-shared host (`reference-architectures/deployments/mcp-on-aws.md`). The persona, skills
+shared host. The persona, skills
 and commands in this file are read by `intel ask` and the shell.
 
 ---
