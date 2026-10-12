@@ -124,8 +124,9 @@ intel get design:context-collapse
 
 A wiki is its own server, `lw serve`, attached like any MCP server. It brings the wiki's
 tools for `intel ask`, and lists each page so `intel search` and `intel get` reach it
-without a model. A deployment names its wiki, its context and its refs (`design:<key>`),
-so the client says nothing more. `--kind` is required for a path
+without a model. A deployment names its wiki and its context, so the client says nothing
+more; pages come back by their own key, and the `design:` in a citation is this client's
+label for the source, added here. `--kind` is required for a path
 or URI: guessing it from a directory's contents would be wrong exactly when it matters.
 
 Attached sources persist, because the CLI is a new process every time. `intel stores`

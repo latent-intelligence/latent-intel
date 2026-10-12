@@ -61,8 +61,9 @@ class Capability(StrEnum):
 
 
 class Ref(BaseModel):
-    """`source:key` — the same colon rule `latent-wiki` uses, so a reference means the
-    same thing in both programs."""
+    """`source:key` — this client's label for a source, then the key the source itself
+    uses. The label is added here and only here: no server prints it, so no server has
+    to know what it was attached as."""
 
     source_id: str
     key: str

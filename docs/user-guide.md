@@ -98,7 +98,7 @@ intel connect ~/knowledge/context/raw --kind files --as notes
 ```
 
 A registered wiki is reached through its own server, `lw serve`, and nothing else: its
-registry entry names the command (`access: mcp:lw serve --deployment <path> --id <name>`),
+registry entry names the command (`access: mcp:lw serve --deployment <path>`),
 or you attach the command directly, as above. This program never builds that command.
 The wiki and the material it summarises are a **pair**, and `--deployment` carries both:
 
@@ -113,12 +113,13 @@ The pairing is what lets `wiki_raw` escalate from a page to the source it derive
 Leave it out and every other tool still works — only that escalation reports it has
 nothing to read. The tools are latent-wiki's `docs/formats/wiki-tools.md`.
 
-`--deployment` takes the deployment's wiki, its context and its name from latent-wiki's
-own declaration, so refs read `design:<key>` — the refs this client opens — when the source
-id matches the deployment's name. Serving a bare store instead, `lw serve --store <wiki>
---context <context> --id design` says the same three things by hand. A registered wiki
-records one of these as its `access:` line. A relative path resolves against the directory
-the server starts in;
+`--deployment` takes the deployment's wiki and its context from latent-wiki's own
+declaration. Serving a bare store instead, `lw serve --store <wiki> --context <context>`
+says the same two things by hand. A registered wiki records one of these as its `access:`
+line. The server names pages by their bare key and knows nothing about this client; the
+`design:` in a citation is added here, from the id you attached the source under, so
+rename a source freely. A relative path resolves against the directory the server starts
+in;
 give the source `cwd: .` to start it beside the project file.
 
 **A codebase** is `--kind code`: the repository's own files, read as text.
@@ -148,9 +149,9 @@ intel connect design-wiki --remote --as design
 ```
 
 A registered wiki connects through the server its entry names (`access: mcp:lw serve
---deployment <path> --id <name>`), attached under the name its `--id` gives so refs
-resolve; `--remote` does not apply, since the command chooses the store. An entry
-without that line is listed as not connectable, and `connect` says which line to add.
+--deployment <path>`), under any id you like; `--remote` does not apply, since the command
+chooses the store. An entry without that line is listed as not connectable, and `connect`
+says which line to add.
 
 **What is attached, and what else is reachable:**
 
