@@ -33,7 +33,7 @@ uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/
 Sources are attached one at a time and recorded in your own config. The can be local, remote, or both. 
 
 ```
-intel connect "lw serve --store s3://<bucket>/wikis/design --id design" --kind mcp --as design
+intel connect "lw serve --store s3://<bucket>/wikis/design" --kind mcp --as design
   ✓ mcp     design    …            [tools search fetch]
 
 $ intel connect ~/knowledge/raw --kind files --as manuals
@@ -65,7 +65,7 @@ branding:
 sources:
   - id: design                  # a wiki, through its own server
     kind: mcp
-    target: "lw serve --store s3://<bucket>/wikis/design --id design"
+    target: "lw serve --store s3://<bucket>/wikis/design"
   - id: notes
     kind: files
     target: ~/knowledge/raw
