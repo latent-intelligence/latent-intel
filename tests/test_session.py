@@ -395,7 +395,7 @@ def test_unknown_registry_id_lists_what_is_known(tmp_path: Path) -> None:
 def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
     """Registry paths are machine-specific. A Drive path that exists on a laptop does
     not exist on a build host, so preferring local unconditionally makes every entry
-    unusable anywhere else."""
+    unusable anywhere else. A registry wiki is read as files: its pages are Markdown."""
     path = tmp_path / "stores.yaml"
     path.write_text(
         f"stores:\n"
@@ -403,7 +403,7 @@ def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
         f"    kind: wiki\n"
         f"    paths: {{root: {tmp_path}/absent, mirror: 's3://bucket/w'}}\n"
     )
-    assert registry.resolve("w", str(path)) == ("wiki", "s3://bucket/w")
+    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w")
 
     # An empty directory is a placeholder, not a store. A synced folder leaves one on a
     # machine that never pulled the data, and a deployment that keeps no local copy by
@@ -411,13 +411,13 @@ def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
     local = tmp_path / "absent"
     local.mkdir()
     registry.clear_cache()
-    assert registry.resolve("w", str(path)) == ("wiki", "s3://bucket/w")
+    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w")
 
     (local / "manifest.json").write_text("{}")  # now the local copy is really there
     registry.clear_cache()
-    assert registry.resolve("w", str(path)) == ("wiki", str(local))
+    assert registry.resolve("w", str(path)) == ("files", str(local))
     # …and --remote still forces the mirror, which is how you check it is current.
-    assert registry.resolve("w", str(path), remote=True) == ("wiki", "s3://bucket/w")
+    assert registry.resolve("w", str(path), remote=True) == ("files", "s3://bucket/w")
 
 
 def test_remote_without_a_mirror_says_what_to_do(tmp_path: Path) -> None:

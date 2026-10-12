@@ -5,11 +5,12 @@ process and cannot call our in-process Python. It reaches a source only as an MC
 server. This module is that server, and it works for every connector kind the
 client can already read.
 
-**Why it lives here rather than shelling to another package's CLI.** `WikiConnector`
-used to return `shutil.which("lw")` as its launch spec, so a store this client reads
-perfectly became invisible to the agent whenever a *different* package's console script
-was absent from `PATH`. That is a failure the operator did not cause and cannot see: the
-config is right, `search` works, and only `ask` is quietly answering without the source.
+**Why it lives here rather than shelling to another package's CLI.** The wiki connector
+(since removed) used to return `shutil.which("lw")` as its launch spec, so a store this
+client read perfectly became invisible to the agent whenever a *different* package's
+console script was absent from `PATH`. That is a failure the operator did not cause
+and cannot see: the config is right, `search` works, and only `ask` is quietly
+answering without the source.
 It fired for real — `uv tool install .` drops a `--with` sibling, and `uv tool install`
 links only the *main* package's entry points, so `lw` existed in the tool environment
 and still was not on `PATH`.
@@ -121,7 +122,7 @@ def build_server(connector: Any) -> Any:
 def add_tools(server: Any, connector: Any, prefix: str = "") -> list[str]:
     """Register a connector's own tools on `server`, optionally prefixed. Returns names.
 
-    One place for the annotation rule, shared by this server and `serve_project`.
+    One place for the annotation rule.
     """
     from mcp.types import ToolAnnotations
 

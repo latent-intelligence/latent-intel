@@ -1253,7 +1253,6 @@ dependencies = [
     { name = "s3fs" },
     { name = "typer" },
     { name = "universal-pathlib" },
-    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -1304,7 +1303,6 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "universal-pathlib", specifier = ">=0.2" },
-    { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["openai-agents", "claude-agent-sdk", "all", "dev"]
 

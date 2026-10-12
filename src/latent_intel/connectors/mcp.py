@@ -1,9 +1,9 @@
 """Any MCP server — the connector that makes this program a host.
 
-This is the one connector for things we do not own: a GitHub server, Context7, a
-client's internal server. Our own stores are reached directly instead (`wiki.py` imports
-`latent_wiki`), because a subprocess and a tool-schema round trip buy nothing when the
-code is already importable, and typed `Hit` objects beat text blobs.
+This is how latent-intel reaches any MCP server: a GitHub server, Context7, a client's
+internal server — and our own stores, through their adapters (`lw serve`,
+`latent-records serve`). latent-intel reads no store's format itself; a store owns its
+capability, and this client connects to it like any other.
 
 **Capabilities come from the server's declared capabilities, never from tool names.**
 A server advertising `tools` is a `ToolProvider`; one advertising `resources` is also
