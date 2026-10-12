@@ -86,7 +86,7 @@ name is enough. Point at one with `KNOWLEDGE_REGISTRY`, or let a project carry i
 
 ```
 $ intel connect handbook-wiki --as handbook
-✓ files  handbook  148 files  search fetch tools
+✓ mcp  handbook  157 items  search fetch tools
 recorded in ~/.config/latent-intel/config.yaml
 ```
 
@@ -97,10 +97,10 @@ from a directory's contents would be wrong exactly when it matters:
 intel connect ~/knowledge/context/raw --kind files --as notes
 ```
 
-A registered wiki connects through its own server, `lw serve`, when `lw` is on `PATH`,
-and as `files` over its pages when it is not. Its own tools — ranked search, evidence,
-views — come only through the server, so attach it as an MCP source where they matter.
-The wiki and the material it summarises are a **pair**, and `--context` says so:
+A registered wiki is reached through its own server, `lw serve`, and nothing else: its
+registry entry names the command (`access: mcp:lw serve --deployment <path> --id <name>`),
+or you attach the command directly, as above. This program never builds that command.
+The wiki and the material it summarises are a **pair**, and `--deployment` carries both:
 
 ```yaml
 sources:
@@ -116,8 +116,9 @@ nothing to read. The tools are latent-wiki's `docs/formats/wiki-tools.md`.
 `--deployment` takes the deployment's wiki, its context and its name from latent-wiki's
 own declaration, so refs read `design:<key>` — the refs this client opens — when the source
 id matches the deployment's name. Serving a bare store instead, `lw serve --store <wiki>
---context <context> --id design` says the same three things by hand. A registered wiki gets
-this automatically. A relative path resolves against the directory the server starts in;
+--context <context> --id design` says the same three things by hand. A registered wiki
+records one of these as its `access:` line. A relative path resolves against the directory
+the server starts in;
 give the source `cwd: .` to start it beside the project file.
 
 **A codebase** is `--kind code`: the repository's own files, read as text.
@@ -146,9 +147,10 @@ published one is current:
 intel connect design-wiki --remote --as design
 ```
 
-A registered wiki connects through its own server, `lw serve`, when `lw` is on `PATH`
-(`uv tool install 'latent-wiki[serve]'`); without it, its pages connect as `files`.
-`intel stores` shows which kind each source became.
+A registered wiki connects through the server its entry names (`access: mcp:lw serve
+--deployment <path> --id <name>`), attached under the name its `--id` gives so refs
+resolve; `--remote` does not apply, since the command chooses the store. An entry
+without that line is listed as not connectable, and `connect` says which line to add.
 
 **What is attached, and what else is reachable:**
 
@@ -571,8 +573,12 @@ The config is plain YAML and safe to edit:
 ```yaml
 sources:
 - id: design          # a registered store, re-resolved wherever this is read
+  kind: mcp
+  from: design-wiki   # its registry entry names the server command
+
+- id: manuals
   kind: files
-  from: design-wiki
+  from: manuals
   remote: true        # prefer the mirror over any local copy
 
 - id: notes           # a literal path, kept exactly as typed

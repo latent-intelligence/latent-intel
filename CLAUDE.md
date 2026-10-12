@@ -49,7 +49,8 @@ the connector calls it.
 its capability (workspace ADR-001): latent-wiki's ranking, evidence and views live in
 `lw serve`, latent-records' embedding and exact match in `latent-records serve`. This
 package imports neither and reads neither format; it connects to the server. Without a
-server, a wiki's pages are Markdown, and the generic `files` connector reads them.
+server, a wiki's pages are Markdown, and the generic `files` connector can read them
+if pointed at `pages/`, with none of the wiki's tools.
 
 **Search never merges rankings across sources.** A lexical count and a vector cosine are
 different quantities. `find` returns `{source_id: [Hit]}`, `run(Find(...))` emits one

@@ -63,6 +63,7 @@ async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve() -> None:
         hits = await connector.search("limpets")
         assert "heron:count-limpets" in [h.ref for h in hits]
         page = await connector.fetch("count-limpets")
-        assert page.body.startswith("Count limpets")
+        assert page.body.startswith("---\n")  # the page as written, not a rendering
+        assert "Count limpets" in page.body
     finally:
         await connector.aclose()

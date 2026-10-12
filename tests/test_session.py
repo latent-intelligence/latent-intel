@@ -392,85 +392,72 @@ def test_unknown_registry_id_lists_what_is_known(tmp_path: Path) -> None:
         registry.resolve("gamma", str(path))
 
 
-def test_a_registry_entry_falls_back_to_its_mirror(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
     """Registry paths are machine-specific. A Drive path that exists on a laptop does
     not exist on a build host, so preferring local unconditionally makes every entry
-    unusable anywhere else. Without `lw`, a registry wiki is read as files."""
-    monkeypatch.setattr("shutil.which", lambda name: None)
+    unusable anywhere else."""
     path = tmp_path / "stores.yaml"
     path.write_text(
         f"stores:\n"
         f"  - id: w\n"
-        f"    kind: wiki\n"
+        f"    kind: markdown-vault\n"
         f"    paths: {{root: {tmp_path}/absent, mirror: 's3://bucket/w'}}\n"
     )
-    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w/pages")
+    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w")
 
     # An empty directory is a placeholder, not a store. A synced folder leaves one on a
     # machine that never pulled the data, and a deployment that keeps no local copy by
-    # design has exactly that — it must still reach the mirror.
+    # design has nothing else there.
     local = tmp_path / "absent"
     local.mkdir()
     registry.clear_cache()
-    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w/pages")
+    assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w")
 
     (local / "manifest.json").write_text("{}")  # now the local copy is really there
     registry.clear_cache()
-    assert registry.resolve("w", str(path)) == ("files", f"{local}/pages")
+    assert registry.resolve("w", str(path)) == ("files", str(local))
     # …and --remote still forces the mirror, which is how you check it is current.
-    assert registry.resolve("w", str(path), remote=True) == (
-        "files",
-        "s3://bucket/w/pages",
-    )
+    assert registry.resolve("w", str(path), remote=True) == ("files", "s3://bucket/w")
 
 
-def test_a_registered_wiki_is_served_by_lw_when_it_is_installed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_registered_wiki_is_reached_only_through_the_server_it_names(
+    tmp_path: Path,
 ) -> None:
-    """The wiki's own tools, implicitly: no project or registry change needed."""
-    monkeypatch.setattr("shutil.which", lambda name: f"/opt/bin/{name}")
-    path = tmp_path / "stores.yaml"
-    path.write_text(
-        "stores:\n  - {id: w, kind: wiki, paths: {mirror: 's3://bucket/w'}}\n"
-    )
-    registry.clear_cache()
-    assert registry.resolve("w", str(path)) == (
-        "mcp",
-        "/opt/bin/lw serve --store s3://bucket/w --id w",
-    )
-
-
-def test_a_registered_wiki_carries_its_context_to_lw_serve(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("shutil.which", lambda name: f"/opt/bin/{name}")
+    """This client builds no server command: a wiki entry records one, or is not
+    connectable, and the message says which line to add."""
     path = tmp_path / "stores.yaml"
     path.write_text("stores:\n  - {id: w, kind: wiki, paths: {mirror: 's3://b/w'}}\n")
     registry.clear_cache()
-    assert registry.resolve(
-        "w", str(path), source_id="design", context="s3://b/ctx"
-    ) == ("mcp", "/opt/bin/lw serve --store s3://b/w --id design --context s3://b/ctx")
+    with pytest.raises(ConnectError, match="access: mcp:lw serve --deployment"):
+        registry.resolve("w", str(path))
 
 
-def test_a_wiki_registered_with_its_own_server_keeps_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("shutil.which", lambda name: f"/opt/bin/{name}")
+def test_a_wiki_registered_with_its_own_server_keeps_it(tmp_path: Path) -> None:
+    """…and --remote is refused rather than ignored: the command chooses the store."""
     path = tmp_path / "stores.yaml"
     path.write_text(
         "stores:\n  - {id: w, kind: wiki, access: 'mcp:wiki-server --ro'}\n"
     )
     registry.clear_cache()
     assert registry.resolve("w", str(path)) == ("mcp", "wiki-server --ro")
+    with pytest.raises(ConnectError, match="remove --remote"):
+        registry.resolve("w", str(path), remote=True)
+
+
+def test_a_wiki_without_a_server_says_so_even_under_remote(tmp_path: Path) -> None:
+    """The useful message first: a mirror would not make it connectable."""
+    path = tmp_path / "stores.yaml"
+    path.write_text("stores:\n  - {id: w, kind: wiki, paths: {root: /nowhere}}\n")
+    registry.clear_cache()
+    with pytest.raises(ConnectError, match="access: mcp:lw serve"):
+        registry.resolve("w", str(path), remote=True)
 
 
 def test_remote_without_a_mirror_says_what_to_do(tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
     path = tmp_path / "stores.yaml"
     path.write_text(
-        f"stores:\n  - {{id: w, kind: wiki, paths: {{root: {tmp_path}/a}}}}\n"
+        f"stores:\n  - {{id: w, kind: markdown-vault, paths: {{root: {tmp_path}/a}}}}\n"
     )
     with pytest.raises(ConnectError, match="declares no mirror"):
         registry.resolve("w", str(path), remote=True)

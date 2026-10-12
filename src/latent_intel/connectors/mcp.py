@@ -76,6 +76,12 @@ _ENV_REF = re.compile(r"\$\{(\w+)\}")
 _LIST_LIMIT = 500
 
 
+#: How much of a server's own instructions this client keeps. They reach the system
+#: prompt, and a third-party server is not the author of that prompt: a sentence or two
+#: says what it holds, and anything longer is cut.
+INSTRUCTIONS_MAX = 500
+
+
 class McpConnector:
     """One MCP server, connected for the life of the session."""
 
@@ -96,6 +102,14 @@ class McpConnector:
         #: no subprocess, which is how the tests here work and how an embedded server
         #: would.
         self.target = target if not isinstance(target, str) else str(target)
+        if options:
+            # Nothing else is read here, and an option that configures nothing would
+            # leave a source believing it was configured (a wiki's context, say, which
+            # is the server's own --deployment or --context).
+            raise ConnectError(
+                f"{source_id}: an MCP source takes env and cwd; "
+                f"{', '.join(sorted(options))} would configure nothing"
+            )
         self.options = options
         self._stack: AsyncExitStack | None = None
         self._client: Client | None = None
@@ -167,7 +181,9 @@ class McpConnector:
         declared = self._client.server_capabilities
         # What the server says it is. A model asked the topic of an attached store made
         # no tool call and said it could not tell when nothing in its prompt said.
-        self._instructions = str(self._client.instructions or "").strip()
+        self._instructions = str(self._client.instructions or "").strip()[
+            :INSTRUCTIONS_MAX
+        ]
         info = self._client.server_info
         self._server_title = str(
             (getattr(info, "title", None) or getattr(info, "name", None) or "")

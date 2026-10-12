@@ -17,8 +17,6 @@ failing to start — the same reason `lw serve` will not start without `--store`
 from __future__ import annotations
 
 import os
-import shlex
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -38,9 +36,9 @@ ENV_VAR = "KNOWLEDGE_REGISTRY"
 #: Registry `kind` -> our connector kind. A registry entry we cannot map is listed but
 #: not connectable, which is more useful than hiding it.
 KIND_MAP = {
-    # A wiki is served by its own adapter, `lw serve`, when it is installed; without
-    # it a wiki's pages are Markdown, read as files. See `served_wiki`.
-    "wiki": "files",
+    # A wiki is not here: it is reached through its own server, `lw serve`, which its
+    # entry names as `access: mcp:<command>`. This client builds no server command and
+    # reads no store's format, so a wiki entry without that line is not connectable.
     "context-store": "files",
     "markdown-vault": "files",
 }
@@ -172,17 +170,9 @@ def load(explicit: str | None = None) -> dict[str, Entry]:
 
 
 def resolve(
-    name: str,
-    explicit: str | None = None,
-    *,
-    remote: bool = False,
-    source_id: str = "",
-    context: str = "",
+    name: str, explicit: str | None = None, *, remote: bool = False
 ) -> tuple[str, str]:
     """Map a registered id to `(kind, target)`.
-
-    `source_id` and `context` matter only for a wiki served by `lw serve`: refs then
-    carry the name the source is attached as, and evidence reaches its context store.
 
     Raises with the list of what *is* registered — a typo'd id is the common case, and
     the useful answer is the neighbouring correct one.
@@ -192,6 +182,18 @@ def resolve(
     if entry is None:
         known = ", ".join(sorted(entries)) or "nothing registered"
         raise ConnectError(f"no store '{name}' in the registry (known: {known})")
+    if entry.registry_kind == "wiki" and not entry.kind:
+        raise ConnectError(
+            f"'{name}' is a wiki, which is reached through its own server: add "
+            f"`access: mcp:lw serve --deployment <path> --id {name}` to its registry "
+            f"entry (the --id is the name it is attached as), or attach the command "
+            f"directly with --kind mcp"
+        )
+    if remote and entry.access.startswith("mcp:"):
+        raise ConnectError(
+            f"'{name}' is reached through its server (`access:`), which chooses its "
+            f"own store — remove --remote"
+        )
     target = entry.target(remote=remote)
     if remote and not target:
         raise ConnectError(
@@ -203,26 +205,4 @@ def resolve(
             f"'{name}' is registered as kind '{entry.registry_kind}' with no path this "
             f"build can connect to — point at it directly instead"
         )
-    wiki = entry.kind == "files" and entry.registry_kind == "wiki"
-    if wiki and (served := served_wiki(target, source_id or name, context)):
-        return "mcp", served
-    if wiki:
-        # Without `lw`, the pages and nothing else: a store root also holds its
-        # manifest, config, index and log, which are not pages.
-        target = f"{target.rstrip('/')}/pages"
     return entry.kind, target
-
-
-def served_wiki(store: str, source_id: str, context: str = "") -> str | None:
-    """The `lw serve` command for a registered wiki, or None when `lw` is not installed.
-
-    A wiki's tools — ranked search, evidence, views — are its own server's. `--id`
-    makes the refs it prints the ones this client resolves (`<source>:<key>`).
-    """
-    lw = shutil.which("lw")
-    if lw is None:
-        return None
-    argv = [lw, "serve", "--store", store, "--id", source_id]
-    if context:
-        argv += ["--context", expand(context)]
-    return shlex.join(argv)
