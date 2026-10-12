@@ -2,14 +2,12 @@
 
 ## Project
 
-`latent-intel` is the access layer over heterogeneous context: an LLM-wiki
-(`latent-wiki`), a vector index (`latent-records`), a directory of markdown, and
-third-party MCP servers, reachable together. It is a client of every store, and the
-server for the stores we own: `intel serve --deployment X` exposes a deployment's wiki,
-context and files — with its persona, skills, commands and views — to any MCP client,
-over stdio or HTTP. `latent-wiki` produces stores and no longer serves them; third-party
-MCP servers are attached, never re-served. How it works: `serve_project.py`; the tool
-contract: [`docs/formats/wiki-tools.md`](docs/formats/wiki-tools.md).
+`latent-intel` is a client over heterogeneous context: an LLM-wiki (`latent-wiki`), a
+vector index (`latent-records`), a directory of markdown, a codebase, and any MCP server,
+reachable together with a deployment's persona, skills and commands. It is a client of
+every store and the server of none: a store is reached through its own MCP adapter
+(`lw serve`, `latent-records serve`) as a `kind: mcp` source, like any other server. The
+wiki tools' contract is latent-wiki's `docs/formats/wiki-tools.md`.
 
 Three frontends are planned. Two exist: a scriptable Typer/Rich CLI and a keyboard-first
 `prompt_toolkit` shell. A web workbench comes later, and the whole design exists so that
@@ -47,16 +45,11 @@ does not embed anything, does not decide what a wiki page means. Those belong to
 packages it fronts. If a connector needs domain logic, the logic belongs upstream and
 the connector calls it.
 
-**But a client may not depend on the producer to read a published artifact.** A wiki
-store publishes a versioned format — `latent-wiki.store` v1, `manifest.json` plus
-`pages/`, paired with a `latent-wiki.context` v1 store — and `connectors/wiki.py` reads
-*that*, over fsspec, on a base install with no `latent-wiki` anywhere. Installing the engine, pointing a project at `s3://…` and having it work is
-the acceptance criterion; an install-time dependency on the package that *built* the
-store defeats it. The measured ranking decisions (filter before rank; rank over the
-gist, now with FTS5) live in the connector with their reasons attached, and the format
-stamp is the guard: a store this build cannot read — or one with no stamp — is refused
-loudly rather than misread quietly. The `wiki` extra remains, for one case only — an authoring machine
-reading a store that has never been published, which has no manifest to read.
+**A client depends on a store's adapter, never on its code or its format.** A store owns
+its capability (workspace ADR-001): latent-wiki's ranking, evidence and views live in
+`lw serve`, latent-records' embedding and exact match in `latent-records serve`. This
+package imports neither and reads neither format; it connects to the server. Without a
+server, a wiki's pages are Markdown, and the generic `files` connector reads them.
 
 **Search never merges rankings across sources.** A lexical count and a vector cosine are
 different quantities. `find` returns `{source_id: [Hit]}`, `run(Find(...))` emits one
@@ -141,8 +134,8 @@ vocabulary free to change without touching a single connector.
 1. `just check` is clean: ruff, `mypy --strict`, `lint-imports`, pytest.
 2. Every recorded event round-trips through JSON with its envelope intact.
 3. A fabricated event `type` renders through both frontends rather than raising.
-4. The base install reads a published wiki, local or `s3://`, with `latent_wiki`
-   unimportable — `tests/test_wiki.py` forces that rather than trusting the machine.
-   Only an unpublished store needs the extra, and says so by naming both ways out.
+4. No module in `src/` reads a store's format (`manifest.json`, `wiki.yaml`,
+   `context-store.yaml`), and the suite passes with `latent_wiki` unimportable; a wiki is
+   reached through `lw serve` (`tests/test_wiki_over_mcp.py`, skipped without it).
 5. `intel search --json | parse_event` yields no `UnknownEvent` — the guarantee the web
    client will depend on, checked against live output rather than fixtures alone.

@@ -40,17 +40,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# No extra pulls a sibling package. `latent-wiki` and `latent-records` are not published,
-# so declaring them here promised an install nobody could perform: `latent-intel[wiki]`
-# failed to resolve off any checkout but this workspace, and the local-path pins that made
-# it work here put an unresolvable entry in `uv.lock` — which broke plain `uv sync`, and
-# with it `just check`, for every clone that had no siblings beside it.
-#
-# The authoring machine gets the sibling by path instead, which needs no metadata:
-#
-#     uv tool install . --with ../latent-wiki
-#
-# Reading a published store never needed it. See `connectors/wiki.py`.
+# No extra pulls a sibling package. A store is reached through its own MCP server
+# (`lw serve`, `latent-records serve`), installed beside this one, never imported.
 #
 # Each remaining extra is named after the one runtime it enables, so the remedy a
 # runtime prints and the extra that fixes it are the same word.
@@ -136,11 +127,8 @@ python_version = "3.11"
 strict = true
 files = ["src/latent_intel"]
 
-# `latent_wiki` and `latent_records` are optional siblings, imported inside a guarded
-# block and absent from any clone that does not have them beside it. Without this, the
-# type check passes only on the authoring machine.
 [[tool.mypy.overrides]]
-module = ["mcp.*", "latent_wiki.*", "latent_records.*", "s3fs.*"]
+module = ["mcp.*", "s3fs.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

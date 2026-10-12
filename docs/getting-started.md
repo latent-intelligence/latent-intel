@@ -146,7 +146,7 @@ Bare `intel` opens it, and it is the primary way in.
 ```
 latent › search progressive disclosure
 latent › /use design
-latent › open progressive-disclosure
+latent › open design:progressive-disclosure
 latent › /tools
 ```
 
