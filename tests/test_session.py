@@ -435,8 +435,20 @@ def test_a_registered_wiki_is_served_by_lw_when_it_is_installed(
     registry.clear_cache()
     assert registry.resolve("w", str(path)) == (
         "mcp",
-        "/opt/bin/lw serve --store s3://bucket/w",
+        "/opt/bin/lw serve --store s3://bucket/w --id w",
     )
+
+
+def test_a_registered_wiki_carries_its_context_to_lw_serve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("shutil.which", lambda name: f"/opt/bin/{name}")
+    path = tmp_path / "stores.yaml"
+    path.write_text("stores:\n  - {id: w, kind: wiki, paths: {mirror: 's3://b/w'}}\n")
+    registry.clear_cache()
+    assert registry.resolve(
+        "w", str(path), source_id="design", context="s3://b/ctx"
+    ) == ("mcp", "/opt/bin/lw serve --store s3://b/w --id design --context s3://b/ctx")
 
 
 def test_a_wiki_registered_with_its_own_server_keeps_it(

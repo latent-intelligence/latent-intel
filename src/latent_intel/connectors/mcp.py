@@ -21,7 +21,7 @@ under-declared. That is the safe end of the guess, and it is recorded as a guess
 started. Give it `uv run … <server>` and it kills `uv`, leaving the actual server as an
 orphan holding whatever file descriptors it inherited — measured, and it survives the
 client exiting. Give it the executable itself (`/path/.venv/bin/<server> …`) and cleanup
-is exact. `intel serve --print-config` emits the direct form for this reason.
+is exact. `lw serve --print-config` emits the direct form for this reason.
 
 **The four keys a server registration carries, and what each becomes here.** `command`
 and `args` are the target, one string split with `shlex`. `env` is a list, each item a
@@ -103,6 +103,8 @@ class McpConnector:
         self._tools: list[ToolSpec] = []
         self._resources: list[tuple[str, str, str]] = []
         self._capabilities: list[Capability] = []
+        self._instructions = ""
+        self._server_title = ""
         self._errlog: TextIO | None = None
 
     # -- lifecycle ------------------------------------------------------------
@@ -164,6 +166,15 @@ class McpConnector:
         """One round trip per capability, at connect time rather than per query."""
         assert self._client is not None
         declared = self._client.server_capabilities
+        # What the server says it is. A model asked the topic of an attached store made
+        # no tool call and said it could not tell when nothing in its prompt said.
+        self._instructions = str(self._client.instructions or "").strip()
+        info = self._client.server_info
+        self._server_title = str(
+            (getattr(info, "title", None) or getattr(info, "name", None) or "")
+            if info is not None
+            else ""
+        )
 
         if declared is not None and declared.tools is not None:
             listed = await self._client.list_tools()
@@ -195,11 +206,13 @@ class McpConnector:
         return Descriptor(
             id=self.id,
             kind=self.kind,
-            title=str(self.target),
+            title=self._server_title or str(self.target),
             capabilities=list(self._capabilities),
             count=len(self._tools) + len(self._resources) or None,
             unit="items",
             detail={
+                # The first paragraph of the server's own instructions: what it holds.
+                "description": self._instructions.split("\n\n", 1)[0],
                 "server": str(self.target),
                 "tools": len(self._tools),
                 "resources": len(self._resources),
@@ -210,12 +223,19 @@ class McpConnector:
         )
 
     async def search(self, query: str, *, limit: int = 10, **filters: Any) -> list[Hit]:
-        """Substring match over the resource listing.
+        """Substring match over the resource listing. Filters are refused, not ignored.
 
         Deliberately shallow: MCP gives a name and a description per resource, not a
         body, so there is nothing deeper to rank on without reading every resource —
         which would be one request each and is what `fetch` is for.
         """
+        if given := sorted(
+            k for k, v in filters.items() if v not in (None, "", [], {})
+        ):
+            raise ConnectError(
+                f"{self.id}: an MCP resource listing has no fields to filter on "
+                f"({', '.join(given)}); ask the agent, which can use the server's tools"
+            )
         needle = query.lower().strip()
         if not needle or not self._resources:
             return []

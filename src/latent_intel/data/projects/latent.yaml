@@ -40,7 +40,7 @@ description: >
 #
 # sources:
 #   - {id: wiki,  kind: mcp,   target: "lw serve --store ${MIRROR}/wikis/design
-#                                        --context ${MIRROR}/knowledge/context"}
+#                                        --context ${MIRROR}/knowledge/context --id wiki"}
 #   - {id: pages, kind: files, target: "${MIRROR}/wikis/design/pages"}
 #   - {id: named, kind: files, from: design-wiki, remote: true}
 #   - {id: docs,  kind: files, target: "${MIRROR}/context/raw"}

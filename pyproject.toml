@@ -140,7 +140,7 @@ root_package = "latent_intel"
 
 [[tool.importlinter.contracts]]
 # The rule that keeps a web frontend an addition rather than a rewrite. Without it, the
-# first convenient `from ...connectors.wiki import` quietly ends the design — and it
+# first convenient `from ...connectors.files import` quietly ends the design — and it
 # would still pass every test, which is why this is enforced rather than documented.
 name = "Frontends see only the Session API, the event models and the renderer"
 type = "forbidden"

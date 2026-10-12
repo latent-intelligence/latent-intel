@@ -144,8 +144,14 @@ class Session:
         would be wrong exactly when it matters.
         """
         if kind is None:
-            kind, target = registry.resolve(spec, self._registry_path, remote=remote)
             source_id = source_id or spec
+            kind, target = registry.resolve(
+                spec,
+                self._registry_path,
+                remote=remote,
+                source_id=source_id,
+                context=str(options.get("context") or options.get("raw") or ""),
+            )
         else:
             target = registry.expand(spec)
             source_id = source_id or _id_from(target)
@@ -192,10 +198,17 @@ class Session:
         async def one(index: int, request: SourceRequest) -> None:
             try:
                 if request.kind is None:
-                    kind, target = registry.resolve(
-                        request.spec, self._registry_path, remote=request.remote
-                    )
                     source_id = request.source_id or request.spec
+                    context = request.options.get("context") or request.options.get(
+                        "raw"
+                    )
+                    kind, target = registry.resolve(
+                        request.spec,
+                        self._registry_path,
+                        remote=request.remote,
+                        source_id=source_id,
+                        context=str(context or ""),
+                    )
                 else:
                     kind, target = request.kind, registry.expand(request.spec)
                     source_id = request.source_id or _id_from(target)

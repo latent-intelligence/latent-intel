@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Serve one source to a subprocess agent over stdio MCP.",
     )
     parser.add_argument(
-        "--kind", required=True, help="connector kind, e.g. wiki, files"
+        "--kind", required=True, help="connector kind, e.g. files, code"
     )
     parser.add_argument("--target", required=True, help="path or URI of the source")
     parser.add_argument("--id", default="", help="source id; defaults to the kind")

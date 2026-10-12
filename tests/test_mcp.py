@@ -471,3 +471,26 @@ async def test_a_failing_body_still_closes_the_session() -> None:
             raise BrokenPipeError("head closed the pipe")
 
     assert closed == ["probe"], "the session must close even when the body raises"
+
+
+async def test_the_server_s_own_instructions_describe_the_source() -> None:
+    """What the store is about reaches the system prompt, as it did for the wiki."""
+    connector = await connect(build_server())
+    try:
+        described = connector.describe()
+    finally:
+        await connector.aclose()
+    assert described.detail["description"] == "A probe server."
+    assert described.title == "probe"
+
+
+async def test_a_filter_the_listing_cannot_apply_is_refused() -> None:
+    """Reject what you cannot honour: a `--kind` that silently did nothing would
+    return results the caller believes were filtered."""
+    connector = await connect(build_server())
+    try:
+        assert await connector.search("retrieval", type=None)
+        with pytest.raises(ConnectError, match="type"):
+            await connector.search("retrieval", type="concept")
+    finally:
+        await connector.aclose()

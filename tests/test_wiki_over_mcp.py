@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from latent_intel.connectors import base as connectors
-from latent_intel.models import Capability, Effect
+from latent_intel.models import Capability, Effect, Ref
 
 FORMATS = Path(__file__).parent / "fixtures" / "formats"
 
@@ -38,6 +38,7 @@ def lw_serve() -> str:
     argv = [sys.executable, "-m", "latent_wiki.cli.main", "serve"]
     argv += ["--store", str(FORMATS / "wiki-store")]
     argv += ["--context", str(FORMATS / "context-store")]
+    argv += ["--id", "heron"]  # the source id, so refs read `heron:<key>`
     return shlex.join(argv)
 
 
@@ -51,13 +52,16 @@ async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve() -> None:
         assert all(t.effect is Effect.EXTERNAL_READ for t in tools.values())
         assert all(t.effect_declared for t in tools.values())
         answer = await connector.call("wiki_search", {"query": "limpets"})
-        assert "heronsgate:count-limpets" in answer
         assert "cut:" in answer
+        # Refs in tool output are this client's refs, so citations resolve.
+        assert "heron:count-limpets" in Ref.find_all(answer, ["heron"])
+        described = connector.describe()
+        assert described.detail["description"].startswith("Heronsgate")
         # Search and get with no model: the server lists its pages as resources.
-        assert Capability.SEARCH in connector.describe().capabilities
-        [hit] = await connector.search("limpets")
-        assert hit.ref == "heron:heronsgate:count-limpets"
-        page = await connector.fetch("heronsgate:count-limpets")
+        assert Capability.SEARCH in described.capabilities
+        hits = await connector.search("limpets")
+        assert "heron:count-limpets" in [h.ref for h in hits]
+        page = await connector.fetch("count-limpets")
         assert page.body.startswith("Count limpets")
     finally:
         await connector.aclose()

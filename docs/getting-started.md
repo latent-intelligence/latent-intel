@@ -117,14 +117,15 @@ Point at a store and search it. Nothing else is needed — object storage uses w
 credentials your environment already has.
 
 ```bash
-intel connect "lw serve --store s3://<bucket>/wikis/design" --kind mcp --as design
+intel connect "lw serve --store s3://<bucket>/wikis/design --id design" --kind mcp --as design
 intel search "context collapse"
-intel get design:design:context-collapse
+intel get design:context-collapse
 ```
 
 A wiki is its own server, `lw serve`, attached like any MCP server. It brings the wiki's
 tools for `intel ask`, and lists each page so `intel search` and `intel get` reach it
-without a model. A page's ref is `<source>:<store>:<key>`. `--kind` is required for a path
+without a model. `--id design` makes the server's refs `design:<key>`, the ones this
+client opens. `--kind` is required for a path
 or URI: guessing it from a directory's contents would be wrong exactly when it matters.
 
 Attached sources persist, because the CLI is a new process every time. `intel stores`
@@ -146,7 +147,7 @@ Bare `intel` opens it, and it is the primary way in.
 ```
 latent › search progressive disclosure
 latent › /use design
-latent › open design:progressive-disclosure
+latent › open progressive-disclosure
 latent › /tools
 ```
 
@@ -176,7 +177,7 @@ branding:
 sources:
   - id: design                                     # a wiki, through its own server
     kind: mcp
-    target: "lw serve --store s3://<bucket>/wikis/design --context s3://<bucket>/li/knowledge/context"
+    target: "lw serve --store s3://<bucket>/wikis/design --context s3://<bucket>/li/knowledge/context --id design"
   - id: notes
     kind: files
     target: ~/knowledge/raw

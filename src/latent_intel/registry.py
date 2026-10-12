@@ -172,9 +172,17 @@ def load(explicit: str | None = None) -> dict[str, Entry]:
 
 
 def resolve(
-    name: str, explicit: str | None = None, *, remote: bool = False
+    name: str,
+    explicit: str | None = None,
+    *,
+    remote: bool = False,
+    source_id: str = "",
+    context: str = "",
 ) -> tuple[str, str]:
     """Map a registered id to `(kind, target)`.
+
+    `source_id` and `context` matter only for a wiki served by `lw serve`: refs then
+    carry the name the source is attached as, and evidence reaches its context store.
 
     Raises with the list of what *is* registered — a typo'd id is the common case, and
     the useful answer is the neighbouring correct one.
@@ -196,16 +204,22 @@ def resolve(
             f"build can connect to — point at it directly instead"
         )
     wiki = entry.kind == "files" and entry.registry_kind == "wiki"
-    if wiki and (served := served_wiki(target)):
+    if wiki and (served := served_wiki(target, source_id or name, context)):
         return "mcp", served
     return entry.kind, target
 
 
-def served_wiki(store: str) -> str | None:
+def served_wiki(store: str, source_id: str, context: str = "") -> str | None:
     """The `lw serve` command for a registered wiki, or None when `lw` is not installed.
 
     A wiki's tools — ranked search, evidence, views — are its own server's. The
     executable itself, not a wrapper, so the client's cleanup stops the real process.
+    `--id` makes the refs it prints the ones this client resolves (`<source>:<key>`).
     """
     lw = shutil.which("lw")
-    return shlex.join([lw, "serve", "--store", store]) if lw else None
+    if lw is None:
+        return None
+    argv = [lw, "serve", "--store", store, "--id", source_id]
+    if context:
+        argv += ["--context", expand(context)]
+    return shlex.join(argv)
