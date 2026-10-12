@@ -33,8 +33,8 @@ uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/
 Sources are attached one at a time and recorded in your own config. The can be local, remote, or both. 
 
 ```
-intel connect s3://<bucket>/wikis/design --kind wiki --as design
-  ✓ wiki    design    148 pages    [search fetch tools]
+intel connect "lw serve --store s3://<bucket>/wikis/design --id design" --kind mcp --as design
+  ✓ mcp     design    …            [tools search fetch]
 
 $ intel connect ~/knowledge/raw --kind files --as manuals
   ✓ files   manuals   170 files    [search fetch]
@@ -63,9 +63,9 @@ branding:
   name: RESEARCH
   tagline: standing context, with provenance
 sources:
-  - id: design
-    kind: wiki
-    target: s3://<bucket>/wikis/design
+  - id: design                  # a wiki, through its own server
+    kind: mcp
+    target: "lw serve --store s3://<bucket>/wikis/design --id design"
   - id: notes
     kind: files
     target: ~/knowledge/raw
@@ -207,12 +207,11 @@ sibling package is needed to build, test or type-check. It also runs the import
 contracts, so some architectural rules fail the build rather than review; they are stated
 once, in [CLAUDE.md](CLAUDE.md).
 
-If you are also *authoring* a wiki, add your wiki compiler alongside the engine:
-`uv tool install . --with <wiki-compiler> --reinstall`. That is only for reading an
-**unpublished** store — a working directory with no `manifest.json`.
+A wiki or records store is reached through its own server (`lw serve`,
+`latent-records serve`), installed with its own package.
 
 ## Status
 
-Early, but usable. Both terminal frontends work over the `files`, `wiki` and `mcp`
+Early, but usable. Both terminal frontends work over the `files`, `code` and `mcp`
 connectors, and `intel ask` runs against every runtime above — three from the base
 install, and `openai-agents` and `claude-agent-sdk` from the extras named after them.
