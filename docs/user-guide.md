@@ -105,18 +105,19 @@ The wiki and the material it summarises are a **pair**, and `--context` says so:
 sources:
   - id: design
     kind: mcp
-    target: "lw serve --store s3://<bucket>/wikis/design --context s3://<bucket>/li/knowledge/context --id design"
+    target: lw serve --deployment ~/client/deployments/design
 ```
 
 The pairing is what lets `wiki_raw` escalate from a page to the source it derives from.
 Leave it out and every other tool still works — only that escalation reports it has
 nothing to read. The tools are latent-wiki's `docs/formats/wiki-tools.md`.
 
-Add `--id <source id>` so the refs the server prints are the refs this client resolves:
-with `id: design`, `--id design` makes a cited page `design:<key>`, which `intel get` opens.
-A registered wiki gets this automatically. A relative `--store` path resolves against the
-directory the server starts in; give the source `cwd: .` to start it beside the project
-file.
+`--deployment` takes the deployment's wiki, its context and its name from latent-wiki's
+own declaration, so refs read `design:<key>` — the refs this client opens — when the source
+id matches the deployment's name. Serving a bare store instead, `lw serve --store <wiki>
+--context <context> --id design` says the same three things by hand. A registered wiki gets
+this automatically. A relative path resolves against the directory the server starts in;
+give the source `cwd: .` to start it beside the project file.
 
 **A codebase** is `--kind code`: the repository's own files, read as text.
 
@@ -497,9 +498,9 @@ shadowing the other. Each tool shows its **declared** effect — `none`, `extern
 
 Two things worth knowing:
 
-**Point at the server, not at a wrapper.** Give it `uv run … <server>` and killing the
-client kills `uv`, leaving the real server orphaned. Give it the executable —
-`/path/.venv/bin/<server> …` — and cleanup is exact.
+**An installed command or `uv run` both work.** `target: lw serve …` for a server
+installed with `uv tool install`, or `target: uv run --directory ~/src/latent-wiki lw
+serve …` from a checkout; closing the session stops either cleanly.
 
 **Our own stores are servers too.** A wiki is `lw serve`, a records store is
 `latent-records serve`, attached exactly like the servers above. Another agent — Claude

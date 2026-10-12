@@ -34,13 +34,11 @@ description: >
 # different thing from a `target:` that is already remote, like an s3:// URI.
 #
 # A wiki is an MCP source: its own server, `lw serve`, gives it its tools (search,
-# evidence, views). `--context` pairs it with the material it summarises, which is what
-# lets `wiki_raw` escalate from a page to its source. Without the server, a wiki's pages
-# are Markdown, and a `files` source reads them.
+# evidence, views), and a latent-wiki deployment names its store, its context and its
+# refs. Without the server, a wiki's pages are Markdown, and a `files` source reads them.
 #
 # sources:
-#   - {id: wiki,  kind: mcp,   target: "lw serve --store ${MIRROR}/wikis/design
-#                                        --context ${MIRROR}/knowledge/context --id wiki"}
+#   - {id: wiki,  kind: mcp,   target: "lw serve --deployment ~/client/deployments/wiki"}
 #   - {id: pages, kind: files, target: "${MIRROR}/wikis/design/pages"}
 #   - {id: named, kind: files, from: design-wiki, remote: true}
 #   - {id: docs,  kind: files, target: "${MIRROR}/context/raw"}

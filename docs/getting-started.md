@@ -117,15 +117,15 @@ Point at a store and search it. Nothing else is needed — object storage uses w
 credentials your environment already has.
 
 ```bash
-intel connect "lw serve --store s3://<bucket>/wikis/design --id design" --kind mcp --as design
+intel connect "lw serve --deployment ~/client/deployments/design" --kind mcp --as design
 intel search "context collapse"
 intel get design:context-collapse
 ```
 
 A wiki is its own server, `lw serve`, attached like any MCP server. It brings the wiki's
 tools for `intel ask`, and lists each page so `intel search` and `intel get` reach it
-without a model. `--id design` makes the server's refs `design:<key>`, the ones this
-client opens. `--kind` is required for a path
+without a model. A deployment names its wiki, its context and its refs (`design:<key>`),
+so the client says nothing more. `--kind` is required for a path
 or URI: guessing it from a directory's contents would be wrong exactly when it matters.
 
 Attached sources persist, because the CLI is a new process every time. `intel stores`
@@ -177,7 +177,7 @@ branding:
 sources:
   - id: design                                     # a wiki, through its own server
     kind: mcp
-    target: "lw serve --store s3://<bucket>/wikis/design --context s3://<bucket>/li/knowledge/context --id design"
+    target: lw serve --deployment ~/client/deployments/design
   - id: notes
     kind: files
     target: ~/knowledge/raw

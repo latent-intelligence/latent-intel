@@ -17,11 +17,10 @@ declare nothing. A tool with no annotation becomes `EXTERNAL_WRITE` with
 `effect_declared=False`, so approval gates it and `intel doctor` lists it as
 under-declared. That is the safe end of the guess, and it is recorded as a guess.
 
-**Point at the server, not at a wrapper.** `stdio_client` terminates the process it
-started. Give it `uv run … <server>` and it kills `uv`, leaving the actual server as an
-orphan holding whatever file descriptors it inherited — measured, and it survives the
-client exiting. Give it the executable itself (`/path/.venv/bin/<server> …`) and cleanup
-is exact. `lw serve --print-config` emits the direct form for this reason.
+**A wrapper is fine.** `stdio_client` in mcp 2.x terminates the whole process tree it
+started, so `uv run --directory <checkout> <server> …` stops cleanly with the client —
+measured 2026-10-12 against `lw serve`. (Under 1.x it killed only `uv` and orphaned the
+server, which is why older notes say to point at the executable.)
 
 **The four keys a server registration carries, and what each becomes here.** `command`
 and `args` are the target, one string split with `shlex`. `env` is a list, each item a
