@@ -42,8 +42,8 @@ from latent_intel.settings import Settings  # noqa: E402
 NS = UUID("6f1d5b2a-0000-4000-8000-000000000000")
 T0 = datetime(2026, 8, 21, 12, 0, 0, tzinfo=UTC)
 OUT = Path(__file__).parent / "streams"
-#: Published samples of the recording format, for consumers to copy into their own tests
-#: (house-rules/integration.md, "fixtures, not imports"). Each opens with its header.
+#: Published samples of the recording format, for consumers to copy into their own
+#: tests. Each opens with its header.
 FORMATS = Path(__file__).parent / "formats" / "recording"
 
 

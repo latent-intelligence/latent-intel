@@ -5,7 +5,7 @@ in the shell. `intel connect design` records the source here; `intel search` rea
 back and attaches before running. Without that, every command would need its sources
 named on the command line.
 
-Layout follows `reference-architectures/cli.md`, including two rules that matter more
+Layout follows the XDG convention, including two rules that matter more
 than they look:
 
     ~/.config/latent-intel/config.yaml     configuration the user edits
