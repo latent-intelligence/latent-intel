@@ -392,10 +392,13 @@ def test_unknown_registry_id_lists_what_is_known(tmp_path: Path) -> None:
         registry.resolve("gamma", str(path))
 
 
-def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
+def test_a_registry_entry_falls_back_to_its_mirror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Registry paths are machine-specific. A Drive path that exists on a laptop does
     not exist on a build host, so preferring local unconditionally makes every entry
-    unusable anywhere else. A registry wiki is read as files: its pages are Markdown."""
+    unusable anywhere else. Without `lw`, a registry wiki is read as files."""
+    monkeypatch.setattr("shutil.which", lambda name: None)
     path = tmp_path / "stores.yaml"
     path.write_text(
         f"stores:\n"
@@ -418,6 +421,34 @@ def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
     assert registry.resolve("w", str(path)) == ("files", str(local))
     # …and --remote still forces the mirror, which is how you check it is current.
     assert registry.resolve("w", str(path), remote=True) == ("files", "s3://bucket/w")
+
+
+def test_a_registered_wiki_is_served_by_lw_when_it_is_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wiki's own tools, implicitly: no project or registry change needed."""
+    monkeypatch.setattr("shutil.which", lambda name: f"/opt/bin/{name}")
+    path = tmp_path / "stores.yaml"
+    path.write_text(
+        "stores:\n  - {id: w, kind: wiki, paths: {mirror: 's3://bucket/w'}}\n"
+    )
+    registry.clear_cache()
+    assert registry.resolve("w", str(path)) == (
+        "mcp",
+        "/opt/bin/lw serve --store s3://bucket/w",
+    )
+
+
+def test_a_wiki_registered_with_its_own_server_keeps_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("shutil.which", lambda name: f"/opt/bin/{name}")
+    path = tmp_path / "stores.yaml"
+    path.write_text(
+        "stores:\n  - {id: w, kind: wiki, access: 'mcp:wiki-server --ro'}\n"
+    )
+    registry.clear_cache()
+    assert registry.resolve("w", str(path)) == ("mcp", "wiki-server --ro")
 
 
 def test_remote_without_a_mirror_says_what_to_do(tmp_path: Path) -> None:

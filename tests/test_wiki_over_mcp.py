@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from latent_intel.connectors import base as connectors
-from latent_intel.models import Effect
+from latent_intel.models import Capability, Effect
 
 FORMATS = Path(__file__).parent / "fixtures" / "formats"
 
@@ -53,5 +53,11 @@ async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve() -> None:
         answer = await connector.call("wiki_search", {"query": "limpets"})
         assert "heronsgate:count-limpets" in answer
         assert "cut:" in answer
+        # Search and get with no model: the server lists its pages as resources.
+        assert Capability.SEARCH in connector.describe().capabilities
+        [hit] = await connector.search("limpets")
+        assert hit.ref == "heron:heronsgate:count-limpets"
+        page = await connector.fetch("heronsgate:count-limpets")
+        assert page.body.startswith("Count limpets")
     finally:
         await connector.aclose()

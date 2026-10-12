@@ -17,6 +17,8 @@ failing to start — the same reason `lw serve` will not start without `--store`
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -36,8 +38,8 @@ ENV_VAR = "KNOWLEDGE_REGISTRY"
 #: Registry `kind` -> our connector kind. A registry entry we cannot map is listed but
 #: not connectable, which is more useful than hiding it.
 KIND_MAP = {
-    # A wiki read as files: its pages are Markdown. Served with its tools, it is an
-    # MCP source pointing at `lw serve`, declared in the project like any other.
+    # A wiki is served by its own adapter, `lw serve`, when it is installed; without
+    # it a wiki's pages are Markdown, read as files. See `served_wiki`.
     "wiki": "files",
     "context-store": "files",
     "markdown-vault": "files",
@@ -193,4 +195,17 @@ def resolve(
             f"'{name}' is registered as kind '{entry.registry_kind}' with no path this "
             f"build can connect to — point at it directly instead"
         )
+    wiki = entry.kind == "files" and entry.registry_kind == "wiki"
+    if wiki and (served := served_wiki(target)):
+        return "mcp", served
     return entry.kind, target
+
+
+def served_wiki(store: str) -> str | None:
+    """The `lw serve` command for a registered wiki, or None when `lw` is not installed.
+
+    A wiki's tools — ranked search, evidence, views — are its own server's. The
+    executable itself, not a wrapper, so the client's cleanup stops the real process.
+    """
+    lw = shutil.which("lw")
+    return shlex.join([lw, "serve", "--store", store]) if lw else None

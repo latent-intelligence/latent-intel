@@ -30,11 +30,10 @@ and `[all]` is both:
 uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
 ```
 
-No sibling package is needed either way. Files, MCP servers and wikis, local or
-`s3://`, all work from it, because a published wiki store is a versioned format
-(`manifest.json` plus `pages/`) that the client reads directly. A wiki compiler is what
-you install to *build* a wiki, not to read one, and it is added alongside the engine
-(`--with <wiki-compiler>`) only on the machine that authors one.
+No sibling package is needed. Files, code and MCP servers all work from it. A store — a
+wiki, a records store — is reached through its own MCP server (`lw serve`,
+`latent-records serve`), installed with its own package; latent-intel reads no store's
+format itself.
 
 Check it:
 
@@ -45,7 +44,6 @@ latent-intel 0.1.0
 connectors (entry points)
   ✓ files
   ✓ mcp
-  ✓ wiki
   · vector — not installed
 ```
 
@@ -119,20 +117,15 @@ Point at a store and search it. Nothing else is needed — object storage uses w
 credentials your environment already has.
 
 ```bash
-intel connect s3://<bucket>/wikis/design --kind wiki --as design
+intel connect "lw serve --store s3://<bucket>/wikis/design" --kind mcp --as design
 intel search "context collapse"
-intel get design:context-collapse
+intel get design:design:context-collapse
 ```
 
-```
-$ intel connect s3://<bucket>/wikis/design --kind wiki --as design
-✓ wiki   design  148 pages  search fetch tools    built 2026-08-24
-recorded in ~/.config/latent-intel/config.yaml
-```
-
-`--kind` is required for a path or URI: guessing it from a directory's contents would be
-wrong exactly when it matters. `built` is the manifest's date — a store nobody has
-rebuilt in a month can say so.
+A wiki is its own server, `lw serve`, attached like any MCP server. It brings the wiki's
+tools for `intel ask`, and lists each page so `intel search` and `intel get` reach it
+without a model. A page's ref is `<source>:<store>:<key>`. `--kind` is required for a path
+or URI: guessing it from a directory's contents would be wrong exactly when it matters.
 
 Attached sources persist, because the CLI is a new process every time. `intel stores`
 lists them, `intel disconnect design` removes one.
@@ -181,11 +174,9 @@ branding:
   tagline: standing context, with provenance
 
 sources:
-  - id: design
-    kind: wiki
-    target: s3://<bucket>/wikis/design
-    options:
-      context: s3://<bucket>/li/knowledge/context   # the material the wiki summarises
+  - id: design                                     # a wiki, through its own server
+    kind: mcp
+    target: "lw serve --store s3://<bucket>/wikis/design --context s3://<bucket>/li/knowledge/context"
   - id: notes
     kind: files
     target: ~/knowledge/raw
