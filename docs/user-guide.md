@@ -116,9 +116,9 @@ nothing to read. The tools are latent-wiki's `docs/formats/wiki-tools.md`.
 `--deployment` takes the deployment's wiki and its context from latent-wiki's own
 declaration. Serving a bare store instead, `lw serve --store <wiki> --context <context>`
 says the same two things by hand. A registered wiki records one of these as its `access:`
-line. The server names pages by their bare key and knows nothing about this client; the
-`design:` in a citation is added here, from the id you attached the source under, so
-rename a source freely. A relative path resolves against the directory the server starts
+line. The server names pages `<store id>:<key>` and knows nothing about this client; the
+`design:` in a citation is swapped in here for the store id, from the id you attached the
+source under, so rename a source freely. A relative path resolves against the directory the server starts
 in;
 give the source `cwd: .` to start it beside the project file.
 

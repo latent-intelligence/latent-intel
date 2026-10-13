@@ -73,15 +73,15 @@ field. What a reader scoring a run usually needs:
 `agent_completed.citations` lists the runtime's own citations, then those in the answer.
 Only an attached source's id makes a ref, so a URL or a clock time never does. A key runs
 to the first whitespace, bracket, quote (straight or curly), comma, semicolon, pipe,
-asterisk, `#` or dThe label is the id this client attached the source under; no server prints it or is
+asterisk, `#` or dash, less trailing `. : ! ? _ ~`.
+
+The label is the id this client attached the source under; no server prints it or is
 told it. An MCP server that names its things `<its name>:<key>`, as `lw serve` does with
 its store id, has that name swapped for the label: `heronsgate:tide-pool` from a wiki
-attached as `heron` is recorded `heron:tide-pool`. A bare word is never a ref. In a tool's output the
-name belongs to the server that ran the tool. Elsewhere, a name two attached servers
-share, or one spelled like another source's label, is left as it is. A wiki's link into a
-peer store is a ref when a server of that name is attached.
-
-ields no refs from its bare keys.
+attached as `heron` is recorded `heron:tide-pool`. A bare word is never a ref. In a tool's
+output the name belongs to the server that ran the tool. Elsewhere, a name two attached
+servers share, or one spelled like another source's label, is left as it is. A wiki's link
+into a peer store is a ref when a server of that name is attached.
 
 **The web.** A call the host ran — `web_search`, `web_fetch` — is a `tool_started` /
 `tool_result` pair with `source_id` `web`, `effect` `external_read` and no `duration_ms`.
