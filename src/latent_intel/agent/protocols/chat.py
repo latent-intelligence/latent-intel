@@ -19,8 +19,11 @@ real reason — the output limit — was never said at all. After that the calls
 not the reason: a host that streams tool calls and then says `stop` still asked for
 them.
 
-**`stream_options` is sent on every request.** Without it the final chunk carries no
-usage at all, and a tool-heavy turn would report nothing about what it cost.
+**`stream_options` is sent unless the runtime says not to.** Without it the final
+chunk carries no usage at all, and a tool-heavy turn would report nothing about what it
+cost. An older Azure OpenAI API version rejects the parameter outright, so a runtime
+with `include_usage: false` omits it; that turn's usage then has no token counts, which
+reads as unknown rather than as zero.
 """
 
 from __future__ import annotations
@@ -122,6 +125,7 @@ class ChatAdapter:
         model: str,
         max_tokens: int,
         tokens_param: str | None,
+        include_usage: bool,
         transcript: list[dict[str, Any]],
         definitions: list[dict[str, Any]],
         system: str,
@@ -133,9 +137,12 @@ class ChatAdapter:
             "model": model,
             "messages": transcript,
             "stream": True,
-            "stream_options": {"include_usage": True},
             tokens_param or DEFAULT_TOKENS_PARAM: max_tokens,
         }
+        # Omitted rather than sent as `false`: a host that rejects the parameter
+        # rejects it whatever it says. See the module docstring.
+        if include_usage:
+            request["stream_options"] = {"include_usage": True}
         # Omitted rather than sent empty: the API rejects an empty tool list.
         if definitions:
             request["tools"] = definitions

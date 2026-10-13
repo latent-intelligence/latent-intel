@@ -1420,8 +1420,8 @@ async def test_azure_openai_answers_an_ordinary_question(azure: None) -> None:
 
     Back to the row's default from a `max_tokens` override: a reasoning deployment here
     rejects `max_tokens` on every API version, and a version old enough to reject
-    `max_completion_tokens` also rejects the `stream_options` every turn sends — so the
-    override refused the newer deployments and rescued none of the older ones.
+    `max_completion_tokens` also rejects `stream_options` — so the override refused the
+    newer deployments and rescued none of the older ones.
     """
     client = FakeClient(Round(text=("hi",)))
     events = await collect(
@@ -1456,6 +1456,43 @@ async def test_the_runtime_option_overrides_whatever_the_row_asks_for(
     assert isinstance(terminal(events), ev.AgentCompleted)
     assert client.requests[0]["max_tokens"] == 4096
     assert "max_completion_tokens" not in client.requests[0]
+
+
+@pytest.mark.anyio
+async def test_include_usage_off_omits_stream_options_and_reports_no_counts(
+    azure: None,
+) -> None:
+    """An older Azure OpenAI API version rejects `stream_options` outright, so off
+    omits the key rather than sending `false`. The host then sends no usage chunk, and
+    the turn reports no token counts: unknown, not zero."""
+    client = FakeClient(Round(text=("hi",), usage=None))
+    events = await collect(
+        CustomRuntime(
+            host="azure-openai",
+            model="my-deployment",
+            client_factory=client,
+            include_usage=False,
+        )
+    )
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert "stream_options" not in client.requests[0]
+    assert "input_tokens" not in done.usage and "output_tokens" not in done.usage
+    assert done.usage["num_turns"] == 1
+
+
+@pytest.mark.anyio
+async def test_azure_openai_asks_for_usage_by_default(azure: None) -> None:
+    """The setting is a lever for the older versions, not the row's default: a current
+    version accepts `stream_options`, and without it a turn reports nothing it cost."""
+    client = FakeClient(Round(text=("hi",)))
+    events = await collect(
+        CustomRuntime(host="azure-openai", model="my-deployment", client_factory=client)
+    )
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert client.requests[0]["stream_options"] == {"include_usage": True}
+    assert done.usage["input_tokens"] == 1 and done.usage["output_tokens"] == 1
 
 
 @pytest.mark.anyio

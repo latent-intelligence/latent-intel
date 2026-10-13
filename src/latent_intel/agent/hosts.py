@@ -291,10 +291,10 @@ HOSTS: dict[str, Host] = {
         ),
         # The row's default token parameter, not `max_tokens`: a reasoning deployment
         # here rejects `max_tokens` on every API version, and a version old enough to
-        # reject `max_completion_tokens` also rejects the `stream_options` every turn
-        # sends — so the override bought nothing and cost the newer deployments. A
-        # resource that really does want the older name has `tokens_param:` on the
-        # runtime.
+        # reject `max_completion_tokens` also rejects `stream_options` — so the override
+        # bought nothing and cost the newer deployments. A resource that really does
+        # want the older name has `tokens_param:` on the runtime, and one that rejects
+        # `stream_options` has `include_usage: false` beside it.
         construct=_construct_azure,
     ),
     "local": OpenAIHost(

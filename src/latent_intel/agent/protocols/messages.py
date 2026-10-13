@@ -262,13 +262,14 @@ class MessagesAdapter:
         model: str,
         max_tokens: int,
         tokens_param: str | None,
+        include_usage: bool,
         transcript: list[dict[str, Any]],
         definitions: list[dict[str, Any]],
         system: str,
     ) -> dict[str, Any]:
-        """`tokens_param` is not read: this protocol has one name for the output limit,
-        and a runtime that was given one for a host speaking it says so rather than
-        dropping it here."""
+        """`tokens_param` and `include_usage` are not read: this protocol has one name
+        for the output limit and reports usage unasked, and a runtime that was given
+        either for a host speaking it says so rather than dropping it here."""
         request: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
