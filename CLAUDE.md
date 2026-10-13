@@ -93,9 +93,10 @@ vocabulary free to change without touching a single connector.
   `ToolProvider` are separate Protocols declared in `describe()` and checked against the
   object at connect time. A source that claims a capability it does not implement fails
   when it is attached, not when someone searches and gets nothing.
-- **Refs are `source:key`, and the label is ours.** A server names things as it names
-  them; this client puts its own source id in front when it cites. No server prints the
-  label, so no server needs to know what it was attached as (workspace ADR-002).
+- **Refs are `source:key`, and the label is ours.** A server prints its keys as
+  `<server name>:<key>`; this client swaps that name for its own source id when it records
+  a ref. No server prints the label, so no server needs to know what it was attached as
+  (workspace ADR-003).
 - **Failures inside `run()` are events.** A frontend iterating a stream over a transport
   has nowhere to catch an exception. Typed methods raise; `run` emits `AgentFailed`.
 - **Colours are semantic tokens** from `ui/theme.py` — `[accent]`, `[dim]`, `[source]`,

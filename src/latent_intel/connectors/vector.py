@@ -1,4 +1,3 @@
-"""Placeholder — the LanceDB connector lands after MCP.
-
-`latent-records` has no tests yet, so this is scoped read-only and deliberately last.
+"""Placeholder. A records store is reached as a `kind: mcp` source on
+`latent-records serve`; this client never reads the store's format itself.
 """
