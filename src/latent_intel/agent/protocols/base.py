@@ -105,13 +105,15 @@ class Adapter(Protocol):
         model: str,
         max_tokens: int,
         tokens_param: str | None,
+        include_usage: bool,
         transcript: list[dict[str, Any]],
         definitions: list[dict[str, Any]],
         system: str,
     ) -> dict[str, Any]:
         """One request's kwargs. `tokens_param` is the name the output limit goes out
-        under where the protocol has more than one; the protocol that has one ignores
-        it."""
+        under where the protocol has more than one, and `include_usage` whether usage
+        is asked for where the protocol has to ask; the protocol that has one name and
+        always reports usage ignores both."""
         ...
 
     def round(

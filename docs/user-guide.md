@@ -738,7 +738,8 @@ runtimes:
     max_tokens: 16384
     max_tool_rounds: 10      # how many model round-trips one question may take
     tokens_param: max_tokens # chat hosts only — refused by name on a Messages row
-  anthropic-sdk:             # the same options, and the two Anthropic hosts
+    # include_usage: false   # chat hosts only — for an Azure API version that rejects it
+  anthropic-sdk:             # the two Anthropic hosts; no tokens_param or include_usage
     host: foundry-anthropic
     model: claude-sonnet-5
   openai-agents:             # the same options, and the five chat hosts
@@ -796,8 +797,8 @@ because a runtime built on one SDK can dial no other.
 not of the loop: the two `messages` rows speak the Anthropic Messages protocol and the
 five `chat` rows an OpenAI-compatible one, and `custom` picks the adapter off the row. A
 `chat` row names no default model, because every one of them names deployments
-differently; `tokens_param` is a `chat` setting and is refused by name on a `messages`
-row rather than silently dropped.
+differently; `tokens_param` and `include_usage` are `chat` settings and are refused by
+name on a `messages` row rather than silently dropped.
 
 **OpenRouter** is one key for open and low-cost models from every vendor at once; ids are
 `<vendor>/<model>`, e.g. `anthropic/claude-sonnet-5`, listed at openrouter.ai/models.
@@ -814,6 +815,14 @@ any credential at all).
 one — that is `host: foundry-openai`. It needs the dated `OPENAI_API_VERSION` as well as a
 credential and the endpoint; there is no default version, because one guessed here goes
 stale and returns a 400 that names neither the variable nor the fix.
+
+**An older API version rejects `stream_options`**, which a chat turn sends to get usage
+back on a streamed answer, and every turn then fails with a 400. The fix is
+`include_usage: false` under the runtime, which stops sending it. Usage then has no token
+counts, only `duration_ms` and `num_turns` — unknown, not zero. Which versions reject it
+is Azure's to say, so nothing here switches it off by version. Under `openai-agents` the
+setting is refused on the `openai` row at `api.openai.com`, where the SDK sends the
+parameter regardless.
 
 The credential is **either** an API key **or** an Entra ID token in
 `AZURE_OPENAI_AD_TOKEN` — a resource with key authentication disabled is the common

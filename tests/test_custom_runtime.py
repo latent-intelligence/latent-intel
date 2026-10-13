@@ -19,7 +19,7 @@ import pytest
 from latent_intel import events as ev
 from latent_intel.agent import hosts
 from latent_intel.agent.runtimes.custom import ENV_HOST, CustomRuntime
-from latent_intel.models import Effect, Message, ToolSpec
+from latent_intel.models import Effect, Message, RuntimeUnavailable, ToolSpec
 from tests.fixtures import fake_anthropic, fake_openai
 
 
@@ -213,6 +213,26 @@ def test_tokens_param_on_a_messages_row_is_refused_by_name(
     assert reason is not None
     assert "tokens_param" in reason and "anthropic" in reason
     assert "Messages protocol" in reason
+
+
+def test_include_usage_off_on_a_messages_row_is_refused_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Messages protocol reports usage unasked, so there is nothing to turn off —
+    and accepting the setting would leave the file saying something nothing does."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    reason = CustomRuntime(host="anthropic", include_usage=False).unavailable_reason()
+    assert reason is not None
+    assert "include_usage" in reason and "anthropic" in reason
+    assert "Messages protocol" in reason
+
+
+@pytest.mark.parametrize("value", ["false", None, 0])
+def test_include_usage_must_be_a_boolean(value: Any) -> None:
+    """A quoted `"false"` is truthy and `include_usage:` with no value is falsy, so
+    either would silently do the opposite of what the file seems to say."""
+    with pytest.raises(RuntimeUnavailable, match="include_usage"):
+        CustomRuntime(host="azure-openai", include_usage=value)
 
 
 @pytest.mark.anyio

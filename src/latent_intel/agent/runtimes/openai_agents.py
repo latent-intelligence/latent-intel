@@ -57,6 +57,7 @@ import os
 import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from ... import events as ev
 from ...models import HostStatus, Message, RuntimeUnavailable, ToolSpec
@@ -82,6 +83,10 @@ DEFAULT_HOST = "openai"
 #: against one host and the custom loop against another while comparing them.
 ENV_HOST = "LATENT_INTEL_OPENAI_AGENTS_HOST"
 
+#: Where the `openai` SDK points when no base URL is set — the one address at which the
+#: Agents SDK sends `stream_options` whatever the run's settings say.
+OPENAI_API_URL = "https://api.openai.com/v1"
+
 
 class OpenAIAgentsRuntime:
     """The OpenAI Agents SDK, behind the `Runtime` Protocol."""
@@ -97,6 +102,7 @@ class OpenAIAgentsRuntime:
         max_tokens: int = turn.DEFAULT_MAX_TOKENS,
         max_tool_rounds: int = turn.DEFAULT_MAX_TOOL_ROUNDS,
         tokens_param: str | None = None,
+        include_usage: bool = True,
         client_factory: Callable[[], Any] | None = None,
         runner_factory: Callable[[], Any] | None = None,
         **unknown: Any,
@@ -108,12 +114,19 @@ class OpenAIAgentsRuntime:
                 f"unknown option(s) for runtime '{self.id}': "
                 f"{', '.join(sorted(unknown))} — see `runtimes: {self.id}:` in config"
             )
+        if not isinstance(include_usage, bool):
+            raise RuntimeUnavailable(
+                f"`include_usage` must be true or false for runtime '{self.id}'"
+            )
         self.model = model or ""
         self.host = host or os.environ.get(ENV_HOST) or DEFAULT_HOST
         self.approval = approval
         self.max_tokens = int(max_tokens)
         self.max_tool_rounds = int(max_tool_rounds)
         self.tokens_param = tokens_param
+        #: As in `custom.py`: off omits `stream_options`, for an Azure OpenAI API
+        #: version that rejects it.
+        self.include_usage = include_usage
         #: The client seam, as in `custom.py`.
         self.client_factory = client_factory
         #: The runner seam, and the reason a test never reaches a network: it returns
@@ -154,6 +167,19 @@ class OpenAIAgentsRuntime:
                 "no model is set — set `model:` under `runtimes: openai-agents:`, "
                 "because every host names its models differently and there is no "
                 "default"
+            )
+        # Refused rather than dropped: the SDK sends `stream_options` to the OpenAI API
+        # itself whatever the settings say, so `false` there would not be honoured.
+        url = hosts.base_url(host) or OPENAI_API_URL
+        parts = urlsplit(url)
+        if not self.include_usage and (parts.scheme, parts.hostname) == (
+            "https",
+            "api.openai.com",
+        ):
+            return (
+                f"`include_usage: false` is set, but host '{self.host}' points at "
+                f"api.openai.com, where the Agents SDK asks for usage regardless — "
+                f"remove it, or use the custom runtime"
             )
         return None
 
@@ -441,13 +467,16 @@ class OpenAIAgentsRuntime:
         `include_usage` is not a default anywhere but the official OpenAI base URL: the
         SDK only sends `stream_options` unasked when the client points at
         `api.openai.com`, so every other row — OpenRouter, Foundry, Azure, a local
-        server — would report nothing about what a turn cost.
+        server — would report nothing about what a turn cost. Turned off, it is left
+        unset rather than `False`, because the SDK sends `False` as `stream_options`
+        too, and the host this is for rejects the parameter whatever it says.
         """
         param = self.tokens_param or host.tokens_param
+        usage = True if self.include_usage else None
         if param == "max_tokens":
-            return agents.ModelSettings(include_usage=True, max_tokens=self.max_tokens)
+            return agents.ModelSettings(include_usage=usage, max_tokens=self.max_tokens)
         return agents.ModelSettings(
-            include_usage=True,
+            include_usage=usage,
             max_tokens=None,
             extra_args={param: self.max_tokens},
         )

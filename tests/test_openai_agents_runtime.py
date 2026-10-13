@@ -398,6 +398,34 @@ async def test_usage_is_asked_for_rather_than_left_to_the_default(
 
 
 @pytest.mark.anyio
+async def test_include_usage_off_leaves_the_setting_unset_rather_than_false(
+    credentials: None,
+) -> None:
+    """The SDK sends `include_usage=False` as `stream_options` too, and the host this
+    is for rejects the parameter whatever it says. Unset, the SDK omits it on every
+    host but the OpenAI API itself."""
+    fake = FakeRunner(Round(text=("hi",), usage=None))
+    done = terminal(await collect(runtime(fake, include_usage=False)))
+    assert fake.runs[0]["agent"].model_settings.include_usage is None
+    # The SDK reports no usage as None, not zeros, and the turn says unknown in kind.
+    assert isinstance(done, ev.AgentCompleted)
+    assert "input_tokens" not in done.usage and done.usage["num_turns"] == 1
+
+
+def test_include_usage_off_is_refused_where_the_sdk_would_send_it_anyway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At api.openai.com the SDK asks for usage whatever the settings say, so `false`
+    there would be a setting nothing honours."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    reason = runtime(host="openai", include_usage=False).unavailable_reason()
+    assert reason is not None
+    assert "include_usage" in reason and "api.openai.com" in reason
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://gateway.example/v1")
+    assert runtime(host="openai", include_usage=False).unavailable_reason() is None
+
+
+@pytest.mark.anyio
 async def test_usage_is_summed_across_rounds_not_taken_from_the_last(
     credentials: None,
 ) -> None:

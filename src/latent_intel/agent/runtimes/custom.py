@@ -93,6 +93,7 @@ class CustomRuntime:
         max_tokens: int = turn.DEFAULT_MAX_TOKENS,
         max_tool_rounds: int = turn.DEFAULT_MAX_TOOL_ROUNDS,
         tokens_param: str | None = None,
+        include_usage: bool = True,
         client_factory: Callable[[], Any] | None = None,
         **unknown: Any,
     ) -> None:
@@ -103,6 +104,10 @@ class CustomRuntime:
             raise RuntimeUnavailable(
                 f"unknown option(s) for runtime '{self.id}': "
                 f"{', '.join(sorted(unknown))} — see `runtimes: {self.id}:` in config"
+            )
+        if not isinstance(include_usage, bool):
+            raise RuntimeUnavailable(
+                f"`include_usage` must be true or false for runtime '{self.id}'"
             )
         #: Option beats environment, and there is no default. The environment is how one
         #: machine runs against Foundry and another against the public API with the same
@@ -122,6 +127,10 @@ class CustomRuntime:
         #: resource whose API version accepts only the older name — and refused rather
         #: than dropped on a row whose protocol has one name for it.
         self.tokens_param = tokens_param
+        #: Whether a chat request asks for usage. Off is the lever for an Azure OpenAI
+        #: API version that rejects `stream_options`; the turn then reports no token
+        #: counts rather than zeros. Refused on a row whose protocol always reports it.
+        self.include_usage = include_usage
         #: The test seam, and the only one. Returns the SDK client as an async context
         #: manager, exactly as the real constructor does.
         self.client_factory = client_factory
@@ -172,6 +181,12 @@ class CustomRuntime:
                 f"`tokens_param` is set, but host '{self.host}' speaks the Anthropic "
                 f"Messages protocol and does not take it — remove it, or choose a "
                 f"chat host"
+            )
+        if not self.include_usage and row.protocol == "messages":
+            return (
+                f"`include_usage: false` is set, but host '{self.host}' speaks the "
+                f"Anthropic Messages protocol, which always reports usage — remove "
+                f"it, or choose a chat host"
             )
         return None
 
@@ -326,6 +341,7 @@ class CustomRuntime:
                     model=self.model,
                     max_tokens=self.max_tokens,
                     tokens_param=tokens_param,
+                    include_usage=self.include_usage,
                     transcript=transcript,
                     definitions=definitions,
                     system=system,
