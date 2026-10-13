@@ -236,6 +236,24 @@ def test_a_source_named_like_a_scheme_still_skips_urls() -> None:
     assert Ref.find_all("docs:file:///a/b.md.", {"docs"}) == ["docs:file:///a/b.md"]
 
 
+def test_a_server_s_name_is_read_as_the_label_it_maps_to() -> None:
+    """A server names its keys under its own name; the session maps that to a label."""
+    text = "notes:ok then heronsgate:pool, pool and xheronsgate:tide-pool"
+    aliases = {"heronsgate": "heron"}
+    assert Ref.find_all(text, {"notes", "heron"}, aliases) == [
+        "notes:ok",
+        "heron:pool",
+    ]
+
+
+def test_a_key_stops_at_closing_marks_and_curly_quotes() -> None:
+    text = (
+        "_heron:a_ and “heron:b” and ‘heron:c’ and heron:d’s and heron:e#tools "
+        "and —heron:f— and *heron:g* and ~heron:h~."
+    )
+    assert Ref.find_all(text, {"heron"}) == [f"heron:{k}" for k in "abcdefgh"]
+
+
 # -- the session ------------------------------------------------------------
 
 
@@ -1346,6 +1364,50 @@ async def test_citations_a_runtime_reports_are_kept_and_joined_by_the_text_s(
         "notes:note.md",
         "notes:second.md",
     ]
+    await session.aclose()
+
+
+class Named:
+    """A source whose server named itself, as an MCP server does on connecting."""
+
+    kind = "mcp"
+
+    def __init__(self, source_id: str, prefix: str) -> None:
+        self.id, self.prefix = source_id, prefix
+
+    def describe(self) -> Descriptor:
+        return Descriptor(id=self.id, kind=self.kind)
+
+    async def aclose(self) -> None:
+        pass
+
+    def ref_prefix(self) -> str:
+        return self.prefix
+
+
+class AnsweringRuntime:
+    id = "fake"
+    model = "fake-model-1"
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def available(self) -> bool:
+        return True
+
+    async def stream(self, messages, tools, *, emitter, **options):  # type: ignore[no-untyped-def]
+        yield emitter.emit(ev.AgentCompleted, text=self.text)
+
+
+async def test_an_answer_s_ref_is_labelled_only_when_one_server_has_that_name() -> None:
+    """Two servers of one name make its refs ambiguous: left as text, never guessed."""
+    text = "Count (heronsgate:limpets) in shore:tide-pool and pond:crabs."
+    session = Session(runtime=AnsweringRuntime(text))
+    session._connectors["heron"] = Named("heron", "heronsgate")  # type: ignore[assignment]
+    session._connectors["egret"] = Named("egret", "shore")  # type: ignore[assignment]
+    session._connectors["stork"] = Named("stork", "shore")  # type: ignore[assignment]
+    events = [e async for e in session.ask("q")]
+    assert events[-1].citations == ["heron:limpets"]  # type: ignore[union-attr]
     await session.aclose()
 
 

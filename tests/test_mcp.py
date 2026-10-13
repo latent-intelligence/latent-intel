@@ -18,6 +18,7 @@ import pytest
 from mcp import types
 from mcp.server import MCPServer
 
+from latent_intel import events as ev
 from latent_intel.connectors import base as connectors
 from latent_intel.connectors.mcp import (
     McpConnector,
@@ -39,11 +40,14 @@ def anyio_backend() -> str:
 
 
 def build_server(
-    *, with_resources: bool = True, instructions: str = "A probe server."
+    *,
+    with_resources: bool = True,
+    instructions: str = "A probe server.",
+    name: str = "probe",
 ) -> MCPServer:
     """A server with one honestly-annotated tool, one destructive one, and one that
     declares nothing — the three cases the effect mapping has to get right."""
-    server = MCPServer("probe", instructions=instructions)
+    server = MCPServer(name, instructions=instructions)
 
     @server.tool(
         annotations=types.ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -525,3 +529,69 @@ async def test_a_tool_s_input_schema_reaches_the_spec() -> None:
         await connector.aclose()
     assert echo.input_schema["properties"]["text"]["type"] == "string"
     assert echo.input_schema["required"] == ["text"]
+
+
+# -- refs in tool output ----------------------------------------------------
+
+
+class CallingRuntime:
+    """A turn that runs one tool through the session, so the refs on its result are the
+    session's reading of what a real server printed."""
+
+    id = "fake"
+    model = "fake-model-1"
+
+    def __init__(self, source_id: str, tool: str, arguments: dict[str, Any]) -> None:
+        self.source_id, self.tool, self.arguments = source_id, tool, arguments
+
+    def available(self) -> bool:
+        return True
+
+    async def stream(self, messages, tools, *, emitter, call_tool, **options):  # type: ignore[no-untyped-def]
+        started = emitter.emit(
+            ev.ToolStarted, tool=self.tool, source_id=self.source_id, effect="none"
+        )
+        yield started
+        yield emitter.nested(started).emit(
+            ev.ToolResult,
+            tool=self.tool,
+            source_id=self.source_id,
+            output=await call_tool(self.source_id, self.tool, self.arguments),
+        )
+        yield emitter.emit(ev.AgentCompleted, text="")
+
+
+async def result_of(session: Session) -> ev.ToolResult:
+    (result,) = [e async for e in session.ask("q") if isinstance(e, ev.ToolResult)]
+    await session.aclose()
+    return result
+
+
+async def test_a_server_s_own_name_is_swapped_for_the_label_in_its_output() -> None:
+    """The server names its keys under its own name and is never told its label; the
+    session swaps one for the other, and only where the name stands on its own."""
+    text = "notes:alpha, xnotes:beta, (notes:gamma). notes:alpha"
+    session = Session(runtime=CallingRuntime("probe", "echo", {"text": text}))
+    session._connectors["probe"] = await connect(build_server(name="notes"))  # type: ignore[assignment]
+    result = await result_of(session)
+    assert "probe:" not in result.output
+    assert result.refs == ["probe:alpha", "probe:gamma"]
+
+
+async def test_a_peer_ref_counts_only_when_that_peer_is_attached() -> None:
+    """A link into a peer store is a ref when a server of that name is attached, under
+    its label; a name nothing attached answers to stays text."""
+    text = "pond:alpha and elsewhere:beta"
+    session = Session(runtime=CallingRuntime("probe", "echo", {"text": text}))
+    probe = await connect(build_server(name="notes"))
+    peer = await connect(build_server(name="pond"), "peer")
+    # In-process servers close last-opened first, and the session closes in order.
+    session._connectors.update(peer=peer, probe=probe)  # type: ignore[arg-type]
+    assert (await result_of(session)).refs == ["peer:alpha"]
+
+
+async def test_bare_keys_in_a_server_s_output_are_not_refs() -> None:
+    """A bare word could be any word: only a name the server qualified is a ref."""
+    session = Session(runtime=CallingRuntime("gh", "echo", {"text": "alpha, note"}))
+    session._connectors["gh"] = await connect(build_server(name="notes"), "gh")  # type: ignore[assignment]
+    assert (await result_of(session)).refs == []

@@ -20,7 +20,7 @@ and reported as under-declared rather than quietly trusted.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -60,6 +60,14 @@ class Capability(StrEnum):
     TOOLS = "tools"
 
 
+#: What a key is made of: it runs to the first whitespace, bracket, quote (straight or
+#: curly), comma, semicolon, pipe, asterisk, `#` or dash.
+_KEY = r"[^\s<>()\[\]{}\"'`,;|*#“”‘’—–]+"
+
+#: What may follow a key without being part of it: sentence ends, closing emphasis.
+_TRAILING = ".:!?_~"
+
+
 class Ref(BaseModel):
     """`source:key` — this client's label for a source, then the key the source itself
     uses. The label is added here and only here: no server prints it, so no server has
@@ -91,27 +99,35 @@ class Ref(BaseModel):
         return cls(source_id=default_source, key=text)
 
     @staticmethod
-    def find_all(text: str, sources: Iterable[str]) -> list[str]:
+    def find_all(
+        text: str, sources: Iterable[str], aliases: Mapping[str, str] | None = None
+    ) -> list[str]:
         """Each `source:key` in `text` naming one of `sources`, in order, once each.
 
         Only attached sources count, which is what tells a ref from a URL, a clock time
         or a third-party id — all of which contain a colon. A key runs to the first
-        space, bracket, quote or separator, less trailing sentence punctuation, so a
-        ref a model wrote inside `(…)`, `[…]` or backticks still reads cleanly. A
-        `scheme://` is skipped for the reason `parse` refuses one.
+        space, bracket, quote, dash or separator, less trailing sentence punctuation or
+        emphasis, so a ref a model wrote inside `(…)`, `[…]`, backticks or `_…_` still
+        reads cleanly. A `scheme://` is skipped for the reason `parse` refuses one.
+
+        `aliases` maps the name a server prints before its keys to the source it is
+        attached as, for a server that names things `<its name>:<key>` and never by our
+        label. An alias wins over a label spelled the same; the caller leaves out any
+        alias it cannot attribute to one source.
         """
-        names = sorted(set(sources), key=len, reverse=True)
-        if not names or not text:
+        labels = {name: name for name in sources} | dict(aliases or {})
+        if not labels or not text:
             return []
+        names = sorted(labels, key=len, reverse=True)
         pattern = re.compile(
-            r"(?<![\w.\-/:])(" + "|".join(map(re.escape, names)) + r"):"
-            r"([^\s<>()\[\]{}\"'`,;|*]+)"
+            r"(?<![^\W_])(?<![.\-/:])(" + "|".join(map(re.escape, names)) + r"):"
+            f"({_KEY})"
         )
         found: dict[str, None] = {}
         for match in pattern.finditer(text):
-            key = match.group(2).rstrip(".:!?")
+            key = match.group(2).rstrip(_TRAILING)
             if key and not key.startswith("//"):
-                found[f"{match.group(1)}:{key}"] = None
+                found[f"{labels[match.group(1)]}:{key}"] = None
         return list(found)
 
 

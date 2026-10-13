@@ -717,18 +717,44 @@ class Session:
         ):
             if isinstance(event, ev.ToolResult) and not event.refs:
                 event = event.model_copy(
-                    update={"refs": Ref.find_all(event.output, self._connectors)}
+                    update={"refs": self._refs(event.output, event.source_id)}
                 )
             elif isinstance(event, ev.AgentCompleted):
                 self._history.append(Message(role="assistant", text=event.text))
                 # A union, not a fallback: a runtime's own citations — the URLs a web
                 # search answer rests on — say nothing about the `source:key` refs the
                 # same answer quotes, and filling only an empty list dropped those.
-                found = Ref.find_all(event.text, self._connectors)
+                found = self._refs(event.text)
                 cited = list(dict.fromkeys([*event.citations, *found]))
                 if cited != event.citations:
                     event = event.model_copy(update={"citations": cited})
             yield event
+
+    def _refs(self, text: str, caller: str | None = None) -> list[str]:
+        """The `source:key` refs in `text`, labelled here: no server prints a label.
+
+        A server that names its things `<its name>:<key>` has that name swapped for
+        the source's label, wherever it appears: a wiki's link into a peer wiki counts
+        when that peer is attached. A name two servers share, or one spelled like
+        another source's label, is left alone, never guessed, except in a tool's
+        output, where it is the server that ran the tool.
+        """
+        owners: dict[str, str | None] = {}
+        for source_id, connector in self._connectors.items():
+            if isinstance(connector, connectors.SelfNamed) and (
+                prefix := connector.ref_prefix()
+            ):
+                owners[prefix] = None if prefix in owners else source_id
+        ran = self._connectors.get(caller or "")
+        if isinstance(ran, connectors.SelfNamed) and (prefix := ran.ref_prefix()):
+            owners[prefix] = caller
+        aliases = {
+            prefix: owner
+            for prefix, owner in owners.items()
+            if owner
+            and (owner == caller or prefix == owner or prefix not in self._connectors)
+        }
+        return Ref.find_all(text, self._connectors, aliases)
 
     def _invoke(
         self, requested: dict[str, str], project: str | None, available: Sequence[Skill]
