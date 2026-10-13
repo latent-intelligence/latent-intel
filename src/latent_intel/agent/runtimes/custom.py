@@ -9,8 +9,7 @@ two, and the two copies had already drifted. They were folded into this module o
 
 **The protocol is on the host row.** `hosts.Host.protocol` picks the adapter, so
 reaching a new endpoint is a row in `agent/hosts.py` and nothing else: no module, no
-branch here, and no second table. A future canonical loop — a research loop, say —
-joins the `custom` family and reuses both the rows and the adapters.
+branch here, and no second table.
 
 **What an adapter owns, and what this owns.** The adapter spells a tool definition,
 builds the transcript, builds the request, reads the stream and sends a result back.

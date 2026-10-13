@@ -19,8 +19,8 @@ the Agents SDK, Claude Code's harness — would otherwise hand over a slow tool'
 after the pairs of faster tools stamped later, and the stream would run backwards. The
 relay is drained before the runtime stamps anything of its own, so what it yields is in
 `sequence` order. What remains buffered is the display: a start renders when the
-runtime next drains, not when the tool begins. The trigger for making that live, the
-same one ADR-001 set for parallel dispatch, is a slow tool showing up in a trace.
+runtime next drains, not when the tool begins. The trigger for making that live is a
+slow tool showing up in a trace.
 
 **A start is never left open.** When a turn ends before a tool it started reports —
 the runner raised, the turn was cut short — `abandon` closes each open start with a
