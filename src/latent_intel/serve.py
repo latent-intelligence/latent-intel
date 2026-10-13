@@ -188,7 +188,7 @@ async def _run(kind: str, target: str, source_id: str, options: dict[str, Any]) 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="latent-intel serve",
+        prog="python -m latent_intel.serve",
         description="Serve one source to a subprocess agent over stdio MCP.",
     )
     parser.add_argument(
