@@ -16,6 +16,8 @@ import pytest
 
 from latent_intel.connectors import base as connectors
 from latent_intel.models import Capability, Effect, Ref
+from latent_intel.session import Session
+from tests.test_mcp import CallingRuntime, result_of
 
 FORMATS = Path(__file__).parent / "fixtures" / "formats"
 
@@ -68,3 +70,14 @@ async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve() -> None:
         assert "Count limpets" in page.body
     finally:
         await connector.aclose()
+
+
+async def test_a_wiki_s_refs_are_labelled_here_and_never_by_the_server() -> None:
+    """Agnostic both ways: the server's text names no client, and the recorded refs
+    carry the label this session attached it under."""
+    runtime = CallingRuntime("heron", "wiki_search", {"query": "limpets"})
+    session = Session(runtime=runtime)
+    await session.connect(lw_serve(), kind="mcp", source_id="heron")
+    result = await result_of(session)
+    assert "heron:" not in result.output
+    assert result.refs == ["heron:count-limpets"]

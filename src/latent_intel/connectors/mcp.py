@@ -118,6 +118,7 @@ class McpConnector:
         self._capabilities: list[Capability] = []
         self._instructions = ""
         self._server_title = ""
+        self._server_name = ""
         self._errlog: TextIO | None = None
 
     # -- lifecycle ------------------------------------------------------------
@@ -190,6 +191,7 @@ class McpConnector:
             if info is not None
             else ""
         )
+        self._server_name = str(getattr(info, "name", None) or "")
 
         if declared is not None and declared.tools is not None:
             listed = await self._client.list_tools()
@@ -323,6 +325,11 @@ class McpConnector:
         if self._env_literals:
             spec["env"] = dict(self._env_literals)
         return spec
+
+    def ref_prefix(self) -> str:
+        """The server's own name from its handshake. A server that prints
+        `<name>:<key>` gets refs labelled with this source's id in its place."""
+        return self._server_name
 
     def tools(self) -> list[ToolSpec]:
         return list(self._tools)

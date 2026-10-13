@@ -113,6 +113,19 @@ class ToolProvider(Protocol):
         ...
 
 
+@runtime_checkable
+class SelfNamed(Protocol):
+    """A source whose server names its things `<name>:<key>`, under a name of its own.
+
+    Not a `Capability`. A server is never told the label it was attached under, so
+    the session swaps the server's name for that label when it records a ref.
+    """
+
+    def ref_prefix(self) -> str:
+        """The name this source's server gave itself, or "" when it gave none."""
+        ...
+
+
 #: Capability -> the Protocol that has to be satisfied to claim it.
 CAPABILITY_PROTOCOLS: dict[Capability, type] = {
     Capability.SEARCH: Searchable,
@@ -196,6 +209,7 @@ __all__ = [
     "Connector",
     "Fetchable",
     "Searchable",
+    "SelfNamed",
     "ToolProvider",
     "available_kinds",
     "build",
