@@ -1,9 +1,9 @@
 """Any MCP server — the connector that makes this program a host.
 
-This is the one connector for things we do not own: a GitHub server, Context7, a
-client's internal server. Our own stores are reached directly instead (`wiki.py` imports
-`latent_wiki`), because a subprocess and a tool-schema round trip buy nothing when the
-code is already importable, and typed `Hit` objects beat text blobs.
+This is how latent-intel reaches any MCP server: a GitHub server, Context7, a client's
+internal server — and our own stores, through their adapters (`lw serve`,
+`latent-records serve`). latent-intel reads no store's format itself; a store owns its
+capability, and this client connects to it like any other.
 
 **Capabilities come from the server's declared capabilities, never from tool names.**
 A server advertising `tools` is a `ToolProvider`; one advertising `resources` is also
@@ -17,11 +17,10 @@ declare nothing. A tool with no annotation becomes `EXTERNAL_WRITE` with
 `effect_declared=False`, so approval gates it and `intel doctor` lists it as
 under-declared. That is the safe end of the guess, and it is recorded as a guess.
 
-**Point at the server, not at a wrapper.** `stdio_client` terminates the process it
-started. Give it `uv run … <server>` and it kills `uv`, leaving the actual server as an
-orphan holding whatever file descriptors it inherited — measured, and it survives the
-client exiting. Give it the executable itself (`/path/.venv/bin/<server> …`) and cleanup
-is exact. `intel serve --print-config` emits the direct form for this reason.
+**A wrapper is fine.** `stdio_client` in mcp 2.x terminates the whole process tree it
+started, so `uv run --directory <checkout> <server> …` stops cleanly with the client —
+measured 2026-10-12 against `lw serve`. (Under 1.x it killed only `uv` and orphaned the
+server, which is why older notes say to point at the executable.)
 
 **The four keys a server registration carries, and what each becomes here.** `command`
 and `args` are the target, one string split with `shlex`. `env` is a list, each item a
@@ -77,6 +76,12 @@ _ENV_REF = re.compile(r"\$\{(\w+)\}")
 _LIST_LIMIT = 500
 
 
+#: How much of a server's own instructions this client keeps. They reach the system
+#: prompt, and a third-party server is not the author of that prompt: a sentence or two
+#: says what it holds, and anything longer is cut.
+INSTRUCTIONS_MAX = 500
+
+
 class McpConnector:
     """One MCP server, connected for the life of the session."""
 
@@ -97,12 +102,22 @@ class McpConnector:
         #: no subprocess, which is how the tests here work and how an embedded server
         #: would.
         self.target = target if not isinstance(target, str) else str(target)
+        if options:
+            # Nothing else is read here, and an option that configures nothing would
+            # leave a source believing it was configured (a wiki's context, say, which
+            # is the server's own --deployment or --context).
+            raise ConnectError(
+                f"{source_id}: an MCP source takes env and cwd; "
+                f"{', '.join(sorted(options))} would configure nothing"
+            )
         self.options = options
         self._stack: AsyncExitStack | None = None
         self._client: Client | None = None
         self._tools: list[ToolSpec] = []
         self._resources: list[tuple[str, str, str]] = []
         self._capabilities: list[Capability] = []
+        self._instructions = ""
+        self._server_title = ""
         self._errlog: TextIO | None = None
 
     # -- lifecycle ------------------------------------------------------------
@@ -164,6 +179,17 @@ class McpConnector:
         """One round trip per capability, at connect time rather than per query."""
         assert self._client is not None
         declared = self._client.server_capabilities
+        # What the server says it is. A model asked the topic of an attached store made
+        # no tool call and said it could not tell when nothing in its prompt said.
+        self._instructions = str(self._client.instructions or "").strip()[
+            :INSTRUCTIONS_MAX
+        ]
+        info = self._client.server_info
+        self._server_title = str(
+            (getattr(info, "title", None) or getattr(info, "name", None) or "")
+            if info is not None
+            else ""
+        )
 
         if declared is not None and declared.tools is not None:
             listed = await self._client.list_tools()
@@ -195,11 +221,13 @@ class McpConnector:
         return Descriptor(
             id=self.id,
             kind=self.kind,
-            title=str(self.target),
+            title=self._server_title or str(self.target),
             capabilities=list(self._capabilities),
             count=len(self._tools) + len(self._resources) or None,
             unit="items",
             detail={
+                # The first paragraph of the server's own instructions: what it holds.
+                "description": self._instructions.split("\n\n", 1)[0],
                 "server": str(self.target),
                 "tools": len(self._tools),
                 "resources": len(self._resources),
@@ -210,12 +238,19 @@ class McpConnector:
         )
 
     async def search(self, query: str, *, limit: int = 10, **filters: Any) -> list[Hit]:
-        """Substring match over the resource listing.
+        """Substring match over the resource listing. Filters are refused, not ignored.
 
         Deliberately shallow: MCP gives a name and a description per resource, not a
         body, so there is nothing deeper to rank on without reading every resource —
         which would be one request each and is what `fetch` is for.
         """
+        if given := sorted(
+            k for k, v in filters.items() if v not in (None, "", [], {})
+        ):
+            raise ConnectError(
+                f"an MCP resource listing has no fields to filter on "
+                f"({', '.join(given)}); ask the agent, which can use the server's tools"
+            )
         needle = query.lower().strip()
         if not needle or not self._resources:
             return []
@@ -489,7 +524,9 @@ def _tool_spec(source_id: str, tool: Any) -> ToolSpec:
         description=(getattr(tool, "description", "") or "").strip(),
         effect=effect,
         effect_declared=declared,
-        input_schema=getattr(tool, "inputSchema", None) or {},
+        # snake_case in SDK v2, like `is_error`: the camelCase name read nothing, so
+        # every tool reached a model with no parameters at all.
+        input_schema=getattr(tool, "input_schema", None) or {},
     )
 
 

@@ -17,12 +17,9 @@ dependencies = [
     "prompt-toolkit>=3.0",
     "pydantic>=2.7",
     "anyio>=4.0",
-    # 2.x: `MCPServer`, the extension API (SEP-2133) and stateless Streamable HTTP are
-    # all 2.0. Bounded below 3 because the extension API is new.
+    # 2.x: `Client` and `MCPServer` (`serve.py`). One pin across packages, so this
+    # client and the stores' adapters agree on the protocol.
     "mcp>=2.0,<3",
-    # The HTTP transport for `intel serve`. Already in every mcp 2.x install; named
-    # here because this package imports it.
-    "uvicorn>=0.30",
     "pyyaml>=6.0",
     # Base, not an extra: a `.env` is how a machine with no `aws configure` reaches a
     # store at all, and "out of the box" cannot have an asterisk on the first run.
@@ -43,17 +40,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# No extra pulls a sibling package. `latent-wiki` and `latent-records` are not published,
-# so declaring them here promised an install nobody could perform: `latent-intel[wiki]`
-# failed to resolve off any checkout but this workspace, and the local-path pins that made
-# it work here put an unresolvable entry in `uv.lock` — which broke plain `uv sync`, and
-# with it `just check`, for every clone that had no siblings beside it.
-#
-# The authoring machine gets the sibling by path instead, which needs no metadata:
-#
-#     uv tool install . --with ../latent-wiki
-#
-# Reading a published store never needed it. See `connectors/wiki.py`.
+# No extra pulls a sibling package. A store is reached through its own MCP server
+# (`lw serve`, `latent-records serve`), installed beside this one, never imported.
 #
 # Each remaining extra is named after the one runtime it enables, so the remedy a
 # runtime prints and the extra that fixes it are the same word.
@@ -108,7 +96,6 @@ intel = "latent_intel.frontends.cli.main:main"
 code = "latent_intel.connectors.code:CodeConnector"
 files = "latent_intel.connectors.files:FilesConnector"
 mcp = "latent_intel.connectors.mcp:McpConnector"
-wiki = "latent_intel.connectors.wiki:WikiConnector"
 vector = "latent_intel.connectors.vector:VectorConnector"
 
 [project.entry-points."latent_intel.runtimes"]
@@ -140,11 +127,8 @@ python_version = "3.11"
 strict = true
 files = ["src/latent_intel"]
 
-# `latent_wiki` and `latent_records` are optional siblings, imported inside a guarded
-# block and absent from any clone that does not have them beside it. Without this, the
-# type check passes only on the authoring machine.
 [[tool.mypy.overrides]]
-module = ["mcp.*", "latent_wiki.*", "latent_records.*", "s3fs.*"]
+module = ["mcp.*", "s3fs.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -156,7 +140,7 @@ root_package = "latent_intel"
 
 [[tool.importlinter.contracts]]
 # The rule that keeps a web frontend an addition rather than a rewrite. Without it, the
-# first convenient `from ...connectors.wiki import` quietly ends the design — and it
+# first convenient `from ...connectors.files import` quietly ends the design — and it
 # would still pass every test, which is why this is enforced rather than documented.
 name = "Frontends see only the Session API, the event models and the renderer"
 type = "forbidden"

@@ -124,5 +124,5 @@ async def test_a_tool_call_returns_what_the_connector_returns(corpus: Path) -> N
 async def test_an_unknown_kind_names_what_is_installed() -> None:
     """Silence is the failure mode this whole module exists to remove, so the refusal
     has to say which kinds exist."""
-    with pytest.raises(ConnectError, match="files, mcp, wiki"):
+    with pytest.raises(ConnectError, match="files, mcp"):
         await serve._run("nonexistent-kind", "/tmp", "x", {})

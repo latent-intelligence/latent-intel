@@ -36,29 +36,10 @@ people start on — `claude-cli`, `custom` and `anthropic-sdk`. `openai-agents` 
 uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
 ```
 
-**That is the whole install.** Files, MCP servers and wikis — local or `s3://` — all
-work from it. A published wiki store is a versioned format (`manifest.json` plus
-`pages/`), and the client reads that format directly, so reaching an existing wiki needs
-nothing beyond this and credentials for wherever it lives.
-
-### The one case this does not cover
-
-An **unpublished** store — a working directory with no `manifest.json` — is the authoring
-machine's case, and only the wiki compiler that writes it can read it. Add that package
-alongside the engine rather than through an extra:
-
-```bash
-uv tool install . --with <wiki-compiler> --reinstall
-```
-
-Until you do, such a store is skipped with an explanation and the rest of your sources
-still answer — one unreadable source never fails the whole command:
-
-```
-! design: /path/to/store has no manifest.json and `latent_wiki` is not installed.
-  Publish the store with `lw manifest` (it is what `just publish` runs), or add the
-  package by path:  uv tool install . --with ../latent-wiki --reinstall
-```
+**That is the whole install.** Files, code and MCP servers all work from it. A store
+— a wiki, a records store — is reached through its own MCP server (`lw serve`,
+`latent-records serve`), installed with its own package and attached like any other
+server; this package reads no store's format itself.
 
 `--kind vector` is declared but not implemented; `intel doctor` lists it as not installed.
 
@@ -89,7 +70,6 @@ connectors (entry points)
   ✓ code
   ✓ files
   ✓ mcp
-  ✓ wiki
   · vector — not installed
 ```
 
@@ -106,7 +86,7 @@ name is enough. Point at one with `KNOWLEDGE_REGISTRY`, or let a project carry i
 
 ```
 $ intel connect handbook-wiki --as handbook
-✓ wiki   handbook  148 pages  search fetch tools
+✓ mcp  handbook  157 items  search fetch tools
 recorded in ~/.config/latent-intel/config.yaml
 ```
 
@@ -115,23 +95,32 @@ from a directory's contents would be wrong exactly when it matters:
 
 ```bash
 intel connect ~/knowledge/context/raw --kind files --as notes
-intel connect s3://<bucket>/wikis/design --kind wiki --as design
 ```
 
-A wiki and the material it summarises are a **pair**, and a project file can say so:
+A registered wiki is reached through its own server, `lw serve`, and nothing else: its
+registry entry names the command (`access: mcp:lw serve --deployment <path>`),
+or you attach the command directly, as above. This program never builds that command.
+The wiki and the material it summarises are a **pair**, and `--deployment` carries both:
 
 ```yaml
 sources:
   - id: design
-    kind: wiki
-    target: s3://<bucket>/wikis/design
-    options:
-      context: s3://<bucket>/li/knowledge/context     # optional
+    kind: mcp
+    target: lw serve --deployment ~/client/deployments/design
 ```
 
 The pairing is what lets `wiki_raw` escalate from a page to the source it derives from.
-Leave it out and search, `open` and every other tool still work — only that escalation
-reports it has nothing to read.
+Leave it out and every other tool still works — only that escalation reports it has
+nothing to read. The tools are latent-wiki's `docs/formats/wiki-tools.md`.
+
+`--deployment` takes the deployment's wiki and its context from latent-wiki's own
+declaration. Serving a bare store instead, `lw serve --store <wiki> --context <context>`
+says the same two things by hand. A registered wiki records one of these as its `access:`
+line. The server names pages by their bare key and knows nothing about this client; the
+`design:` in a citation is added here, from the id you attached the source under, so
+rename a source freely. A relative path resolves against the directory the server starts
+in;
+give the source `cwd: .` to start it beside the project file.
 
 **A codebase** is `--kind code`: the repository's own files, read as text.
 
@@ -155,21 +144,21 @@ and to its `paths.mirror` otherwise — so one registry works on your laptop and
 host that has no Google Drive. `--remote` forces the mirror, which is also how you check a
 published one is current:
 
-```
-$ intel connect design-wiki --remote --as design
-✓ wiki   design  148 pages  search fetch tools    built 2026-08-24
+```bash
+intel connect design-wiki --remote --as design
 ```
 
-That `built` date only appears on a store loaded through its `manifest.json`. If it is
-missing on a remote store, the manifest was not published — publish it with your wiki
-compiler and push again.
+A registered wiki connects through the server its entry names (`access: mcp:lw serve
+--deployment <path>`), under any id you like; `--remote` does not apply, since the command
+chooses the store. An entry without that line is listed as not connectable, and `connect`
+says which line to add.
 
 **What is attached, and what else is reachable:**
 
 ```
 $ intel stores
 attached
-  handbook           wiki     148 pages      search fetch tools
+  handbook           mcp      157 items      search fetch tools
 
 available (intel connect <id>)
   manuals            files    Technical manuals — 11 volumes, 170 files
@@ -205,16 +194,16 @@ latent ›
 
 ```
 latent › /sources
-  ✓ wiki   design  148 pages  search fetch tools
+  ✓ mcp    design  …  tools search fetch
 
 latent › search progressive disclosure
 searching design…
 
 design  3 hit(s)
-  source design:cochran2026-progressive-disclosure-wiki  4
+  resource design:cochran2026-progressive-disclosure-wiki  4
     The system under study is uncannily close to mine: a personal knowledge base
     of 709 markdown pages — sources, entities, concepts, analyses, proposals…
-  concept design:progressive-disclosure  4
+  resource design:progressive-disclosure  4
     Give an agent identifiers and one-line descriptions first, and full content
     only once it has chosen…
 
@@ -513,16 +502,13 @@ shadowing the other. Each tool shows its **declared** effect — `none`, `extern
 
 Two things worth knowing:
 
-**Point at the server, not at a wrapper.** Give it `uv run … <server>` and killing the
-client kills `uv`, leaving the real server orphaned. Give it the executable —
-`/path/.venv/bin/<server> …` — and cleanup is exact.
+**An installed command or `uv run` both work.** `target: lw serve …` for a server
+installed with `uv tool install`, or `target: uv run --directory ~/src/latent-wiki lw
+serve …` from a checkout; closing the session stops either cleanly.
 
-**Our own wiki does not need an MCP client.** `--kind wiki` reads the published store
-directly — one GET for the manifest, page bodies only when asked: no subprocess, no
-tool-schema round trip, and typed results instead of text. The MCP *client* is for
-servers you do not own. To give our own stores to someone else's agent, run the MCP
-*server*: `intel serve --deployment X` (see "Serving over MCP" in
-[`configuring-a-deployment.md`](configuring-a-deployment.md)).
+**Our own stores are servers too.** A wiki is `lw serve`, a records store is
+`latent-records serve`, attached exactly like the servers above. Another agent — Claude
+Code, say — attaches the same server directly; nothing here needs to run for it.
 
 ### Bringing a server's own registration across
 
@@ -588,8 +574,12 @@ The config is plain YAML and safe to edit:
 ```yaml
 sources:
 - id: design          # a registered store, re-resolved wherever this is read
-  kind: wiki
-  from: design-wiki
+  kind: mcp
+  from: design-wiki   # its registry entry names the server command
+
+- id: manuals
+  kind: files
+  from: manuals
   remote: true        # prefer the mirror over any local copy
 
 - id: notes           # a literal path, kept exactly as typed
@@ -657,7 +647,7 @@ runs the loop we wrote, and three hand the loop to a vendor's SDK while tools st
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
-  MCP servers: `files` and `vector` are invisible to it.
+  MCP servers: `files` and `code` are served to it, `vector` is invisible to it.
 - **`custom`** runs the turn in this process, so our tool router runs and **every**
   attached source's tools are visible to it. One loop over any row in the table below:
   the **row carries the protocol**, so the same runtime reaches an Anthropic Messages
@@ -776,8 +766,9 @@ A model name is never validated here — we cannot enumerate them and a hardcode
 stale. An unknown name fails when you ask, with the runtime's own message.
 
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
-MCP servers, so under `claude-cli` only `mcp` and `wiki` sources are visible to it —
-`files` and `vector` run in this process and have no server to point at. `intel doctor`
+MCP servers, so under `claude-cli` an `mcp` source is reached as itself and a `files` or
+`code` source through a server this program starts for it — `vector` runs in this process
+and has no server to point at. `intel doctor`
 marks the difference under `attached`. Under `custom`, `anthropic-sdk`, `openai-agents`
 and `claude-agent-sdk` the distinction does not apply: the tool router is ours either
 way — whoever drives the loop — so everything attached is a tool.

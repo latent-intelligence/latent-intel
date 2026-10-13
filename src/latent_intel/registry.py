@@ -11,7 +11,7 @@ would tie it to the machine that authored it. Point at a registry with
 `KNOWLEDGE_REGISTRY`, or let a project carry its own `registry:`.
 
 There is deliberately **no default store**. Searching the wrong store is worse than
-failing to start — the same rule `latent_wiki.serve.resolve_root` follows.
+failing to start — the same reason `lw serve` will not start without `--store`.
 """
 
 from __future__ import annotations
@@ -36,7 +36,9 @@ ENV_VAR = "KNOWLEDGE_REGISTRY"
 #: Registry `kind` -> our connector kind. A registry entry we cannot map is listed but
 #: not connectable, which is more useful than hiding it.
 KIND_MAP = {
-    "wiki": "wiki",
+    # A wiki is not here: it is reached through its own server, `lw serve`, which its
+    # entry names as `access: mcp:<command>`. This client builds no server command and
+    # reads no store's format, so a wiki entry without that line is not connectable.
     "context-store": "files",
     "markdown-vault": "files",
 }
@@ -180,6 +182,17 @@ def resolve(
     if entry is None:
         known = ", ".join(sorted(entries)) or "nothing registered"
         raise ConnectError(f"no store '{name}' in the registry (known: {known})")
+    if entry.registry_kind == "wiki" and not entry.kind:
+        raise ConnectError(
+            f"'{name}' is a wiki, which is reached through its own server: add "
+            f"`access: mcp:lw serve --deployment <path>` to its registry entry, or "
+            f"attach the command directly with --kind mcp"
+        )
+    if remote and entry.access.startswith("mcp:"):
+        raise ConnectError(
+            f"'{name}' is reached through its server (`access:`), which chooses its "
+            f"own store — remove --remote"
+        )
     target = entry.target(remote=remote)
     if remote and not target:
         raise ConnectError(

@@ -38,10 +38,12 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def build_server(*, with_resources: bool = True) -> MCPServer:
+def build_server(
+    *, with_resources: bool = True, instructions: str = "A probe server."
+) -> MCPServer:
     """A server with one honestly-annotated tool, one destructive one, and one that
     declares nothing — the three cases the effect mapping has to get right."""
-    server = MCPServer("probe", instructions="A probe server.")
+    server = MCPServer("probe", instructions=instructions)
 
     @server.tool(
         annotations=types.ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -471,3 +473,55 @@ async def test_a_failing_body_still_closes_the_session() -> None:
             raise BrokenPipeError("head closed the pipe")
 
     assert closed == ["probe"], "the session must close even when the body raises"
+
+
+async def test_the_server_s_own_instructions_describe_the_source() -> None:
+    """What the store is about reaches the system prompt, as it did for the wiki."""
+    connector = await connect(build_server())
+    try:
+        described = connector.describe()
+    finally:
+        await connector.aclose()
+    assert described.detail["description"] == "A probe server."
+    assert described.title == "probe"
+
+
+def test_an_option_the_server_cannot_take_is_refused() -> None:
+    """`context:` beside a wiki configured its reader once; a server configures
+    itself, so the option would sit there meaning nothing."""
+    with pytest.raises(ConnectError, match="context.*would configure nothing"):
+        connectors.build("mcp", "w", "lw serve --store x", context="/ctx")
+
+
+async def test_a_server_s_instructions_are_bounded() -> None:
+    """They reach the system prompt, and a third-party server does not get to write
+    as much of it as it likes."""
+    connector = await connect(build_server(instructions="x" * 5_000))
+    try:
+        described = connector.describe()
+    finally:
+        await connector.aclose()
+    assert len(described.detail["description"]) == 500
+
+
+async def test_a_filter_the_listing_cannot_apply_is_refused() -> None:
+    """Reject what you cannot honour: a `--kind` that silently did nothing would
+    return results the caller believes were filtered."""
+    connector = await connect(build_server())
+    try:
+        assert await connector.search("retrieval", type=None)
+        with pytest.raises(ConnectError, match="type"):
+            await connector.search("retrieval", type="concept")
+    finally:
+        await connector.aclose()
+
+
+async def test_a_tool_s_input_schema_reaches_the_spec() -> None:
+    """The schema is what tells a model a tool's parameters; an empty one hides them."""
+    connector = await connect(build_server())
+    try:
+        echo = next(t for t in connector.tools() if t.name == "echo")
+    finally:
+        await connector.aclose()
+    assert echo.input_schema["properties"]["text"]["type"] == "string"
+    assert echo.input_schema["required"] == ["text"]

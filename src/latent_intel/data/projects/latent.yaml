@@ -33,18 +33,14 @@ description: >
 # `remote: true` prefers a registry entry's mirror over any local copy — which is a
 # different thing from a `target:` that is already remote, like an s3:// URI.
 #
-# A wiki needs no extra and no local copy: point at a published store — one that has a
-# `manifest.json`, which is what a wiki compiler's publish step writes — and the base
-# install reads it over fsspec.
-#
-# `context:` pairs a wiki with the material it summarises, which is what lets `wiki_raw`
-# escalate from a page to its underlying source. Optional: without it a wiki still
-# searches and fetches, and only that escalation says it has nothing to read.
+# A wiki is an MCP source: its own server, `lw serve`, gives it its tools (search,
+# evidence, views), and a latent-wiki deployment names its store, its context and its
+# refs. Without the server, a wiki's pages are Markdown, and a `files` source reads them.
 #
 # sources:
-#   - {id: wiki,  kind: wiki,  target: "${MIRROR}/wikis/design",
-#      options: {context: "${MIRROR}/knowledge/context"}}
-#   - {id: named, kind: wiki,  from: design-wiki, remote: true}
+#   - {id: wiki,  kind: mcp,   target: "lw serve --deployment ~/client/deployments/wiki"}
+#   - {id: pages, kind: files, target: "${MIRROR}/wikis/design/pages"}
+#   - {id: named, kind: files, from: design-wiki, remote: true}
 #   - {id: docs,  kind: files, target: "${MIRROR}/context/raw"}
 #   - {id: local, kind: files, target: ./corpus}
 #   - {id: tools, kind: mcp,   target: "npx -y @example/mcp"}

@@ -66,40 +66,8 @@ TOP_LEVEL_KEYS = frozenset(
         "skills",
         "agents",
         "defaults",
-        "serve",
-        "views",
     }
 )
-
-#: How `intel serve` runs this project when the command line does not say.
-SERVE_KEYS = frozenset({"transport", "host", "port", "auth"})
-SERVE_AUTH_KEYS = frozenset({"token_env"})
-TRANSPORTS = ("stdio", "http")
-
-#: View kinds the engine can render. A declared kind outside this set is refused,
-#: never rendered as something else.
-VIEW_KINDS = frozenset({"tree"})
-VIEW_KEYS = frozenset(
-    {"name", "kind", "source", "root_type", "parent", "order", "fields"}
-)
-
-
-@dataclass(frozen=True)
-class View:
-    """A declared, generic view over one source's frontmatter.
-
-    `tree`: pages of `root_type` at the top, children linked by the `parent` field,
-    siblings ordered by `order`, with `fields` carried into each node. The engine names
-    no field; the project does.
-    """
-
-    name: str
-    kind: str
-    source: str = ""
-    root_type: str = ""
-    parent: str = ""
-    order: str = ""
-    fields: tuple[str, ...] = ()
 
 
 class ProjectError(Exception):
@@ -422,9 +390,6 @@ class Project:
     #: Delegates, from the `agents:` directory — see `subagents.py`. Read here; run only
     #: by a runtime that declares `agent.base.Delegating`.
     agents: list[subagents.Subagent] = field(default_factory=list)
-    #: How `intel serve` runs it: transport, host, port, `auth.token_env`.
-    serve: dict[str, Any] = field(default_factory=dict)
-    views: list[View] = field(default_factory=list)
     #: Validation complaints. Non-fatal by design: a project with one bad source should
     #: still attach the other four, and `doctor` is where you go to find out why.
     problems: list[str] = field(default_factory=list)
@@ -544,94 +509,8 @@ def load(path: Path | str) -> Project:
         persona_mode=persona_mode,
         skills=skills,
         defaults=dict(raw.get("defaults") or {}),
-        serve=_serve(raw.get("serve"), problems),
-        views=_views(raw.get("views"), problems),
         problems=problems,
     )
-
-
-def _serve(value: Any, problems: list[str]) -> dict[str, Any]:
-    """The `serve:` block, checked. A bad value is a problem and is dropped."""
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        problems.append("serve: must be a mapping")
-        return {}
-    out: dict[str, Any] = {}
-    if unknown := sorted(set(value) - SERVE_KEYS):
-        problems.append(f"serve: unknown key(s) {', '.join(unknown)}")
-    transport = value.get("transport")
-    if transport is not None:
-        if transport in TRANSPORTS:
-            out["transport"] = transport
-        else:
-            problems.append(
-                f"serve.transport: '{transport}' is not one of {TRANSPORTS}"
-            )
-    if value.get("host"):
-        out["host"] = str(value["host"])
-    if value.get("port") is not None:
-        try:
-            out["port"] = int(value["port"])
-        except (TypeError, ValueError):
-            problems.append(f"serve.port: '{value['port']}' is not a number")
-    auth = value.get("auth")
-    if auth is not None:
-        if not isinstance(auth, dict):
-            problems.append("serve.auth: must be a mapping")
-        else:
-            if unknown := sorted(set(auth) - SERVE_AUTH_KEYS):
-                problems.append(f"serve.auth: unknown key(s) {', '.join(unknown)}")
-            if auth.get("token_env"):
-                # The *name* of a variable. A token itself never lives in a project.
-                out["auth"] = {"token_env": str(auth["token_env"])}
-    return out
-
-
-def _views(value: Any, problems: list[str]) -> list[View]:
-    """Declared views, checked. One bad view is reported and skipped."""
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        problems.append("views: must be a list")
-        return []
-    views: list[View] = []
-    names: set[str] = set()
-    for row in value:
-        if not isinstance(row, dict) or not row.get("name"):
-            problems.append(f"views: a view with no name was skipped: {row!r}")
-            continue
-        name = str(row["name"])
-        if unknown := sorted(set(row) - VIEW_KEYS):
-            problems.append(f"views.{name}: unknown key(s) {', '.join(unknown)}")
-        kind = str(row.get("kind") or "")
-        if kind not in VIEW_KINDS:
-            problems.append(
-                f"views.{name}: kind '{kind}' is not one of "
-                f"{sorted(VIEW_KINDS)} — skipped"
-            )
-            continue
-        if not row.get("root_type") or not row.get("parent"):
-            problems.append(
-                f"views.{name}: a tree needs root_type and parent — skipped"
-            )
-            continue
-        if name in names:
-            problems.append(f"views.{name}: declared twice — the first is kept")
-            continue
-        names.add(name)
-        views.append(
-            View(
-                name=name,
-                kind=kind,
-                source=str(row.get("source") or ""),
-                root_type=str(row["root_type"]),
-                parent=str(row["parent"]),
-                order=str(row.get("order") or ""),
-                fields=tuple(str(f) for f in row.get("fields") or ()),
-            )
-        )
-    return views
 
 
 def search_paths(
