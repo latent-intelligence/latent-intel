@@ -55,9 +55,9 @@ async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve() -> None:
         assert tools["wiki_search"].input_schema["required"] == ["query"]
         answer = await connector.call("wiki_search", {"query": "limpets"})
         assert "cut:" in answer
-        # The server names pages by bare key and knows nothing of this client's label;
-        # the `heron:` a citation carries is added on this side.
-        assert "count-limpets" in answer
+        # The server names pages by its store id and knows nothing of this client's
+        # label; the `heron:` a citation carries is swapped in on this side.
+        assert "heronsgate:count-limpets" in answer
         assert Ref.find_all(answer, ["heron"]) == []
         described = connector.describe()
         assert described.detail["description"].startswith("Heronsgate")
