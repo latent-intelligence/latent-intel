@@ -328,8 +328,8 @@ def test_doctor_names_an_orphaned_runtimes_block_rather_than_ignoring_it() -> No
 
 def test_doctor_names_the_old_sdk_anthropic_name_rather_than_answering_to_it() -> None:
     """`sdk-anthropic` became `anthropic-sdk` and was removed rather than aliased, as
-    ADR-003 did for `anthropic` and `openai`. A config still naming it is told so, for
-    the kind and for its options, while the new name has its own row."""
+    `anthropic` and `openai` were when folded into `custom`. A config still naming it
+    is told so, for the kind and for its options, while the new name has its own row."""
     config = config_module.load()
     config.runtime = "sdk-anthropic"
     config_module.save(config)

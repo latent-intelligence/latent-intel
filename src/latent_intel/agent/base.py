@@ -134,7 +134,7 @@ class Owned(Protocol):
 
     It matters because the flat list `doctor` printed blends two different things. A
     `custom` runtime's orchestration is ours to configure; a `delegated` one's is not,
-    which is why `claude-cli` has no host rows and would take no `loop:`.
+    which is why `claude-cli` has no host rows.
     """
 
     def family(self) -> str:
