@@ -35,10 +35,9 @@ merging again here would only disagree with it.
 exited by the task that entered it, in reverse order of entry, and a stdio transport is
 one. Entered on the session's task, every server's scope sat on one stack, so closing
 any but the newest raised. `aopen` therefore starts an asyncio task (the owner) that
-enters the
-`Client`, signals ready and waits to be told to stop; `aclose` tells it and waits, for
-`CLOSE_TIMEOUT` and then once more after cancelling it. Calls are made from the caller's
-task against the owner's `Client`, so sources open and close in any order.
+enters the `Client`, signals ready and waits to be told to stop; `aclose` tells it and
+waits, for `CLOSE_TIMEOUT` and then once more after cancelling it. Calls are made from
+the caller's task against the owner's `Client`, so sources open and close in any order.
 
 **Transport is the SDK's problem.** `Client` accepts a command string, a URL, or a
 server object, and selects stdio or Streamable HTTP accordingly. Legacy SSE exists in
@@ -285,17 +284,27 @@ class McpConnector:
                 owner.cancel()
                 with anyio.move_on_after(CLOSE_TIMEOUT):
                     await asyncio.wait([owner])
-        if not owner.done():
+        if owner.done():
+            self._ended(owner)
+            return
+        logger.warning(
+            "%s: the server did not stop within %ss (asked, then cancelled); "
+            "it may still be running",
+            self.id,
+            2 * CLOSE_TIMEOUT,
+        )
+        _abandoned.add(owner)
+        owner.add_done_callback(self._ended)
+
+    def _ended(self, owner: asyncio.Task[None]) -> None:
+        """Log what the owner ended with, if anything `_own` did not catch."""
+        _abandoned.discard(owner)
+        if owner.cancelled():
+            return
+        if (exc := owner.exception()) is not None:
             logger.warning(
-                "%s: the server did not stop within %ss of being cancelled; "
-                "it may still be running",
-                self.id,
-                2 * CLOSE_TIMEOUT,
+                "%s: the server did not close cleanly — %s", self.id, _innermost(exc)
             )
-            _abandoned.add(owner)
-            owner.add_done_callback(_abandoned.discard)
-        elif not owner.cancelled():
-            owner.exception()  # retrieved, so asyncio does not report it at collection
 
     # -- the contract ---------------------------------------------------------
 

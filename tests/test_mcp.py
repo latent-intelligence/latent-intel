@@ -9,6 +9,7 @@ ask it what it received. No network, no store, no model.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import random
@@ -725,8 +726,8 @@ async def test_a_server_that_dies_mid_session_fails_its_own_calls_only() -> None
 
 
 class StuckOnExit:
-    """The probe over stdio, behind a transport that will not finish closing until it
-    is cancelled: a server that ignores the request to stop."""
+    """The probe over stdio, behind a transport that ignores the request to stop and
+    closes its server once cancelled."""
 
     def __init__(self) -> None:
         self.inner = _transport(probe_command())
@@ -735,15 +736,13 @@ class StuckOnExit:
         return await self.inner.__aenter__()
 
     async def __aexit__(self, *exc: Any) -> None:
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await anyio.sleep_forever()
-        finally:
-            with anyio.CancelScope(shield=True):
-                await self.inner.__aexit__(None, None, None)
+        await self.inner.__aexit__(None, None, None)
 
 
 async def test_a_server_that_will_not_stop_cannot_hang_close(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     monkeypatch.setattr("latent_intel.connectors.mcp.CLOSE_TIMEOUT", 0.3)
     before_children, before_tasks = children(), tasks()
@@ -754,6 +753,7 @@ async def test_a_server_that_will_not_stop_cannot_hang_close(
         await connector.aclose()
     assert children() <= before_children
     assert tasks() == before_tasks
+    assert "did not close cleanly" not in caplog.text
 
 
 async def test_hung_servers_cost_one_bounded_wait_not_one_each(
@@ -809,3 +809,19 @@ async def test_a_server_left_running_is_named_in_the_log(
     await connector.aclose()
     assert "slow" in caplog.text and "did not stop" in caplog.text
     await anyio.sleep(1.5)
+
+
+class FailsToClose(StuckOnExit):
+    async def __aexit__(self, *exc: Any) -> None:
+        await self.inner.__aexit__(None, None, None)
+        raise OSError("transport would not close")
+
+
+async def test_a_server_that_closes_with_an_error_is_named_in_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    connector = McpConnector("broken", FailsToClose())
+    await connector.aopen()
+    await connector.aclose()
+    assert "broken: the server did not close cleanly" in caplog.text
+    assert "transport would not close" in caplog.text
