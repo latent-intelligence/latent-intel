@@ -1,0 +1,1 @@
+{"doc_id": "hivewright-b", "id": "table-001", "kind": "table", "source": "docling-assets", "page": 4, "bbox": [72.0, 420.0, 520.0, 600.0], "number": "4", "caption": "Figure 4: Autumn tasks by month.", "image": null, "grid": "grids/table-001.json", "raw": "md/table-001.md", "caption_kind": "figure", "ruled_check": {"rows": 3, "cols": 2, "agrees": true}}

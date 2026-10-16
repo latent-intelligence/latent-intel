@@ -1,0 +1,24 @@
+{
+  "doc_id": "comb-ledger-a",
+  "collection": "hive-notes",
+  "source": "/home/keeper/inputs/comb-ledger-a.pdf",
+  "sha256": "409e390e980c63ef8ba2c5e3f3d98b7998912fb95c6dbeb865c529b07b2c03dd",
+  "pages": 6,
+  "metadata": {
+    "format": "pdf",
+    "title": "Keeping a Comb Ledger",
+    "author": "A. Keeper"
+  },
+  "outline": [
+    {
+      "level": 1,
+      "title": "Introduction",
+      "page": 1
+    },
+    {
+      "level": 1,
+      "title": "Recording frames",
+      "page": 3
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# latent-records' fixture deployment and its collection, copied from that package's
+# tests/fixtures/, never imported. tests/test_records_over_mcp.py builds the store with
+# latent-records' own CLI and serves it; latent-intel reads neither layout itself.
+schema_version: 1
+store_id: brindlewick-hives
+title: Brindlewick Apiary
+description: Field notes on comb-ledger keeping, for the package tests.
+inputs:
+  hive-notes:
+    format: doc-intelligence
+    path: ../../doc-intelligence/hive-notes
+    artifacts: [text, figures, tables]
+chunking:
+  target_tokens: 60
+  max_tokens: 120
+  overlap_tokens: 10
+spaces:
+  hivewright:
+    embedder: hash
+    dims: 32
+    targets: [chunks, tables, figure_captions, figure_images]
+  hivewright-windowed:
+    embedder: hash
+    dims: 32
+    window: {tokens: 20, stride: 15}
+    targets: [chunks]

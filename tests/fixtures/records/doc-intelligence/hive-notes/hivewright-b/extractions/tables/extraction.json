@@ -1,0 +1,10 @@
+{
+  "artifact": "tables",
+  "tool": "docling",
+  "versions": {
+    "docling": "0.0.0"
+  },
+  "run_ids": [
+    "docling-assets"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "run_id": "anydoc-default",
+  "units": {
+    "chapters": {
+      "files": [
+        {
+          "file": "01-spring.md",
+          "pages": [
+            1,
+            2
+          ]
+        },
+        {
+          "file": "02-autumn.md",
+          "pages": [
+            3,
+            4
+          ]
+        }
+      ]
+    }
+  }
+}

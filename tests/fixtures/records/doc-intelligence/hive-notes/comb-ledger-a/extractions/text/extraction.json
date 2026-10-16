@@ -1,0 +1,17 @@
+{
+  "artifact": "text",
+  "tool": "anydoc",
+  "fallback": "docling",
+  "versions": {
+    "anydoc": "0.0.0"
+  },
+  "run_ids": [
+    "anydoc-default"
+  ],
+  "chapters": {
+    "01-introduction.md": "anydoc-default",
+    "02-recording-frames.md": "anydoc-default"
+  },
+  "fallback_chapters": [],
+  "missing": []
+}
