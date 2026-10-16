@@ -825,3 +825,15 @@ async def test_a_server_that_closes_with_an_error_is_named_in_the_log(
     await connector.aclose()
     assert "broken: the server did not close cleanly" in caplog.text
     assert "transport would not close" in caplog.text
+
+
+@pytest.mark.parametrize("anyio_backend", ["trio"])
+async def test_an_mcp_source_refuses_an_event_loop_other_than_asyncio() -> None:
+    """The owner task is an asyncio task. Refused before anything starts."""
+    before = children()
+    connector = McpConnector("probe", probe_command())
+    with pytest.raises(ConnectError, match="need the asyncio event loop"):
+        await connector.aopen()
+    assert children() <= before
+    assert connector._owner is None
+    await connector.aclose()

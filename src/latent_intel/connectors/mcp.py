@@ -38,6 +38,8 @@ any but the newest raised. `aopen` therefore starts an asyncio task (the owner) 
 enters the `Client`, signals ready and waits to be told to stop; `aclose` tells it and
 waits, for `CLOSE_TIMEOUT` and then once more after cancelling it. Calls are made from
 the caller's task against the owner's `Client`, so sources open and close in any order.
+anyio has no task that outlives its caller, so the owner is asyncio's, and an MCP source
+needs the asyncio event loop: under another, `aopen` refuses before anything starts.
 
 **Transport is the SDK's problem.** `Client` accepts a command string, a URL, or a
 server object, and selects stdio or Streamable HTTP accordingly. Legacy SSE exists in
@@ -160,10 +162,17 @@ class McpConnector:
         except ImportError as exc:  # pragma: no cover — mcp is a base dependency
             raise ConnectError("the mcp package is not installed") from exc
 
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            raise ConnectError(
+                f"{self.id}: latent-intel's MCP sources need the asyncio event loop; "
+                "this one is running under another"
+            ) from None
         ready = anyio.Event()
         self._stop = anyio.Event()
         self._failure = None
-        self._owner = asyncio.get_running_loop().create_task(self._own(Client, ready))
+        self._owner = loop.create_task(self._own(Client, ready))
         try:
             await ready.wait()
         except BaseException:
