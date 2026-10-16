@@ -36,9 +36,11 @@ description: >
 # A wiki is an MCP source: its own server, `lw serve`, gives it its tools (search,
 # evidence, views), and a latent-wiki deployment names its store, its context and its
 # refs. Without the server, a wiki's pages are Markdown, and a `files` source reads them.
+# A records store is an MCP source the same way, through `latent-records serve`.
 #
 # sources:
 #   - {id: wiki,  kind: mcp,   target: "lw serve --deployment ~/client/deployments/wiki"}
+#   - {id: hives, kind: mcp,   target: "latent-records serve --deployment ~/client/deployments/hives"}
 #   - {id: pages, kind: files, target: "${MIRROR}/wikis/design/pages"}
 #   - {id: named, kind: files, from: design-wiki, remote: true}
 #   - {id: docs,  kind: files, target: "${MIRROR}/context/raw"}

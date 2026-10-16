@@ -427,7 +427,7 @@ def recorded_search() -> Recorder:
         context=_fingerprint(Settings()),
         sources=[
             AttachedSource(id="design", kind="wiki"),
-            AttachedSource(id="papers", kind="vector"),
+            AttachedSource(id="papers", kind="mcp"),
         ],
     )
     for event in search_stream().events:

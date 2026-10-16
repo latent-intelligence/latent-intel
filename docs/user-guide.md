@@ -41,8 +41,6 @@ uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/
 `latent-records serve`), installed with its own package and attached like any other
 server; this package reads no store's format itself.
 
-`--kind vector` is declared but not implemented; `intel doctor` lists it as not installed.
-
 **Working on the package itself?** A **user build** is copied at install time; a **dev
 build** points at `src/` and tracks the working tree, so an edit is live and a
 half-finished branch is too.
@@ -70,7 +68,6 @@ connectors (entry points)
   ✓ code
   ✓ files
   ✓ mcp
-  · vector — not installed
 ```
 
 ---
@@ -111,7 +108,8 @@ sources:
 
 The pairing is what lets `wiki_raw` escalate from a page to the source it derives from.
 Leave it out and every other tool still works — only that escalation reports it has
-nothing to read. The tools are latent-wiki's `docs/formats/wiki-tools.md`.
+nothing to read. A source's tools are discovered when it connects; `/tools` in the
+shell lists them.
 
 `--deployment` takes the deployment's wiki and its context from latent-wiki's own
 declaration. Serving a bare store instead, `lw serve --store <wiki> --context <context>`
@@ -121,6 +119,16 @@ line. The server names pages `<store id>:<key>` and knows nothing about this cli
 source under, so rename a source freely. A relative path resolves against the directory the server starts
 in;
 give the source `cwd: .` to start it beside the project file.
+
+A records store is the same shape: its own server, `latent-records serve`, attached as
+`kind: mcp`.
+
+```yaml
+sources:
+  - id: hives
+    kind: mcp
+    target: latent-records serve --deployment ~/client/deployments/hives
+```
 
 **A codebase** is `--kind code`: the repository's own files, read as text.
 
@@ -647,7 +655,8 @@ runs the loop we wrote, and three hand the loop to a vendor's SDK while tools st
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
-  MCP servers: `files` and `code` are served to it, `vector` is invisible to it.
+  MCP servers: `files` and `code` are served to it, and an `mcp` source is reached as
+  itself.
 - **`custom`** runs the turn in this process, so our tool router runs and **every**
   attached source's tools are visible to it. One loop over any row in the table below:
   the **row carries the protocol**, so the same runtime reaches an Anthropic Messages
@@ -768,8 +777,7 @@ stale. An unknown name fails when you ask, with the runtime's own message.
 
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
 MCP servers, so under `claude-cli` an `mcp` source is reached as itself and a `files` or
-`code` source through a server this program starts for it — `vector` runs in this process
-and has no server to point at. `intel doctor`
+`code` source through a server this program starts for it. `intel doctor`
 marks the difference under `attached`. Under `custom`, `anthropic-sdk`, `openai-agents`
 and `claude-agent-sdk` the distinction does not apply: the tool router is ours either
 way — whoever drives the loop — so everything attached is a tool.

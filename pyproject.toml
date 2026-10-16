@@ -96,7 +96,6 @@ intel = "latent_intel.frontends.cli.main:main"
 code = "latent_intel.connectors.code:CodeConnector"
 files = "latent_intel.connectors.files:FilesConnector"
 mcp = "latent_intel.connectors.mcp:McpConnector"
-vector = "latent_intel.connectors.vector:VectorConnector"
 
 [project.entry-points."latent_intel.runtimes"]
 claude-cli = "latent_intel.agent.runtimes.claude_cli:ClaudeCliRuntime"

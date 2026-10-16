@@ -241,6 +241,31 @@ def test_doctor_runs_with_nothing_attached() -> None:
     assert "nothing attached" in result.stdout
 
 
+def test_doctor_expects_only_the_kinds_that_ship() -> None:
+    """A records store is an `mcp` source on its own server; `vector` is not a kind."""
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "vector —" not in result.stdout
+    assert "✓ mcp" in result.stdout
+
+
+def test_connecting_with_kind_vector_is_refused_with_the_installed_kinds(
+    tmp_path: Path,
+) -> None:
+    result = runner.invoke(app, ["connect", str(tmp_path), "--kind", "vector"])
+    assert result.exit_code == 1
+    err = flat(result.stderr)
+    assert "no connector of kind 'vector'" in err
+    assert "mcp" in err
+
+
+def test_the_kind_help_names_no_store() -> None:
+    result = runner.invoke(app, ["connect", "--help"])
+    out = flat(result.stdout)
+    assert "vector" not in out
+    assert "lw serve" not in out
+
+
 def test_doctor_names_the_variables_a_runtime_is_missing() -> None:
     """A bare "cannot run here" is not a diagnosis when four variables could each be
     the missing one. The names are safe to print; the values never appear."""

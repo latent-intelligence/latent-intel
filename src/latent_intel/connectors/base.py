@@ -74,7 +74,7 @@ class Servable(Protocol):
     Not a `Capability`. It says nothing about what the source can do — only whether
     there is a way to hand it to a runtime that owns its own tool loop and therefore
     cannot call our in-process Python. A connector that only exists in this process
-    (`files`, `vector`) simply does not implement it, and the agent is told which
+    (`files`) simply does not implement it, and the agent is told which
     sources it can actually see rather than being handed a list with holes in it.
     """
 

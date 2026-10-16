@@ -42,9 +42,9 @@ $ intel doctor
 latent-intel 0.1.0
 
 connectors (entry points)
+  ✓ code
   ✓ files
   ✓ mcp
-  · vector — not installed
 ```
 
 ### Credentials

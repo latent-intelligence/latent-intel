@@ -185,7 +185,7 @@ def resolve(
     if entry.registry_kind == "wiki" and not entry.kind:
         raise ConnectError(
             f"'{name}' is a wiki, which is reached through its own server: add "
-            f"`access: mcp:lw serve --deployment <path>` to its registry entry, or "
+            f"`access: mcp:<server command>` to its registry entry, or "
             f"attach the command directly with --kind mcp"
         )
     if remote and entry.access.startswith("mcp:"):

@@ -446,8 +446,9 @@ def test_a_registered_wiki_is_reached_only_through_the_server_it_names(
     path = tmp_path / "stores.yaml"
     path.write_text("stores:\n  - {id: w, kind: wiki, paths: {mirror: 's3://b/w'}}\n")
     registry.clear_cache()
-    with pytest.raises(ConnectError, match="access: mcp:lw serve --deployment"):
+    with pytest.raises(ConnectError, match="access: mcp:<server command>") as caught:
         registry.resolve("w", str(path))
+    assert "lw serve" not in str(caught.value)
 
 
 def test_a_wiki_registered_with_its_own_server_keeps_it(tmp_path: Path) -> None:
@@ -467,7 +468,7 @@ def test_a_wiki_without_a_server_says_so_even_under_remote(tmp_path: Path) -> No
     path = tmp_path / "stores.yaml"
     path.write_text("stores:\n  - {id: w, kind: wiki, paths: {root: /nowhere}}\n")
     registry.clear_cache()
-    with pytest.raises(ConnectError, match="access: mcp:lw serve"):
+    with pytest.raises(ConnectError, match="access: mcp:<server command>"):
         registry.resolve("w", str(path), remote=True)
 
 
@@ -717,13 +718,13 @@ async def test_a_source_with_no_tools_says_so_rather_than_returning_nothing(
 
 
 class Toolless:
-    """A connector with no `tools`/`call`. Real ones exist — `vector` is one."""
+    """A connector with no `tools`/`call`, which a third-party kind may be."""
 
     id = "empty"
-    kind = "vector"
+    kind = "toolless"
 
     def describe(self) -> Descriptor:
-        return Descriptor(id="empty", kind="vector")
+        return Descriptor(id="empty", kind="toolless")
 
     async def aclose(self) -> None:
         return None

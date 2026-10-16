@@ -49,3 +49,15 @@ def test_the_lockfile_is_resolvable_without_siblings() -> None:
             f"uv.lock still references {sibling}; run `uv lock` after removing it, "
             "or no clone without the siblings can `uv sync`."
         )
+
+
+def test_every_connector_entry_point_names_a_class_that_exists() -> None:
+    """A registered kind that never loads is a promise the install cannot keep."""
+    import importlib
+
+    group = _pyproject()["project"]["entry-points"]["latent_intel.connectors"]
+    for kind, target in group.items():
+        module, _, attr = target.partition(":")
+        assert isinstance(getattr(importlib.import_module(module), attr, None), type), (
+            f"connector kind '{kind}' points at {target}, which does not exist"
+        )

@@ -110,9 +110,10 @@ vocabulary free to change without touching a single connector.
   machine-specific *and* leaked the email address embedded in a Drive mount path.
 - Escape user-supplied text with `rich.markup.escape` before printing it — a page title
   containing `[bold]` must not restyle the terminal.
-- Tests mirror `src/`. Anything that needs a real store belongs in a manual check, not in
-  the suite: `tests/fixtures/streams/*.jsonl` exist so renderers are testable with no
-  store, no network and no model.
+- Tests mirror `src/`. A test against a real store server runs only where that store's
+  package is installed, and skips otherwise; the rest of the suite needs no store:
+  `tests/fixtures/streams/*.jsonl` exist so renderers are testable with no store, no
+  network and no model.
 - **A paid endpoint is called only when someone asks for that run.** Any request
   spending a credential — a model turn, a provider's catalogue behind a key, a probe to
   find out whether something works — happens because the person running the session
@@ -137,7 +138,7 @@ vocabulary free to change without touching a single connector.
 2. Every recorded event round-trips through JSON with its envelope intact.
 3. A fabricated event `type` renders through both frontends rather than raising.
 4. No module in `src/` reads a store's format (`manifest.json`, `wiki.yaml`,
-   `context-store.yaml`), and the suite passes with `latent_wiki` unimportable; a wiki is
-   reached through `lw serve` (`tests/test_wiki_over_mcp.py`, skipped without it).
+   `context-store.yaml`), and the suite passes with no store package importable; a store
+   is reached through its own server, and a test against one skips without it.
 5. `intel search --json | parse_event` yields no `UnknownEvent` — the guarantee the web
    client will depend on, checked against live output rather than fixtures alone.
