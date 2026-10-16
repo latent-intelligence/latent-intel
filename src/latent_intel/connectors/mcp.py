@@ -34,7 +34,8 @@ merging again here would only disagree with it.
 **Each connection lives in a task of its own.** anyio requires a cancel scope to be
 exited by the task that entered it, in reverse order of entry, and a stdio transport is
 one. Entered on the session's task, every server's scope sat on one stack, so closing
-any but the newest raised. `aopen` therefore starts an owner task that enters the
+any but the newest raised. `aopen` therefore starts an asyncio task (the owner) that
+enters the
 `Client`, signals ready and waits to be told to stop; `aclose` tells it and waits, for
 `CLOSE_TIMEOUT` and then once more after cancelling it. Calls are made from the caller's
 task against the owner's `Client`, so sources open and close in any order.
@@ -48,12 +49,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import shlex
 import sys
 import tempfile
-from contextlib import AsyncExitStack
+from contextlib import ExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
@@ -73,6 +75,11 @@ from ..models import (
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcp import Client
+
+logger = logging.getLogger(__name__)
+
+#: Owner tasks that outlived `aclose`, held so they are not collected mid-cleanup.
+_abandoned: set[asyncio.Task[None]] = set()
 
 #: How much of a failed server's stderr to quote back. Enough for a traceback and its
 #: message, short enough that a wall of warnings does not bury the command that failed.
@@ -173,48 +180,49 @@ class McpConnector:
         """The connection's whole life, entered and exited in this one task."""
         assert self._stop is not None
         try:
-            async with AsyncExitStack() as stack:
-                # A temp file rather than devnull, so a server that dies on startup can
-                # be quoted back instead of discarded.
-                if not self.show_server_stderr:
-                    self._errlog = stack.enter_context(
-                        tempfile.TemporaryFile("w+")  # noqa: SIM115 — the stack is the manager
-                    )
+            with ExitStack() as files:
                 try:
-                    self._client = await stack.enter_async_context(
-                        client_type(
-                            _transport(
-                                self.target,
-                                env=self._env,
-                                cwd=self._cwd,
-                                errlog=self._errlog or sys.stderr,
-                            ),
-                            raise_exceptions=True,
+                    # A temp file rather than devnull, so a server that dies on
+                    # startup can be quoted back instead of discarded.
+                    if not self.show_server_stderr:
+                        self._errlog = files.enter_context(
+                            tempfile.TemporaryFile("w+")  # noqa: SIM115 — the stack is the manager
                         )
+                    transport = _transport(
+                        self.target,
+                        env=self._env,
+                        cwd=self._cwd,
+                        errlog=self._errlog or sys.stderr,
                     )
-                    await self._discover()
-                except ConnectError as exc:
-                    self._failure = exc
-                    return
+                    async with client_type(transport, raise_exceptions=True) as client:
+                        self._client = client
+                        await self._discover()
+                        ready.set()
+                        await self._stop.wait()
                 except Exception as exc:  # noqa: BLE001 — every transport failure lands here
-                    stderr = self._server_stderr()
-                    reason = _innermost(exc)
-                    message = f"{self.id}: could not start '{self.target}' — {reason}"
-                    self._failure = ConnectError(
-                        f"{message}\n{stderr}" if stderr else message
-                    )
-                    self._failure.__cause__ = exc
-                    return
-                ready.set()
-                await self._stop.wait()
-        except Exception:  # noqa: BLE001, S110
-            # The server went away mid-session, or would not close cleanly. Its own
-            # calls now fail as not connected; nothing else depends on this task.
-            pass
+                    self._fail(exc, started=ready.is_set())
         finally:
             self._client = None
             self._errlog = None
             ready.set()
+
+    def _fail(self, exc: Exception, *, started: bool) -> None:
+        """Before ready, a failure is `aopen`'s to raise. After, nothing is waiting on
+        this task, so it is logged: the server would not close cleanly."""
+        stderr = self._server_stderr()
+        if started:
+            logger.warning(
+                "%s: the server did not close cleanly — %s%s",
+                self.id,
+                _innermost(exc),
+                f"\n{stderr}" if stderr else "",
+            )
+        elif isinstance(exc, ConnectError):
+            self._failure = exc
+        else:
+            message = f"{self.id}: could not start '{self.target}' — {_innermost(exc)}"
+            self._failure = ConnectError(f"{message}\n{stderr}" if stderr else message)
+            self._failure.__cause__ = exc
 
     def _server_stderr(self) -> str:
         """What the server printed before it died, or nothing.
@@ -277,6 +285,17 @@ class McpConnector:
                 owner.cancel()
                 with anyio.move_on_after(CLOSE_TIMEOUT):
                     await asyncio.wait([owner])
+        if not owner.done():
+            logger.warning(
+                "%s: the server did not stop within %ss of being cancelled; "
+                "it may still be running",
+                self.id,
+                2 * CLOSE_TIMEOUT,
+            )
+            _abandoned.add(owner)
+            owner.add_done_callback(_abandoned.discard)
+        elif not owner.cancelled():
+            owner.exception()  # retrieved, so asyncio does not report it at collection
 
     # -- the contract ---------------------------------------------------------
 

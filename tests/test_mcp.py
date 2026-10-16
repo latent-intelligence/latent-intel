@@ -768,4 +768,44 @@ async def test_hung_servers_cost_one_bounded_wait_not_one_each(
     started = time.monotonic()
     with anyio.fail_after(10):
         await session.aclose()
-    assert time.monotonic() - started < 1.2
+    # One wait each, in turn, would be three CLOSE_TIMEOUTs.
+    assert time.monotonic() - started < 1.45
+
+
+async def test_a_failure_before_the_server_starts_is_a_connect_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Not a source that looks connected and answers every call with no reason."""
+
+    def no_space(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr("tempfile.TemporaryFile", no_space)
+    connector = McpConnector("probe", probe_command())
+    with pytest.raises(ConnectError, match="No space left on device"):
+        await connector.aopen()
+
+
+class SlowToExit(StuckOnExit):
+    """A transport that stops its server, then ignores every cancel and ends on its
+    own a second later."""
+
+    async def __aexit__(self, *exc: Any) -> None:
+        await self.inner.__aexit__(None, None, None)
+        end = time.monotonic() + 1.0
+        while (left := end - time.monotonic()) > 0:
+            try:
+                await asyncio.sleep(left)
+            except asyncio.CancelledError:
+                continue
+
+
+async def test_a_server_left_running_is_named_in_the_log(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("latent_intel.connectors.mcp.CLOSE_TIMEOUT", 0.2)
+    connector = McpConnector("slow", SlowToExit())
+    await connector.aopen()
+    await connector.aclose()
+    assert "slow" in caplog.text and "did not stop" in caplog.text
+    await anyio.sleep(1.5)
