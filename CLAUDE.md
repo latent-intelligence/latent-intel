@@ -6,8 +6,7 @@
 vector index (`latent-records`), a directory of markdown, a codebase, and any MCP server,
 reachable together with a deployment's persona, skills and commands. It is a client of
 every store and the server of none: a store is reached through its own MCP adapter
-(`lw serve`, `latent-records serve`) as a `kind: mcp` source, like any other server. The
-wiki tools' contract is latent-wiki's `docs/formats/wiki-tools.md`.
+(`lw serve`, `latent-records serve`) as a `kind: mcp` source, like any other server.
 
 Three frontends are planned. Two exist: a scriptable Typer/Rich CLI and a keyboard-first
 `prompt_toolkit` shell. A web workbench comes later, and the whole design exists so that

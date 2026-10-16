@@ -1,0 +1,23 @@
+{
+  "run_id": "anydoc-default",
+  "units": {
+    "chapters": {
+      "files": [
+        {
+          "file": "01-introduction.md",
+          "pages": [
+            1,
+            2
+          ]
+        },
+        {
+          "file": "02-recording-frames.md",
+          "pages": [
+            3,
+            6
+          ]
+        }
+      ]
+    }
+  }
+}

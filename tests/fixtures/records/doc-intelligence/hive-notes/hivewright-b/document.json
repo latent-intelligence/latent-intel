@@ -1,0 +1,24 @@
+{
+  "doc_id": "hivewright-b",
+  "collection": "hive-notes",
+  "source": "/home/keeper/inputs/hivewright-b.pdf",
+  "sha256": "95621fb51fa167b293fdde55e136e641e48aa96381507ad7f406af1e61bab455",
+  "pages": 4,
+  "metadata": {
+    "format": "pdf",
+    "title": "The Hivewright's Calendar",
+    "author": "A. Keeper"
+  },
+  "outline": [
+    {
+      "level": 1,
+      "title": "Spring",
+      "page": 1
+    },
+    {
+      "level": 1,
+      "title": "Autumn",
+      "page": 3
+    }
+  ]
+}

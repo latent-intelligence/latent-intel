@@ -1,0 +1,54 @@
+{
+  "n_rows": 3,
+  "n_cols": 2,
+  "cells": [
+    {
+      "row": 0,
+      "col": 0,
+      "row_span": 1,
+      "col_span": 1,
+      "header": true,
+      "text": "Month"
+    },
+    {
+      "row": 0,
+      "col": 1,
+      "row_span": 1,
+      "col_span": 1,
+      "header": true,
+      "text": "Task"
+    },
+    {
+      "row": 1,
+      "col": 0,
+      "row_span": 1,
+      "col_span": 1,
+      "header": false,
+      "text": "September"
+    },
+    {
+      "row": 1,
+      "col": 1,
+      "row_span": 1,
+      "col_span": 1,
+      "header": false,
+      "text": "Reduce frames"
+    },
+    {
+      "row": 2,
+      "col": 0,
+      "row_span": 1,
+      "col_span": 1,
+      "header": false,
+      "text": "October"
+    },
+    {
+      "row": 2,
+      "col": 1,
+      "row_span": 1,
+      "col_span": 1,
+      "header": false,
+      "text": "Fit mouse guards"
+    }
+  ]
+}
