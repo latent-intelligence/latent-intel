@@ -135,8 +135,8 @@ def connect(
     kind: str = typer.Option(
         None,
         "--kind",
-        help="files | code | mcp | vector. Required for a raw path; a wiki is mcp "
-        "(lw serve).",
+        help="files | code | mcp. Required for a raw path; a store with its own "
+        "server is mcp.",
     ),
     name: str = typer.Option(None, "--as", help="Attach it under a different id."),
     remote: bool = typer.Option(
@@ -442,7 +442,7 @@ async def _doctor() -> None:
     console.print("[accent.strong]connectors[/] [dim](entry points)[/]")
     for name in kinds:
         console.print(f"  [ok]✓[/] [source]{name}[/]")
-    for name in ("files", "mcp", "vector"):
+    for name in ("files", "mcp"):
         if name not in kinds:
             console.print(f"  [dim]·[/] [dim]{name} — not installed[/]")
 
@@ -560,7 +560,7 @@ async def _doctor() -> None:
     async with session_scope() as (session, problems):
         console.print("\n[accent.strong]attached[/]")
         # An agent that owns its own tool loop reaches a source only as an MCP server.
-        # `files` and `vector` are in-process and have none, so say which sources the
+        # `files` is in-process and has none, so say which sources the
         # agent can actually see rather than implying it sees everything attached.
         servable = set(session.mcp_servers())
         for d in session.sources():

@@ -14,7 +14,7 @@ untested.
 
 Search is substring matching over a lead paragraph, not an index. That is the right size
 for a few hundred files and obviously the wrong size for a million — at which point the
-answer is a vector connector, not a better scan here.
+answer is an indexed store reached through its own server, not a better scan here.
 """
 
 from __future__ import annotations
