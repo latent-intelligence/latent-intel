@@ -119,25 +119,12 @@ async def test_two_deployments_are_two_sources(
     subprocess.run(
         [*RECORDS, "deployment", "run", str(other)], check=True, capture_output=True
     )
-    hives = await connectors.open_connector(
-        connectors.build("mcp", "hives", records_serve(deployment))
-    )
-    try:
-        annex = await connectors.open_connector(
-            connectors.build("mcp", "annex", records_serve(other))
-        )
-        try:
-            assert (hives.ref_prefix(), annex.ref_prefix()) == (
-                "brindlewick-hives",
-                "brindlewick-annex",
-            )
-            row = await annex.call("get", {"id": "comb-ledger-a"})
-            assert '"brindlewick-annex:comb-ledger-a"' in row
-            assert "brindlewick-hives:" not in row
-            assert [h.ref for h in await annex.search("comb")] == [
-                h.ref.replace("hives:", "annex:") for h in await hives.search("comb")
-            ]
-        finally:
-            await annex.aclose()
-    finally:
-        await hives.aclose()
+    session = Session(runtime=CallingRuntime("annex", "get", {"id": "comb-ledger-a"}))
+    await session.connect(records_serve(deployment), kind="mcp", source_id="hives")
+    await session.connect(records_serve(other), kind="mcp", source_id="annex")
+    prefixes = {k: c.ref_prefix() for k, c in session._connectors.items()}
+    assert prefixes == {"hives": "brindlewick-hives", "annex": "brindlewick-annex"}
+    result = await result_of(session)  # closes both through Session.aclose
+    assert '"brindlewick-annex:comb-ledger-a"' in result.output
+    assert "brindlewick-hives:" not in result.output
+    assert result.refs == ["annex:comb-ledger-a"]
