@@ -837,3 +837,33 @@ async def test_an_mcp_source_refuses_an_event_loop_other_than_asyncio() -> None:
     assert children() <= before
     assert connector._owner is None
     await connector.aclose()
+
+
+def test_an_mcp_source_refuses_trio_hosted_on_asyncio_s_loop() -> None:
+    """Trio's guest mode runs on a running asyncio loop, but not in an asyncio task."""
+    import trio
+
+    raised: list[BaseException] = []
+
+    async def under_trio() -> None:
+        connector = McpConnector("probe", probe_command())
+        try:
+            await connector.aopen()
+        except ConnectError as exc:
+            raised.append(exc)
+        await connector.aclose()
+
+    async def host() -> None:
+        loop = asyncio.get_running_loop()
+        done: asyncio.Future[Any] = loop.create_future()
+        trio.lowlevel.start_guest_run(
+            under_trio,
+            run_sync_soon_threadsafe=loop.call_soon_threadsafe,
+            done_callback=done.set_result,
+        )
+        (await done).unwrap()
+
+    before = children()
+    asyncio.run(host())
+    assert "need the asyncio event loop" in str(raised[0])
+    assert children() <= before

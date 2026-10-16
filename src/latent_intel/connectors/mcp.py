@@ -162,13 +162,18 @@ class McpConnector:
         except ImportError as exc:  # pragma: no cover — mcp is a base dependency
             raise ConnectError("the mcp package is not installed") from exc
 
+        # No current task with a loop running is another library hosted on asyncio's
+        # loop (trio's guest mode, say): the loop is there, the caller is not on it.
         try:
             loop = asyncio.get_running_loop()
+            on_asyncio = asyncio.current_task(loop) is not None
         except RuntimeError:
+            on_asyncio = False
+        if not on_asyncio:
             raise ConnectError(
                 f"{self.id}: latent-intel's MCP sources need the asyncio event loop; "
                 "this one is running under another"
-            ) from None
+            )
         ready = anyio.Event()
         self._stop = anyio.Event()
         self._failure = None
