@@ -31,6 +31,16 @@ looks for its own `.env` in the working directory, and for `python -m`. Both go
 straight to `StdioServerParameters`; the SDK merges `env` over its own whitelist, so
 merging again here would only disagree with it.
 
+**Each connection lives in a task of its own.** anyio requires a cancel scope to be
+exited by the task that entered it, in reverse order of entry, and a stdio transport is
+one. Entered on the session's task, every server's scope sat on one stack, so closing
+any but the newest raised. `aopen` therefore starts an asyncio task (the owner) that
+enters the `Client`, signals ready and waits to be told to stop; `aclose` tells it and
+waits, for `CLOSE_TIMEOUT` and then once more after cancelling it. Calls are made from
+the caller's task against the owner's `Client`, so sources open and close in any order.
+anyio has no task that outlives its caller, so the owner is asyncio's, and an MCP source
+needs the asyncio event loop: under another, `aopen` refuses before anything starts.
+
 **Transport is the SDK's problem.** `Client` accepts a command string, a URL, or a
 server object, and selects stdio or Streamable HTTP accordingly. Legacy SSE exists in
 the SDK and is not offered here — it is compatibility, not a default worth choosing.
@@ -38,15 +48,19 @@ the SDK and is not offered here — it is compatibility, not a default worth cho
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import re
 import shlex
 import sys
 import tempfile
-from contextlib import AsyncExitStack
+from contextlib import ExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
+
+import anyio
 
 from .. import registry
 from ..models import (
@@ -62,6 +76,11 @@ from ..models import (
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcp import Client
+
+logger = logging.getLogger(__name__)
+
+#: Owner tasks that outlived `aclose`, held so they are not collected mid-cleanup.
+_abandoned: set[asyncio.Task[None]] = set()
 
 #: How much of a failed server's stderr to quote back. Enough for a traceback and its
 #: message, short enough that a wall of warnings does not bury the command that failed.
@@ -80,6 +99,10 @@ _LIST_LIMIT = 500
 #: prompt, and a third-party server is not the author of that prompt: a sentence or two
 #: says what it holds, and anything longer is cut.
 INSTRUCTIONS_MAX = 500
+
+#: How long `aclose` waits for a server to stop, and then again for its task to end
+#: once cancelled. The SDK gives a stdio server two seconds before it terminates it.
+CLOSE_TIMEOUT = 5.0
 
 
 class McpConnector:
@@ -111,7 +134,9 @@ class McpConnector:
                 f"{', '.join(sorted(options))} would configure nothing"
             )
         self.options = options
-        self._stack: AsyncExitStack | None = None
+        self._owner: asyncio.Task[None] | None = None
+        self._stop: anyio.Event | None = None
+        self._failure: ConnectError | None = None
         self._client: Client | None = None
         self._tools: list[ToolSpec] = []
         self._resources: list[tuple[str, str, str]] = []
@@ -128,42 +153,89 @@ class McpConnector:
 
         Separate from `__init__` because connecting is I/O: a stdio server is a
         subprocess and an HTTP one is a request, and neither belongs in a constructor
-        that `build()` calls synchronously.
+        that `build()` calls synchronously. The work happens in the owner task; this
+        waits for it to be ready or to fail, and a caller cancelled meanwhile takes the
+        owner down with it.
         """
         try:
             from mcp import Client
         except ImportError as exc:  # pragma: no cover — mcp is a base dependency
             raise ConnectError("the mcp package is not installed") from exc
 
-        self._stack = AsyncExitStack()
-        # A temp file rather than devnull, so a server that dies on startup can be
-        # quoted back instead of discarded. On the stack, so it closes with everything
-        # else — the devnull it replaces was opened and never closed at all.
-        if not self.show_server_stderr:
-            self._errlog = self._stack.enter_context(
-                tempfile.TemporaryFile("w+")  # noqa: SIM115 — the stack is the manager
-            )
+        # No current task with a loop running is another library hosted on asyncio's
+        # loop (trio's guest mode, say): the loop is there, the caller is not on it.
         try:
-            self._client = await self._stack.enter_async_context(
-                Client(
-                    _transport(
+            loop = asyncio.get_running_loop()
+            on_asyncio = asyncio.current_task(loop) is not None
+        except RuntimeError:
+            on_asyncio = False
+        if not on_asyncio:
+            raise ConnectError(
+                f"{self.id}: latent-intel's MCP sources need the asyncio event loop; "
+                "this one is running under another"
+            )
+        ready = anyio.Event()
+        self._stop = anyio.Event()
+        self._failure = None
+        self._owner = loop.create_task(self._own(Client, ready))
+        try:
+            await ready.wait()
+        except BaseException:
+            self._owner.cancel()
+            await self.aclose()
+            raise
+        if self._failure is not None:
+            failure, self._failure = self._failure, None
+            await self.aclose()
+            raise failure
+
+    async def _own(self, client_type: type[Client], ready: anyio.Event) -> None:
+        """The connection's whole life, entered and exited in this one task."""
+        assert self._stop is not None
+        try:
+            with ExitStack() as files:
+                try:
+                    # A temp file rather than devnull, so a server that dies on
+                    # startup can be quoted back instead of discarded.
+                    if not self.show_server_stderr:
+                        self._errlog = files.enter_context(
+                            tempfile.TemporaryFile("w+")  # noqa: SIM115 — the stack is the manager
+                        )
+                    transport = _transport(
                         self.target,
                         env=self._env,
                         cwd=self._cwd,
                         errlog=self._errlog or sys.stderr,
-                    ),
-                    raise_exceptions=True,
-                )
+                    )
+                    async with client_type(transport, raise_exceptions=True) as client:
+                        self._client = client
+                        await self._discover()
+                        ready.set()
+                        await self._stop.wait()
+                except Exception as exc:  # noqa: BLE001 — every transport failure lands here
+                    self._fail(exc, started=ready.is_set())
+        finally:
+            self._client = None
+            self._errlog = None
+            ready.set()
+
+    def _fail(self, exc: Exception, *, started: bool) -> None:
+        """Before ready, a failure is `aopen`'s to raise. After, nothing is waiting on
+        this task, so it is logged: the server would not close cleanly."""
+        stderr = self._server_stderr()
+        if started:
+            logger.warning(
+                "%s: the server did not close cleanly — %s%s",
+                self.id,
+                _innermost(exc),
+                f"\n{stderr}" if stderr else "",
             )
-            await self._discover()
-        except ConnectError:
-            await self.aclose()
-            raise
-        except Exception as exc:  # noqa: BLE001 — every transport failure lands here
-            stderr = self._server_stderr()
-            await self.aclose()
+        elif isinstance(exc, ConnectError):
+            self._failure = exc
+        else:
             message = f"{self.id}: could not start '{self.target}' — {_innermost(exc)}"
-            raise ConnectError(f"{message}\n{stderr}" if stderr else message) from exc
+            self._failure = ConnectError(f"{message}\n{stderr}" if stderr else message)
+            self._failure.__cause__ = exc
 
     def _server_stderr(self) -> str:
         """What the server printed before it died, or nothing.
@@ -211,11 +283,42 @@ class McpConnector:
                 self._capabilities.extend([Capability.SEARCH, Capability.FETCH])
 
     async def aclose(self) -> None:
-        if self._stack is not None:
-            await self._stack.aclose()
-        self._stack = None
-        self._client = None
-        self._errlog = None
+        """Stop the owner task, bounded: a server that will not stop is cancelled.
+
+        Shielded, so a caller cancelled mid-close still takes the subprocess down."""
+        owner, self._owner = self._owner, None
+        if owner is None:
+            return
+        assert self._stop is not None
+        with anyio.CancelScope(shield=True):
+            self._stop.set()
+            with anyio.move_on_after(CLOSE_TIMEOUT):
+                await asyncio.wait([owner])
+            if not owner.done():
+                owner.cancel()
+                with anyio.move_on_after(CLOSE_TIMEOUT):
+                    await asyncio.wait([owner])
+        if owner.done():
+            self._ended(owner)
+            return
+        logger.warning(
+            "%s: the server did not stop within %ss (asked, then cancelled); "
+            "it may still be running",
+            self.id,
+            2 * CLOSE_TIMEOUT,
+        )
+        _abandoned.add(owner)
+        owner.add_done_callback(self._ended)
+
+    def _ended(self, owner: asyncio.Task[None]) -> None:
+        """Log what the owner ended with, if anything `_own` did not catch."""
+        _abandoned.discard(owner)
+        if owner.cancelled():
+            return
+        if (exc := owner.exception()) is not None:
+            logger.warning(
+                "%s: the server did not close cleanly — %s", self.id, _innermost(exc)
+            )
 
     # -- the contract ---------------------------------------------------------
 

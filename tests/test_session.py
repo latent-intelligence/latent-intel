@@ -1694,3 +1694,48 @@ def test_a_delegating_runtime_without_the_web_argument_still_answers(
 
     named = "\n".join(Session().subagent_problems())
     assert "`nope.tool`" in named and "`design.search`" not in named
+
+
+async def test_one_connector_failing_to_close_does_not_strand_the_others() -> None:
+    """One broken server cannot leave the others' subprocesses running, and its
+    error still reaches the caller."""
+    closed: list[str] = []
+
+    class Closing:
+        def __init__(self, name: str, *, fails: bool = False) -> None:
+            self.name, self.fails = name, fails
+
+        async def aclose(self) -> None:
+            closed.append(self.name)
+            if self.fails:
+                raise OSError(f"{self.name} would not close")
+
+    session = Session()
+    session._connectors.update(  # type: ignore[arg-type]
+        a=Closing("a"), b=Closing("b", fails=True), c=Closing("c")
+    )
+    session.current = "a"
+    with pytest.raises(OSError, match="b would not close"):
+        await session.aclose()
+    assert sorted(closed) == ["a", "b", "c"]
+    assert session.sources() == []
+    assert session.current is None
+
+
+async def test_every_failure_to_close_is_reported() -> None:
+    class Failing:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def aclose(self) -> None:
+            raise OSError(f"{self.name} would not close")
+
+    session = Session()
+    session._connectors.update(a=Failing("a"), b=Failing("b"))  # type: ignore[arg-type]
+    with pytest.raises(ExceptionGroup) as caught:
+        await session.aclose()
+    assert sorted(str(e) for e in caught.value.exceptions) == [
+        "a would not close",
+        "b would not close",
+    ]
+    assert session.sources() == []

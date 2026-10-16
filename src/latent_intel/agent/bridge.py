@@ -8,7 +8,7 @@ is the seam that survives that — a plain callable the SDK can await, and a pla
 the events it produced until our generator is running again.
 
 **The relay is a list, deliberately not a task group.** An async generator holding an
-anyio task group open across a `yield` is the cancel-scope hazard `connect_many` met:
+anyio task group open across a `yield` is the cancel-scope hazard MCP connectors met:
 the scope is entered in one task's context and exited in another's. A list appended to
 by the SDK's task and drained by ours needs none of that, and the events are already
 stamped, so nothing about their order depends on when they are read.

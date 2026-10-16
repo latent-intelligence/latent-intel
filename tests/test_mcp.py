@@ -8,12 +8,19 @@ ask it what it received. No network, no store, no model.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
+import os
+import random
 import shlex
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 from mcp import types
 from mcp.server import MCPServer
@@ -26,7 +33,7 @@ from latent_intel.connectors.mcp import (
     _transport,
     read_mcp_config,
 )
-from latent_intel.models import Capability, ConnectError, Effect
+from latent_intel.models import Capability, ConnectError, Effect, SourceRequest
 from latent_intel.session import Session
 
 PROBE = Path(__file__).parent / "fixtures" / "mcp_probe_server.py"
@@ -585,8 +592,7 @@ async def test_a_peer_ref_counts_only_when_that_peer_is_attached() -> None:
     session = Session(runtime=CallingRuntime("probe", "echo", {"text": text}))
     probe = await connect(build_server(name="notes"))
     peer = await connect(build_server(name="pond"), "peer")
-    # In-process servers close last-opened first, and the session closes in order.
-    session._connectors.update(peer=peer, probe=probe)  # type: ignore[arg-type]
+    session._connectors.update(probe=probe, peer=peer)  # type: ignore[arg-type]
     assert (await result_of(session)).refs == ["peer:alpha"]
 
 
@@ -595,3 +601,269 @@ async def test_bare_keys_in_a_server_s_output_are_not_refs() -> None:
     session = Session(runtime=CallingRuntime("gh", "echo", {"text": "alpha, note"}))
     session._connectors["gh"] = await connect(build_server(name="notes"), "gh")  # type: ignore[assignment]
     assert (await result_of(session)).refs == []
+
+
+# -- teardown ---------------------------------------------------------------
+#
+# Each stdio server is a subprocess behind an anyio cancel scope. anyio wants a scope
+# exited by the task that entered it, in reverse order of entry, so these attach real
+# servers (the probe, no extras) and close them every way a session can.
+
+
+def children() -> set[int]:
+    """This process's live child processes, so a test can say none was left behind."""
+    out = subprocess.run(
+        ["pgrep", "-P", str(os.getpid())], capture_output=True, text=True, check=False
+    ).stdout
+    return {int(pid) for pid in out.split()}
+
+
+def tasks() -> int:
+    return len(asyncio.all_tasks())
+
+
+async def attach(session: Session, *names: str) -> None:
+    for name in names:
+        await session.connect(probe_command(), kind="mcp", source_id=name)
+
+
+@pytest.mark.parametrize("count", [2, 3])
+async def test_a_session_with_several_stdio_servers_closes(count: int) -> None:
+    before = children()
+    session = Session()
+    await attach(session, *(f"s{i}" for i in range(count)))
+    await session.aclose()
+    assert session.sources() == []
+    assert children() <= before
+
+
+@pytest.mark.parametrize("count", [2, 3])
+async def test_the_first_of_several_stdio_servers_disconnects(count: int) -> None:
+    session = Session()
+    await attach(session, *(f"s{i}" for i in range(count)))
+    await session.disconnect("s0")
+    assert [d.id for d in session.sources()] == [f"s{i}" for i in range(1, count)]
+    assert json.loads(await session._connectors["s1"].call("whoami", {}))  # type: ignore[attr-defined]
+    await session.aclose()
+
+
+@pytest.mark.parametrize("count", [2, 3])
+async def test_a_duplicate_opened_before_others_is_closed(count: int) -> None:
+    """`connect_many` opens every request, then closes the one whose id is taken —
+    while the sources opened after it are still open."""
+    session = Session()
+    await attach(session, "s0")
+    failures = await session.connect_many(
+        [
+            SourceRequest(spec=probe_command(), kind="mcp", source_id=f"s{i}")
+            for i in range(count)
+        ]
+    )
+    assert failures == ["s0: already connected"]
+    assert [d.id for d in session.sources()] == [f"s{i}" for i in range(count)]
+    await session.aclose()
+
+
+async def test_five_servers_close_in_any_order() -> None:
+    before = children()
+    names = [f"s{i}" for i in range(5)]
+    session = Session()
+    await attach(session, *names)
+    random.Random(7).shuffle(names)
+    for name in names[:3]:
+        await session.disconnect(name)
+    assert {d.id for d in session.sources()} == set(names[3:])
+    await session.aclose()
+    assert session.sources() == []
+    assert children() <= before
+
+
+async def test_a_server_that_fails_to_start_leaves_nothing_behind(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "dies.py"
+    script.write_text(
+        "import sys\nsys.stderr.write('PROBE_BACKEND is not configured\\n')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    before_children, before_tasks = children(), tasks()
+    connector = McpConnector("bad", shlex.join([sys.executable, str(script)]))
+    with pytest.raises(ConnectError, match="PROBE_BACKEND is not configured"):
+        await connector.aopen()
+    assert children() <= before_children
+    assert tasks() == before_tasks
+
+
+async def test_cancelling_a_server_while_it_starts_leaves_nothing_behind(
+    tmp_path: Path,
+) -> None:
+    """Ctrl-C while a slow server starts."""
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    before_children, before_tasks = children(), tasks()
+    connector = McpConnector("slow", shlex.join([sys.executable, str(script)]))
+    with anyio.move_on_after(0.5) as scope:
+        await connector.aopen()
+    assert scope.cancelled_caught
+    assert children() <= before_children
+    assert tasks() == before_tasks
+    await connector.aclose()
+
+
+async def test_a_server_that_dies_mid_session_fails_its_own_calls_only() -> None:
+    session = Session()
+    await attach(session, "dying", "alive")
+    dying, alive = session._connectors["dying"], session._connectors["alive"]
+    with anyio.fail_after(15):
+        with pytest.raises(ConnectError):
+            await dying.call("die", {})  # type: ignore[attr-defined]
+        with pytest.raises(ConnectError):
+            await dying.call("whoami", {})  # type: ignore[attr-defined]
+        assert json.loads(await alive.call("whoami", {}))  # type: ignore[attr-defined]
+        await session.aclose()
+    assert session.sources() == []
+
+
+class StuckOnExit:
+    """The probe over stdio, behind a transport that ignores the request to stop and
+    closes its server once cancelled."""
+
+    def __init__(self) -> None:
+        self.inner = _transport(probe_command())
+
+    async def __aenter__(self) -> Any:
+        return await self.inner.__aenter__()
+
+    async def __aexit__(self, *exc: Any) -> None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await anyio.sleep_forever()
+        await self.inner.__aexit__(None, None, None)
+
+
+async def test_a_server_that_will_not_stop_cannot_hang_close(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("latent_intel.connectors.mcp.CLOSE_TIMEOUT", 0.3)
+    before_children, before_tasks = children(), tasks()
+    connector = McpConnector("stuck", StuckOnExit())
+    await connector.aopen()
+    with anyio.fail_after(5):
+        await connector.aclose()
+        await connector.aclose()
+    assert children() <= before_children
+    assert tasks() == before_tasks
+    assert "did not close cleanly" not in caplog.text
+
+
+async def test_hung_servers_cost_one_bounded_wait_not_one_each(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("latent_intel.connectors.mcp.CLOSE_TIMEOUT", 0.5)
+    session = Session()
+    for name in ("a", "b", "c"):
+        connector = McpConnector(name, StuckOnExit())
+        await connector.aopen()
+        session._connectors[name] = connector  # type: ignore[assignment]
+    started = time.monotonic()
+    with anyio.fail_after(10):
+        await session.aclose()
+    # One wait each, in turn, would be three CLOSE_TIMEOUTs.
+    assert time.monotonic() - started < 1.45
+
+
+async def test_a_failure_before_the_server_starts_is_a_connect_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Not a source that looks connected and answers every call with no reason."""
+
+    def no_space(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr("tempfile.TemporaryFile", no_space)
+    connector = McpConnector("probe", probe_command())
+    with pytest.raises(ConnectError, match="No space left on device"):
+        await connector.aopen()
+
+
+class SlowToExit(StuckOnExit):
+    """A transport that stops its server, then ignores every cancel and ends on its
+    own a second later."""
+
+    async def __aexit__(self, *exc: Any) -> None:
+        await self.inner.__aexit__(None, None, None)
+        end = time.monotonic() + 1.0
+        while (left := end - time.monotonic()) > 0:
+            try:
+                await asyncio.sleep(left)
+            except asyncio.CancelledError:
+                continue
+
+
+async def test_a_server_left_running_is_named_in_the_log(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("latent_intel.connectors.mcp.CLOSE_TIMEOUT", 0.2)
+    connector = McpConnector("slow", SlowToExit())
+    await connector.aopen()
+    await connector.aclose()
+    assert "slow" in caplog.text and "did not stop" in caplog.text
+    await anyio.sleep(1.5)
+
+
+class FailsToClose(StuckOnExit):
+    async def __aexit__(self, *exc: Any) -> None:
+        await self.inner.__aexit__(None, None, None)
+        raise OSError("transport would not close")
+
+
+async def test_a_server_that_closes_with_an_error_is_named_in_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    connector = McpConnector("broken", FailsToClose())
+    await connector.aopen()
+    await connector.aclose()
+    assert "broken: the server did not close cleanly" in caplog.text
+    assert "transport would not close" in caplog.text
+
+
+@pytest.mark.parametrize("anyio_backend", ["trio"])
+async def test_an_mcp_source_refuses_an_event_loop_other_than_asyncio() -> None:
+    """The owner task is an asyncio task. Refused before anything starts."""
+    before = children()
+    connector = McpConnector("probe", probe_command())
+    with pytest.raises(ConnectError, match="need the asyncio event loop"):
+        await connector.aopen()
+    assert children() <= before
+    assert connector._owner is None
+    await connector.aclose()
+
+
+def test_an_mcp_source_refuses_trio_hosted_on_asyncio_s_loop() -> None:
+    """Trio's guest mode runs on a running asyncio loop, but not in an asyncio task."""
+    import trio
+
+    raised: list[BaseException] = []
+
+    async def under_trio() -> None:
+        connector = McpConnector("probe", probe_command())
+        try:
+            await connector.aopen()
+        except ConnectError as exc:
+            raised.append(exc)
+        await connector.aclose()
+
+    async def host() -> None:
+        loop = asyncio.get_running_loop()
+        done: asyncio.Future[Any] = loop.create_future()
+        trio.lowlevel.start_guest_run(
+            under_trio,
+            run_sync_soon_threadsafe=loop.call_soon_threadsafe,
+            done_callback=done.set_result,
+        )
+        (await done).unwrap()
+
+    before = children()
+    asyncio.run(host())
+    assert "need the asyncio event loop" in str(raised[0])
+    assert children() <= before

@@ -30,5 +30,11 @@ def whoami() -> str:
     )
 
 
+@server.tool()
+def die() -> str:
+    """Exit at once, mid-call: a server that crashes while a session is using it."""
+    os._exit(1)
+
+
 if __name__ == "__main__":
     server.run("stdio")

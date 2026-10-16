@@ -168,19 +168,11 @@ class Session:
     async def connect_many(self, specs: Sequence[SourceRequest]) -> list[str]:
         """Attach several sources, in declared order.
 
-        **Opening cannot run in a task group**, tempting as the fan-out is. A stdio MCP
-        server's transport is an `@asynccontextmanager` that yields inside a task group
-        of its own, so its cancel scope belongs to whichever task entered it and anyio
-        requires that same task to exit it. `McpConnector.aopen` deliberately leaves it
-        open — the subprocess has to outlive the handshake — and `aclose` unwinds it
-        from the task that owns the session. Open it in a child task that then returns
-        and the next scope exit raises `Attempted to exit a cancel scope that isn't the
-        current task's`. `find` may fan out because it finishes inside the child and
-        holds nothing afterwards; a connector outlives the call, so it may not.
-
-        `sources()` documents connection order and `Ref.parse` resolves a bare key
-        against `current`, so the order sources arrive in is observable behaviour
-        either way.
+        Opening is sequential. Each MCP connector runs its connection in a task of its
+        own, so opening them side by side would now be safe; it is worth doing when
+        startup time across many sources is noticed. `sources()` documents connection
+        order and `Ref.parse` resolves a bare key against `current`, so the order
+        sources arrive in is observable behaviour either way.
 
         Returns the failures, one message per source, rather than raising: one
         unreachable source must not stop the others. That is the behaviour
@@ -853,10 +845,28 @@ class Session:
         return runtime
 
     async def aclose(self) -> None:
-        for connector in list(self._connectors.values()):
-            await connector.aclose()
-        self._connectors.clear()
-        self.current = None
+        """Close every connector at once, so hung servers cost one bounded wait rather
+        than one each. One failing to close does not stop the others; its error is
+        raised once all have finished, several together as an `ExceptionGroup`."""
+        errors: list[Exception] = []
+
+        async def close(connector: Any) -> None:
+            try:
+                await connector.aclose()
+            except Exception as exc:  # noqa: BLE001 — collected and raised below
+                errors.append(exc)
+
+        try:
+            async with anyio.create_task_group() as group:
+                for connector in self._connectors.values():
+                    group.start_soon(close, connector)
+        finally:
+            self._connectors.clear()
+            self.current = None
+        if len(errors) == 1:
+            raise errors[0]
+        if errors:
+            raise ExceptionGroup("sources failed to close", errors)
 
     # -- event API ------------------------------------------------------------
 
