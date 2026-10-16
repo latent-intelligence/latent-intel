@@ -8,12 +8,18 @@ ask it what it received. No network, no store, no model.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import random
 import shlex
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 from mcp import types
 from mcp.server import MCPServer
@@ -26,7 +32,7 @@ from latent_intel.connectors.mcp import (
     _transport,
     read_mcp_config,
 )
-from latent_intel.models import Capability, ConnectError, Effect
+from latent_intel.models import Capability, ConnectError, Effect, SourceRequest
 from latent_intel.session import Session
 
 PROBE = Path(__file__).parent / "fixtures" / "mcp_probe_server.py"
@@ -454,17 +460,6 @@ async def test_an_mcp_source_with_resources_is_searched() -> None:
     await session.aclose()
 
 
-async def test_a_session_with_two_stdio_servers_closes_cleanly() -> None:
-    """Each stdio server holds an anyio cancel scope opened in the session's task, and
-    anyio requires scopes to exit in reverse order — so closing in connection order
-    raised on the first close of a session with two."""
-    session = Session()
-    await session.connect(probe_command(), kind="mcp", source_id="first")
-    await session.connect(probe_command(), kind="mcp", source_id="second")
-    await session.aclose()
-    assert session.sources() == []
-
-
 async def test_a_failing_body_still_closes_the_session() -> None:
     """The bug this guards: `intel stores | head -3` closed the pipe, BrokenPipeError
     skipped the cleanup at the end of the command, and the orphaned server inherited the
@@ -605,3 +600,172 @@ async def test_bare_keys_in_a_server_s_output_are_not_refs() -> None:
     session = Session(runtime=CallingRuntime("gh", "echo", {"text": "alpha, note"}))
     session._connectors["gh"] = await connect(build_server(name="notes"), "gh")  # type: ignore[assignment]
     assert (await result_of(session)).refs == []
+
+
+# -- teardown ---------------------------------------------------------------
+#
+# Each stdio server is a subprocess behind an anyio cancel scope. anyio wants a scope
+# exited by the task that entered it, in reverse order of entry, so these attach real
+# servers (the probe, no extras) and close them every way a session can.
+
+
+def children() -> set[int]:
+    """This process's live child processes, so a test can say none was left behind."""
+    out = subprocess.run(
+        ["pgrep", "-P", str(os.getpid())], capture_output=True, text=True, check=False
+    ).stdout
+    return {int(pid) for pid in out.split()}
+
+
+def tasks() -> int:
+    return len(asyncio.all_tasks())
+
+
+async def attach(session: Session, *names: str) -> None:
+    for name in names:
+        await session.connect(probe_command(), kind="mcp", source_id=name)
+
+
+@pytest.mark.parametrize("count", [2, 3])
+async def test_a_session_with_several_stdio_servers_closes(count: int) -> None:
+    before = children()
+    session = Session()
+    await attach(session, *(f"s{i}" for i in range(count)))
+    await session.aclose()
+    assert session.sources() == []
+    assert children() <= before
+
+
+@pytest.mark.parametrize("count", [2, 3])
+async def test_the_first_of_several_stdio_servers_disconnects(count: int) -> None:
+    session = Session()
+    await attach(session, *(f"s{i}" for i in range(count)))
+    await session.disconnect("s0")
+    assert [d.id for d in session.sources()] == [f"s{i}" for i in range(1, count)]
+    assert json.loads(await session._connectors["s1"].call("whoami", {}))  # type: ignore[attr-defined]
+    await session.aclose()
+
+
+@pytest.mark.parametrize("count", [2, 3])
+async def test_a_duplicate_opened_before_others_is_closed(count: int) -> None:
+    """`connect_many` opens every request, then closes the one whose id is taken —
+    while the sources opened after it are still open."""
+    session = Session()
+    await attach(session, "s0")
+    failures = await session.connect_many(
+        [
+            SourceRequest(spec=probe_command(), kind="mcp", source_id=f"s{i}")
+            for i in range(count)
+        ]
+    )
+    assert failures == ["s0: already connected"]
+    assert [d.id for d in session.sources()] == [f"s{i}" for i in range(count)]
+    await session.aclose()
+
+
+async def test_five_servers_close_in_any_order() -> None:
+    before = children()
+    names = [f"s{i}" for i in range(5)]
+    session = Session()
+    await attach(session, *names)
+    random.Random(7).shuffle(names)
+    for name in names[:3]:
+        await session.disconnect(name)
+    assert {d.id for d in session.sources()} == set(names[3:])
+    await session.aclose()
+    assert session.sources() == []
+    assert children() <= before
+
+
+async def test_a_server_that_fails_to_start_leaves_nothing_behind(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "dies.py"
+    script.write_text(
+        "import sys\nsys.stderr.write('PROBE_BACKEND is not configured\\n')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    before_children, before_tasks = children(), tasks()
+    connector = McpConnector("bad", shlex.join([sys.executable, str(script)]))
+    with pytest.raises(ConnectError, match="PROBE_BACKEND is not configured"):
+        await connector.aopen()
+    assert children() <= before_children
+    assert tasks() == before_tasks
+
+
+async def test_cancelling_a_server_while_it_starts_leaves_nothing_behind(
+    tmp_path: Path,
+) -> None:
+    """Ctrl-C while a slow server starts."""
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    before_children, before_tasks = children(), tasks()
+    connector = McpConnector("slow", shlex.join([sys.executable, str(script)]))
+    with anyio.move_on_after(0.5) as scope:
+        await connector.aopen()
+    assert scope.cancelled_caught
+    assert children() <= before_children
+    assert tasks() == before_tasks
+    await connector.aclose()
+
+
+async def test_a_server_that_dies_mid_session_fails_its_own_calls_only() -> None:
+    session = Session()
+    await attach(session, "dying", "alive")
+    dying, alive = session._connectors["dying"], session._connectors["alive"]
+    with anyio.fail_after(15):
+        with pytest.raises(ConnectError):
+            await dying.call("die", {})  # type: ignore[attr-defined]
+        with pytest.raises(ConnectError):
+            await dying.call("whoami", {})  # type: ignore[attr-defined]
+        assert json.loads(await alive.call("whoami", {}))  # type: ignore[attr-defined]
+        await session.aclose()
+    assert session.sources() == []
+
+
+class StuckOnExit:
+    """The probe over stdio, behind a transport that will not finish closing until it
+    is cancelled: a server that ignores the request to stop."""
+
+    def __init__(self) -> None:
+        self.inner = _transport(probe_command())
+
+    async def __aenter__(self) -> Any:
+        return await self.inner.__aenter__()
+
+    async def __aexit__(self, *exc: Any) -> None:
+        try:
+            await anyio.sleep_forever()
+        finally:
+            with anyio.CancelScope(shield=True):
+                await self.inner.__aexit__(None, None, None)
+
+
+async def test_a_server_that_will_not_stop_cannot_hang_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("latent_intel.connectors.mcp.CLOSE_TIMEOUT", 0.3)
+    before_children, before_tasks = children(), tasks()
+    connector = McpConnector("stuck", StuckOnExit())
+    await connector.aopen()
+    with anyio.fail_after(5):
+        await connector.aclose()
+        await connector.aclose()
+    assert children() <= before_children
+    assert tasks() == before_tasks
+
+
+async def test_hung_servers_cost_one_bounded_wait_not_one_each(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("latent_intel.connectors.mcp.CLOSE_TIMEOUT", 0.5)
+    session = Session()
+    for name in ("a", "b", "c"):
+        connector = McpConnector(name, StuckOnExit())
+        await connector.aopen()
+        session._connectors[name] = connector  # type: ignore[assignment]
+    started = time.monotonic()
+    with anyio.fail_after(10):
+        await session.aclose()
+    assert time.monotonic() - started < 1.2
