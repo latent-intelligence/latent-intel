@@ -454,6 +454,17 @@ async def test_an_mcp_source_with_resources_is_searched() -> None:
     await session.aclose()
 
 
+async def test_a_session_with_two_stdio_servers_closes_cleanly() -> None:
+    """Each stdio server holds an anyio cancel scope opened in the session's task, and
+    anyio requires scopes to exit in reverse order — so closing in connection order
+    raised on the first close of a session with two."""
+    session = Session()
+    await session.connect(probe_command(), kind="mcp", source_id="first")
+    await session.connect(probe_command(), kind="mcp", source_id="second")
+    await session.aclose()
+    assert session.sources() == []
+
+
 async def test_a_failing_body_still_closes_the_session() -> None:
     """The bug this guards: `intel stores | head -3` closed the pipe, BrokenPipeError
     skipped the cleanup at the end of the command, and the orphaned server inherited the
@@ -585,8 +596,7 @@ async def test_a_peer_ref_counts_only_when_that_peer_is_attached() -> None:
     session = Session(runtime=CallingRuntime("probe", "echo", {"text": text}))
     probe = await connect(build_server(name="notes"))
     peer = await connect(build_server(name="pond"), "peer")
-    # In-process servers close last-opened first, and the session closes in order.
-    session._connectors.update(peer=peer, probe=probe)  # type: ignore[arg-type]
+    session._connectors.update(probe=probe, peer=peer)  # type: ignore[arg-type]
     assert (await result_of(session)).refs == ["peer:alpha"]
 
 

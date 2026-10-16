@@ -25,6 +25,7 @@ should see travels as `AgentFailed`.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import hashlib
 import json
@@ -853,10 +854,16 @@ class Session:
         return runtime
 
     async def aclose(self) -> None:
-        for connector in list(self._connectors.values()):
-            await connector.aclose()
-        self._connectors.clear()
-        self.current = None
+        """Close every connector, last opened first: a stdio MCP server holds a cancel
+        scope entered in this task, and anyio requires scopes to exit in reverse. The
+        exit stack keeps closing the rest when one fails, then raises."""
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                for connector in self._connectors.values():
+                    stack.push_async_callback(connector.aclose)
+        finally:
+            self._connectors.clear()
+            self.current = None
 
     # -- event API ------------------------------------------------------------
 
