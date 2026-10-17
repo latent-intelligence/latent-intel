@@ -656,9 +656,9 @@ async def test_a_runner_that_makes_no_request_at_all_is_not_an_answer(
     """`max_iterations` of zero, or any runner that stops before its first request:
     there is no last message to classify, and an empty answer is not one."""
     client = FakeClient(Round(text=("unused",)))
-    failed = terminal(
-        await collect(AnthropicSdkRuntime(client_factory=client, max_tool_rounds=0))
-    )
+    backend = AnthropicSdkRuntime(client_factory=client)
+    backend.max_tool_rounds = 0  # past the constructor, which refuses it
+    failed = terminal(await collect(backend))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == "unexpected_stop"
     assert client.requests == []
@@ -706,16 +706,21 @@ async def test_an_empty_earlier_answer_is_never_sent_back(credentials: None) -> 
 
 
 @pytest.mark.anyio
-async def test_a_model_looping_on_tools_is_stopped_by_the_round_bound(
+async def test_the_round_ceiling_ends_with_the_text_already_streamed(
     credentials: None,
 ) -> None:
     """A bound, not a budget. The runner exits silently when `max_iterations` is
     reached, so the ceiling is read off a last message still asking for tools — and the
     tools of that last round ran inside the runner, whose events still have to come
-    out."""
+    out. What streamed before it is the answer, marked as stopped; no request is made
+    past the bound."""
     rounds = [
-        Round(tools=(("c", "design_wiki_get", {}),), stop_reason="tool_use")
-        for _ in range(3)
+        Round(
+            text=("Checking. ",) if n == 0 else (),
+            tools=(("c", "design_wiki_get", {}),),
+            stop_reason="tool_use",
+        )
+        for n in range(3)
     ]
     client = FakeClient(*rounds)
     events = await collect(
@@ -723,11 +728,44 @@ async def test_a_model_looping_on_tools_is_stopped_by_the_round_bound(
         tools=[spec("wiki_get")],
         call_tool=_router,
     )
-    failed = terminal(events)
-    assert isinstance(failed, ev.AgentFailed) and failed.kind == "tool_rounds"
-    assert failed.remedy
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert (done.text, done.stopped) == ("Checking. ", "tool_rounds")
+    assert done.usage["input_tokens"] == 3
     assert len(client.requests) == 3
     assert len([e for e in events if isinstance(e, ev.ToolResult)]) == 3
+
+
+@pytest.mark.anyio
+async def test_a_round_ceiling_with_no_text_is_still_a_failure(
+    credentials: None,
+) -> None:
+    rounds = [
+        Round(tools=(("c", "design_wiki_get", {}),), stop_reason="tool_use")
+        for _ in range(3)
+    ]
+    failed = terminal(
+        await collect(
+            AnthropicSdkRuntime(client_factory=FakeClient(*rounds), max_tool_rounds=3),
+            tools=[spec("wiki_get")],
+            call_tool=_router,
+        )
+    )
+    assert isinstance(failed, ev.AgentFailed) and failed.kind == "tool_rounds"
+    assert failed.remedy
+
+
+@pytest.mark.anyio
+async def test_no_round_ceiling_gives_the_runner_none(credentials: None) -> None:
+    client = FakeClient(Round(text=("hi",)))
+    await collect(AnthropicSdkRuntime(client_factory=client, max_tool_rounds="none"))
+    # The fake records what the runner was given, None when it was left out.
+    assert client.requests[0]["max_iterations"] is None
+
+
+def test_a_dollar_ceiling_is_refused_by_name() -> None:
+    with pytest.raises(RuntimeUnavailable, match="max_cost_usd.*claude-agent-sdk"):
+        AnthropicSdkRuntime(max_cost_usd=1.0)
 
 
 # -- what the SDK raises ----------------------------------------------------

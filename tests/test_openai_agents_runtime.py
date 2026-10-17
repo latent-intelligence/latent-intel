@@ -285,6 +285,18 @@ async def test_the_ceiling_is_the_runner_s(credentials: None) -> None:
 
 
 @pytest.mark.anyio
+async def test_no_round_ceiling_gives_the_runner_none(credentials: None) -> None:
+    fake = FakeRunner(Round(text=("hi",)))
+    await collect(runtime(fake, max_tool_rounds=None))
+    assert fake.runs[0]["max_turns"] is None
+
+
+def test_a_dollar_ceiling_is_refused_by_name() -> None:
+    with pytest.raises(RuntimeUnavailable, match="max_cost_usd.*claude-agent-sdk"):
+        OpenAIAgentsRuntime(max_cost_usd=1.0)
+
+
+@pytest.mark.anyio
 async def test_a_turn_with_no_tools_gives_the_agent_none(credentials: None) -> None:
     """With no sources there are no instructions either: an empty system prompt is
     dropped rather than sent as an empty string."""
@@ -685,22 +697,46 @@ async def test_tool_events_are_yielded_before_the_next_round_s_tokens(
 
 
 @pytest.mark.anyio
-async def test_a_model_looping_on_tools_is_stopped_by_the_round_bound(
+async def test_the_round_ceiling_ends_with_the_text_already_streamed(
     credentials: None,
 ) -> None:
     """A bound, not a budget. Unlike the Anthropic runner, this one raises rather than
     stopping silently — and the SDK drains its queued events before re-raising, so the
-    last round's tool pair still has to come out before the terminal event."""
-    rounds = [Round(tool_calls=(("c", "design_wiki_get", "{}"),)) for _ in range(3)]
+    last round's tool pair still has to come out before the terminal event. What
+    streamed before it is the answer, marked as stopped."""
+    rounds = [
+        Round(
+            text=("Checking.",) if n == 0 else (),
+            tool_calls=(("c", "design_wiki_get", "{}"),),
+        )
+        for n in range(3)
+    ]
     fake = FakeRunner(*rounds)
     events = await collect(
         runtime(fake, max_tool_rounds=3), tools=[spec("wiki_get")], call_tool=_router
     )
-    failed = terminal(events)
-    assert isinstance(failed, ev.AgentFailed) and failed.kind == "tool_rounds"
-    assert failed.remedy
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert (done.text, done.stopped) == ("Checking.", "tool_rounds")
+    assert done.usage
     assert len(fake.calls) == 3
     assert len([e for e in events if isinstance(e, ev.ToolResult)]) == 3
+
+
+@pytest.mark.anyio
+async def test_a_round_ceiling_with_no_text_is_still_a_failure(
+    credentials: None,
+) -> None:
+    rounds = [Round(tool_calls=(("c", "design_wiki_get", "{}"),)) for _ in range(3)]
+    failed = terminal(
+        await collect(
+            runtime(FakeRunner(*rounds), max_tool_rounds=3),
+            tools=[spec("wiki_get")],
+            call_tool=_router,
+        )
+    )
+    assert isinstance(failed, ev.AgentFailed) and failed.kind == "tool_rounds"
+    assert failed.remedy
 
 
 @pytest.mark.anyio

@@ -288,6 +288,23 @@ def failure_stream() -> Recorder:
     return r
 
 
+def stopped_stream() -> Recorder:
+    """A turn that reached its round ceiling: the answer so far, marked as stopped,
+    rather than an error that throws ten rounds of evidence away."""
+    r = Recorder("stopped")
+    r.add(ev.UserMessage, text="compare every compaction strategy in the wiki")
+    for piece in ("Three of five covered: ", "tiered, ", "sliding, ", "summary."):
+        r.add(ev.AssistantToken, text=piece)
+    r.add(
+        ev.AgentCompleted,
+        text="Three of five covered: tiered, sliding, summary.",
+        streamed=True,
+        usage={"input_tokens": 9100, "output_tokens": 640},
+        stopped="tool_rounds",
+    )
+    return r
+
+
 def agent_turn_stream() -> Recorder:
     """The full vocabulary in one file — what a renderer has to survive."""
     r = Recorder("agent_turn")
@@ -443,6 +460,7 @@ BUILDERS = (
     tool_call_stream,
     approval_stream,
     failure_stream,
+    stopped_stream,
     agent_turn_stream,
     recorded_ask,
     recorded_search,

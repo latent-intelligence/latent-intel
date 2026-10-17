@@ -23,6 +23,7 @@ import anthropic
 import pytest
 
 from latent_intel import events as ev
+from latent_intel.agent import turn
 from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.agent.runtimes.custom import ENV_HOST, CustomRuntime
 from latent_intel.models import (
@@ -619,25 +620,86 @@ async def test_an_empty_earlier_answer_is_never_sent_back(
 
 
 @pytest.mark.anyio
-async def test_a_model_looping_on_tools_is_stopped_by_the_round_bound(
+async def test_the_round_ceiling_ends_with_one_closing_request_and_its_answer(
     credentials: None,
 ) -> None:
     """A bound, not a budget: a model calling the same tool forever would otherwise
-    spend until someone noticed."""
+    spend until someone noticed. What it found is not thrown away: one request with
+    tools offered but none allowed, and its text is the answer, marked as stopped."""
     rounds = [
         Round(tools=(("c", "design_wiki_get", {}),), stop_reason="tool_use")
         for _ in range(3)
     ]
-    client = FakeClient(*rounds)
+    client = FakeClient(*rounds, Round(text=("From what I have: ", "tides.")))
+    events = await collect(
+        runtime(client_factory=client, max_tool_rounds=3),
+        tools=[spec("wiki_get")],
+        call_tool=_router,
+    )
+    done = terminal(events)
+    assert isinstance(done, ev.AgentCompleted)
+    assert (done.text, done.stopped) == ("From what I have: tides.", "tool_rounds")
+    assert done.usage["input_tokens"] == 4
+    assert len(client.requests) == 4
+    closing = client.requests[-1]
+    assert closing["tool_choice"] == {"type": "none"}
+    assert closing["tools"] == client.requests[0]["tools"]
+    assert closing["messages"][-1]["content"][-1] == {
+        "type": "text",
+        "text": turn.WRAP_UP,
+    }
+    assert all("tool_choice" not in r for r in client.requests[:-1])
+
+
+@pytest.mark.anyio
+async def test_a_closing_request_with_no_text_is_still_a_failure(
+    credentials: None,
+) -> None:
+    rounds = [
+        Round(tools=(("c", "design_wiki_get", {}),), stop_reason="tool_use")
+        for _ in range(2)
+    ]
+    client = FakeClient(*rounds, Round())
     failed = terminal(
         await collect(
-            runtime(client_factory=client, max_tool_rounds=3),
+            runtime(client_factory=client, max_tool_rounds=2),
             tools=[spec("wiki_get")],
             call_tool=_router,
         )
     )
     assert isinstance(failed, ev.AgentFailed) and failed.kind == "tool_rounds"
-    assert len(client.requests) == 3
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("unbounded", [None, "none"])
+async def test_no_round_ceiling_runs_until_the_model_stops(
+    credentials: None, unbounded: Any
+) -> None:
+    rounds = [
+        Round(tools=(("c", "design_wiki_get", {}),), stop_reason="tool_use")
+        for _ in range(turn.DEFAULT_MAX_TOOL_ROUNDS + 2)
+    ]
+    client = FakeClient(*rounds, Round(text=("done",)))
+    done = terminal(
+        await collect(
+            runtime(client_factory=client, max_tool_rounds=unbounded),
+            tools=[spec("wiki_get")],
+            call_tool=_router,
+        )
+    )
+    assert isinstance(done, ev.AgentCompleted) and done.stopped is None
+    assert len(client.requests) == turn.DEFAULT_MAX_TOOL_ROUNDS + 3
+
+
+@pytest.mark.parametrize("value", [0, -1, "lots", True, 2.5, "2.5"])
+def test_a_round_ceiling_that_is_not_a_count_is_refused(value: Any) -> None:
+    with pytest.raises(RuntimeUnavailable, match="max_tool_rounds"):
+        runtime(max_tool_rounds=value)
+
+
+def test_a_dollar_ceiling_is_refused_by_name_where_no_cost_is_reported() -> None:
+    with pytest.raises(RuntimeUnavailable, match="max_cost_usd.*claude-agent-sdk"):
+        runtime(max_cost_usd=1.0)
 
 
 # -- what the SDK raises ----------------------------------------------------

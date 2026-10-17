@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import itertools
 import os
 import time
 from collections.abc import AsyncIterator, Callable
@@ -91,12 +92,13 @@ class CustomRuntime:
         host: str | None = None,
         approval: str = "ask",
         max_tokens: int = turn.DEFAULT_MAX_TOKENS,
-        max_tool_rounds: int = turn.DEFAULT_MAX_TOOL_ROUNDS,
+        max_tool_rounds: int | str | None = turn.DEFAULT_MAX_TOOL_ROUNDS,
         tokens_param: str | None = None,
         include_usage: bool = True,
         client_factory: Callable[[], Any] | None = None,
         **unknown: Any,
     ) -> None:
+        turn.refuse_cost(self.id, unknown)
         # Rejected, not ignored: a key this runtime never reads is a setting the file
         # says is on and nothing honours — a typo in `model:` is the common case, and
         # it used to build a runtime silently running on the default.
@@ -122,7 +124,8 @@ class CustomRuntime:
         self.model = model or (row.default_model if row else None) or ""
         self.approval = approval
         self.max_tokens = int(max_tokens)
-        self.max_tool_rounds = int(max_tool_rounds)
+        #: None is no ceiling: the loop runs until the model stops.
+        self.max_tool_rounds = turn.max_rounds(max_tool_rounds, self.id)
         #: The output-token parameter, overriding the row's. The honest lever for a
         #: resource whose API version accepts only the older name — and refused rather
         #: than dropped on a row whose protocol has one name for it.
@@ -336,7 +339,11 @@ class CustomRuntime:
         separate = False
 
         async with self._client() as client:
-            for _ in range(self.max_tool_rounds):
+            for index in itertools.count():
+                # One request past the ceiling, with tools described but none allowed:
+                # the answer the rounds were protecting, rather than an error that
+                # throws their evidence away. Bounded by `max_tokens` like any other.
+                closing = index == self.max_tool_rounds
                 request = adapter.request(
                     model=self.model,
                     max_tokens=self.max_tokens,
@@ -345,6 +352,7 @@ class CustomRuntime:
                     transcript=transcript,
                     definitions=definitions,
                     system=system,
+                    final=closing,
                 )
 
                 outcome: Outcome | None = None
@@ -384,6 +392,14 @@ class CustomRuntime:
                         message=outcome.message,
                         kind=outcome.kind,
                         remedy=outcome.remedy,
+                    )
+                    return
+
+                if closing:
+                    for event in hosted.close(emitter):
+                        yield event
+                    yield self._stopped(
+                        emitter, "".join(answer), hosted.citations, usage, began
                     )
                     return
 
@@ -429,14 +445,33 @@ class CustomRuntime:
                 )
                 return
 
-        for event in hosted.close(emitter):
-            yield event
-        yield emitter.emit(
-            ev.AgentFailed,
-            message=f"stopped after {self.max_tool_rounds} rounds of tool calls",
-            kind="tool_rounds",
-            remedy="raise `max_tool_rounds` under this runtime, or ask for less",
+    def _stopped(
+        self,
+        emitter: ev.Emitter,
+        text: str,
+        citations: list[str],
+        usage: turn.UsageTotals,
+        began: float,
+    ) -> ev.AgentEvent:
+        """The end of a turn the round ceiling stopped: the answer so far, or a failure
+        when there is none."""
+        if not text.strip():
+            failed: ev.AgentFailed = emitter.emit(
+                ev.AgentFailed,
+                message=f"stopped after {self.max_tool_rounds} rounds of tool calls",
+                kind="tool_rounds",
+                remedy="raise `max_tool_rounds` under this runtime, or ask for less",
+            )
+            return failed
+        done: ev.AgentCompleted = emitter.emit(
+            ev.AgentCompleted,
+            text=text,
+            streamed=True,
+            citations=citations,
+            usage=usage.totals(int((time.monotonic() - began) * 1000)),
+            stopped="tool_rounds",
         )
+        return done
 
     def _client(self) -> Any:
         """The SDK client, as the async context manager the SDK itself returns.

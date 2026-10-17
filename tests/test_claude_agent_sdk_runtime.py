@@ -198,7 +198,13 @@ def test_unknown_and_unhonourable_options_are_refused() -> None:
     with pytest.raises(RuntimeUnavailable):
         ClaudeAgentSdkRuntime(max_tool_rounds=0)
     with pytest.raises(RuntimeUnavailable):
-        ClaudeAgentSdkRuntime(max_budget_usd=0)
+        ClaudeAgentSdkRuntime(max_cost_usd=0)
+
+
+def test_the_old_name_for_the_dollar_ceiling_is_refused_by_name() -> None:
+    """Refused, not aliased: one name for one ceiling on every runtime."""
+    with pytest.raises(RuntimeUnavailable, match="max_budget_usd.*max_cost_usd"):
+        ClaudeAgentSdkRuntime(max_budget_usd=1.0)
 
 
 def test_this_runtime_declares_who_owns_its_loop() -> None:
@@ -288,11 +294,18 @@ async def test_skills_are_a_listing_naming_load_skill_as_the_binary_offers_it(
 async def test_limits_and_model_reach_the_binary(credentials: None) -> None:
     fake = FakeQuery(Result())
     await collect(
-        runtime(fake, model="claude-haiku-4-5", max_tool_rounds=4, max_budget_usd=0.5)
+        runtime(fake, model="claude-haiku-4-5", max_tool_rounds=4, max_cost_usd=0.5)
     )
     assert fake.options.model == "claude-haiku-4-5"
     assert fake.options.max_turns == 4
     assert fake.options.max_budget_usd == 0.5
+
+
+@pytest.mark.anyio
+async def test_no_round_ceiling_gives_the_binary_none(credentials: None) -> None:
+    fake = FakeQuery(Result())
+    await collect(runtime(fake, max_tool_rounds="none"))
+    assert fake.options.max_turns is None
     assert fake.prompt == "what is compaction?"
 
 
@@ -749,7 +762,7 @@ async def test_a_failure_mid_turn_reports_what_ran_and_closes_what_did_not(
         (Result(is_error=True, subtype="error_max_turns", num_turns=4), "tool_rounds"),
         (
             Result(is_error=True, subtype="error_max_budget_usd", num_turns=2),
-            "budget",
+            "cost",
         ),
         (Result(is_error=True, api_error_status=401, num_turns=0), "auth"),
         (Result(is_error=True, api_error_status=404, num_turns=0), "model_not_found"),
@@ -764,9 +777,45 @@ async def test_a_failure_mid_turn_reports_what_ran_and_closes_what_did_not(
 async def test_an_error_result_is_one_failure_of_its_own_kind(
     credentials: None, result: Result, kind: str
 ) -> None:
-    failed = terminal(await collect(runtime(FakeQuery(result), max_budget_usd=0.25)))
+    failed = terminal(await collect(runtime(FakeQuery(result), max_cost_usd=0.25)))
     assert isinstance(failed, ev.AgentFailed)
     assert failed.kind == kind
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("subtype", "stopped"),
+    [("error_max_turns", "tool_rounds"), ("error_max_budget_usd", "cost")],
+)
+async def test_a_ceiling_after_text_is_the_answer_so_far(
+    credentials: None, subtype: str, stopped: str
+) -> None:
+    """The partial answer is the text already streamed: we never spend past a dollar
+    figure, or a round, by our own choice. The thread is kept, so "go on" resumes."""
+    backend = runtime(
+        FakeQuery(
+            Text("Two of three found."),
+            Result(is_error=True, subtype=subtype, num_turns=3, session_id="abc"),
+        ),
+        max_cost_usd=0.25,
+    )
+    session = uuid4()
+    done = terminal(await collect(backend, session=session))
+    assert isinstance(done, ev.AgentCompleted)
+    assert (done.text, done.stopped) == ("Two of three found.", stopped)
+    assert done.streamed
+
+    after = use(backend, FakeQuery(Result()))
+    await collect(
+        backend,
+        messages=[
+            Message(text="what is compaction?"),
+            Message(role="assistant", text="Two of three found."),
+            Message(text="go on"),
+        ],
+        session=session,
+    )
+    assert after.options.resume == "abc"
 
 
 @pytest.mark.anyio

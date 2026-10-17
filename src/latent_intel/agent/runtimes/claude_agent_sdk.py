@@ -52,7 +52,9 @@ to our tools are reported like any other. This runtime is the one that declares
 **Differences from the custom loop, on purpose.** A tool name the model invented, and
 arguments that fail the tool's schema, are refused by the SDK before our router sees
 them, so no event pair is emitted for either; the model is still told. The ceiling is
-the binary's `max_turns`. The cost is the binary's own estimate.
+the binary's `max_turns`, and `max_cost_usd` its `max_budget_usd`. The cost is the
+binary's own estimate. A ceiling reached after text has streamed ends the turn with that
+text, marked as stopped; we never spend past either bound by our own choice.
 
 The rules `custom.py` states apply here verbatim: the SDK is imported inside the turn
 and never at module scope, reasons name variables and never their values, and every path
@@ -173,6 +175,10 @@ def environment(name: str) -> dict[str, str]:
     return env
 
 
+#: The binary's error results that are a ceiling we set, as `AgentCompleted.stopped`.
+CEILINGS = {"error_max_turns": "tool_rounds", "error_max_budget_usd": "cost"}
+
+
 class ClaudeAgentSdkRuntime:
     """The Claude Agent SDK, behind the `Runtime` Protocol."""
 
@@ -184,8 +190,8 @@ class ClaudeAgentSdkRuntime:
         model: str | None = None,
         host: str | None = None,
         approval: str = "ask",
-        max_tool_rounds: int = turn.DEFAULT_MAX_TOOL_ROUNDS,
-        max_budget_usd: float | None = None,
+        max_tool_rounds: int | str | None = turn.DEFAULT_MAX_TOOL_ROUNDS,
+        max_cost_usd: float | None = None,
         cwd: str | None = None,
         cli_path: str | None = None,
         query_factory: Callable[[], Any] | None = None,
@@ -199,6 +205,11 @@ class ClaudeAgentSdkRuntime:
                 f"set `defaults.web: browse` (or `search`) in the deployment, or "
                 f"`web:` in config, and remove `builtin_tools`"
             )
+        if "max_budget_usd" in unknown:
+            raise RuntimeUnavailable(
+                f"`max_budget_usd` under runtime '{self.id}' is now `max_cost_usd`, "
+                f"the one name for a dollar ceiling on every runtime — rename it"
+            )
         # Rejected, not ignored, for the reason `custom.py` gives: a key nothing reads
         # is a setting the file says is on and no one honours.
         if unknown:
@@ -206,21 +217,16 @@ class ClaudeAgentSdkRuntime:
                 f"unknown option(s) for runtime '{self.id}': "
                 f"{', '.join(sorted(unknown))} — see `runtimes: {self.id}:` in config"
             )
-        # The SDK drops a zero rather than passing it, which would lift the ceiling
-        # entirely — the opposite of what a zero was written to mean.
-        if int(max_tool_rounds) < 1:
+        if max_cost_usd is not None and float(max_cost_usd) <= 0:
             raise RuntimeUnavailable(
-                f"`max_tool_rounds` must be at least 1 for runtime '{self.id}'"
-            )
-        if max_budget_usd is not None and float(max_budget_usd) <= 0:
-            raise RuntimeUnavailable(
-                f"`max_budget_usd` must be above zero for runtime '{self.id}'"
+                f"`max_cost_usd` must be above zero for runtime '{self.id}'"
             )
         self.model = model or DEFAULT_MODEL
         self.host = host or os.environ.get(ENV_HOST) or DEFAULT_HOST
         self.approval = approval
-        self.max_tool_rounds = int(max_tool_rounds)
-        self.max_budget_usd = None if max_budget_usd is None else float(max_budget_usd)
+        #: None is no ceiling: the binary's `max_turns` is unset.
+        self.max_tool_rounds = turn.max_rounds(max_tool_rounds, self.id)
+        self.max_cost_usd = None if max_cost_usd is None else float(max_cost_usd)
         self.cwd = cwd
         self.cli_path = cli_path
         #: The test seam: returns the callable used in place of the SDK's `query`, so
@@ -514,7 +520,11 @@ class ClaudeAgentSdkRuntime:
             )
             return
 
-        if result.is_error:  # never `subtype` alone — see `claude_cli.py`
+        text = "".join(answer)
+        # `is_error` is the truth, never `subtype` alone — see `claude_cli.py`. A
+        # ceiling after text is the answer so far; one before any is still a failure.
+        stopped = CEILINGS.get(str(result.subtype)) if result.is_error else None
+        if result.is_error and not (stopped and text.strip()):
             if (
                 resume is not None
                 and not result.num_turns
@@ -534,7 +544,6 @@ class ClaudeAgentSdkRuntime:
             )
             return
 
-        text = "".join(answer)
         streamed = bool(text)
         if not streamed:
             text = result.result or ""
@@ -548,6 +557,7 @@ class ClaudeAgentSdkRuntime:
             streamed=streamed,
             usage=_usage(result, int((time.monotonic() - began) * 1000)),
             cost_usd=result.total_cost_usd,
+            stopped=stopped,
         )
 
     def _options(
@@ -579,7 +589,7 @@ class ClaudeAgentSdkRuntime:
             "verbatim_prompts": True,
             "include_partial_messages": True,
             "max_turns": self.max_tool_rounds,
-            "max_budget_usd": self.max_budget_usd,
+            "max_budget_usd": self.max_cost_usd,
             "resume": resume,
             "cwd": self.cwd,
             "cli_path": self.cli_path,
@@ -693,9 +703,9 @@ class ClaudeAgentSdkRuntime:
             }
         if subtype == "error_max_budget_usd":
             return {
-                "message": f"stopped at the budget of ${self.max_budget_usd}",
-                "kind": "budget",
-                "remedy": "raise `max_budget_usd` under this runtime, or ask for less",
+                "message": f"stopped at the cost ceiling of ${self.max_cost_usd}",
+                "kind": "cost",
+                "remedy": "raise `max_cost_usd` under this runtime, or ask for less",
             }
         fields = turn.status_failure(status, host=row, name=self.host, model=self.model)
         if fields is not None:

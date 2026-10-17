@@ -124,6 +124,10 @@ class AgentCompleted(BaseEvent):
     #: `claude-agent-sdk`, which reports its binary's own estimate. A float, so it
     #: cannot live in `usage`. Optional and additive, so `SCHEMA_VERSION` does not move.
     cost_usd: float | None = None
+    #: None when the model finished; otherwise the ceiling that ended the turn —
+    #: `tool_rounds` or `cost` — and `text` is the answer so far. A string, so a
+    #: ceiling added later still parses. Optional and additive, as above.
+    stopped: str | None = None
 
 
 class AgentFailed(BaseEvent):

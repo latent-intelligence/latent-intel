@@ -147,6 +147,45 @@ def test_a_failure_shows_its_remedy() -> None:
     assert "intel doctor" in text
 
 
+@pytest.mark.parametrize(
+    ("stopped", "line"),
+    [("tool_rounds", "stopped at the round ceiling"), ("cost", "stopped at the cost")],
+)
+def test_a_stopped_answer_says_so_after_the_answer(stopped: str, line: str) -> None:
+    console = capture()
+    events = list(ev.read_stream((STREAMS / "stopped.jsonl").read_text()))
+    done = events[-1]
+    assert isinstance(done, ev.AgentCompleted) and done.stopped == "tool_rounds"
+    render.render(console, done.model_copy(update={"stopped": stopped}))
+    assert line in console.export_text()
+
+
+def test_an_answer_recorded_before_stopped_existed_reads_as_finished() -> None:
+    done = [
+        e
+        for e in ev.read_stream((STREAMS / "agent_turn.jsonl").read_text())
+        if isinstance(e, ev.AgentCompleted)
+    ]
+    assert done and all(e.stopped is None for e in done)
+    console = capture()
+    for event in done:
+        render.render(console, event)
+    assert "stopped" not in console.export_text()
+
+
+@pytest.mark.anyio
+async def test_a_stopped_answer_is_not_a_failure_to_a_script() -> None:
+    """`intel ask` exits 0 on it: an answer arrived. `stopped` is in --json."""
+    from latent_intel.frontends import _shared
+
+    class Stopped:
+        async def run(self, command: Any) -> Any:
+            for event in ev.read_stream((STREAMS / "stopped.jsonl").read_text()):
+                yield event
+
+    assert await _shared.stream(Stopped(), None, as_json=True) is True  # type: ignore[arg-type]
+
+
 def test_markup_in_content_is_escaped() -> None:
     """A page whose title contains `[bold]` must not restyle the terminal."""
     console = capture()

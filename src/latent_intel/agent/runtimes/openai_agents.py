@@ -100,13 +100,14 @@ class OpenAIAgentsRuntime:
         host: str | None = None,
         approval: str = "ask",
         max_tokens: int = turn.DEFAULT_MAX_TOKENS,
-        max_tool_rounds: int = turn.DEFAULT_MAX_TOOL_ROUNDS,
+        max_tool_rounds: int | str | None = turn.DEFAULT_MAX_TOOL_ROUNDS,
         tokens_param: str | None = None,
         include_usage: bool = True,
         client_factory: Callable[[], Any] | None = None,
         runner_factory: Callable[[], Any] | None = None,
         **unknown: Any,
     ) -> None:
+        turn.refuse_cost(self.id, unknown)
         # Rejected, not ignored, for the reason `custom.py` gives: a key nothing reads
         # is a setting the file says is on and no one honours.
         if unknown:
@@ -122,7 +123,8 @@ class OpenAIAgentsRuntime:
         self.host = host or os.environ.get(ENV_HOST) or DEFAULT_HOST
         self.approval = approval
         self.max_tokens = int(max_tokens)
-        self.max_tool_rounds = int(max_tool_rounds)
+        #: None is no ceiling: `max_turns=None`, which the runner accepts.
+        self.max_tool_rounds = turn.max_rounds(max_tool_rounds, self.id)
         self.tokens_param = tokens_param
         #: As in `custom.py`: off omits `stream_options`, for an Azure OpenAI API
         #: version that rejects it.
@@ -372,6 +374,18 @@ class OpenAIAgentsRuntime:
                 # is one nobody can read.
                 for held in relay.drain():
                     yield held
+                # What streamed before the ceiling is the answer so far; the runner
+                # made no request past it, and neither do we.
+                text = "".join(answer)
+                if text.strip():
+                    yield emitter.emit(
+                        ev.AgentCompleted,
+                        text=text,
+                        streamed=True,
+                        usage=usage.totals(int((time.monotonic() - began) * 1000)),
+                        stopped="tool_rounds",
+                    )
+                    return
                 yield emitter.emit(
                     ev.AgentFailed,
                     message=(
