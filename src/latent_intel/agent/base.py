@@ -178,6 +178,30 @@ def subagent_tools(
     return frozenset(method(tools))
 
 
+@runtime_checkable
+class Provisioned(Protocol):
+    """A runtime whose agent is created on someone else's infrastructure ahead of any
+    turn, and pinned there by version — `claude-managed-agents`.
+
+    Optional, and composed the way `Hosted` is. Two halves, because they spend
+    differently: `definition` is pure and free, so a dry run can print it; `provision`
+    makes the requests, and is called only when someone asks for it.
+    """
+
+    def definition(
+        self, tools: Sequence[ToolSpec], **context: Any
+    ) -> dict[str, Any]:
+        """The agent this runtime would create, given the tools attached and the
+        context a turn is given (`sources`, `persona`, `persona_mode`, `skills`,
+        `web`, `name`). Makes no request."""
+        ...
+
+    async def provision(self, definition: dict[str, Any]) -> dict[str, Any]:
+        """Create or update the agent and what it runs in, and return what the user's
+        overlay keeps: ids, the version, and the definition's fingerprint."""
+        ...
+
+
 #: The source id a web tool call is reported under, so `web:<url>` reads like any other
 #: ref. Reserved by the session: a source attached under it would be indistinguishable.
 WEB_ID = "web"
@@ -279,6 +303,7 @@ def build(kind: str, **options: Any) -> Runtime:
 
 
 __all__ = [
+    "Provisioned",
     "DEFAULT_FAMILY",
     "ENTRY_POINT_GROUP",
     "FAMILIES",

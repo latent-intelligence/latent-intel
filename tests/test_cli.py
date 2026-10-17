@@ -323,8 +323,8 @@ def test_doctor_groups_runtimes_by_who_owns_the_loop() -> None:
     another harness. A reader discovered that only by noticing which rows `intel hosts`
     had nothing to say about.
 
-    `managed` is absent because nothing installed declares it — an empty group is not
-    printed, since a machine with one runtime does not need a taxonomy."""
+    An empty group is not printed, since a machine with one runtime does not need a
+    taxonomy; all four are installed here."""
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     printed = [
@@ -332,12 +332,13 @@ def test_doctor_groups_runtimes_by_who_owns_the_loop() -> None:
         for line in result.stdout.splitlines()
         if line.strip() in FAMILY_HEADINGS
     ]
-    assert printed == ["custom loop", "sdk runner", "delegated"]
+    assert printed == ["custom loop", "sdk runner", "delegated", "managed"]
     assert runtime_group(result.stdout, "custom") == "custom loop"
     assert runtime_group(result.stdout, "anthropic-sdk") == "sdk runner"
     assert runtime_group(result.stdout, "openai-agents") == "sdk runner"
     assert runtime_group(result.stdout, "claude-agent-sdk") == "sdk runner"
     assert runtime_group(result.stdout, "claude-cli") == "delegated"
+    assert runtime_group(result.stdout, "claude-managed-agents") == "managed"
 
 
 def test_doctor_lists_custom_and_neither_of_the_names_it_replaced() -> None:

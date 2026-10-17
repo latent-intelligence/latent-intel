@@ -19,8 +19,9 @@ intel doctor                     # what is installed, what is reachable, what is
 ```
 
 `intel ask` — an agent answering over your sources — works from that install through
-`claude-cli`, `custom` and `anthropic-sdk`. The two other runtimes are extras named after
-themselves, `openai-agents` and `claude-agent-sdk`, and `all` is both:
+`claude-cli`, `custom`, `anthropic-sdk` and `claude-managed-agents`. The two other runtimes
+are extras named after themselves, `openai-agents` and `claude-agent-sdk`, and `all` is
+both:
 
 ```bash
 uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
@@ -144,12 +145,13 @@ Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
 
 ## Configure compute
 
-Sources say where context comes from; a **runtime** says where answers come from. Five
+Sources say where context comes from; a **runtime** says where answers come from. Six
 ship: `claude-cli`, which shells to the `claude` binary; `custom`, which runs our own loop
 against a **host** — an endpoint declared as a row, and the row says which protocol it
-speaks; and `anthropic-sdk`, `openai-agents` and `claude-agent-sdk`, which hand the loop
+speaks; `anthropic-sdk`, `openai-agents` and `claude-agent-sdk`, which hand the loop
 to the Anthropic SDK's tool runner, the OpenAI Agents SDK and Claude Code's harness over
-the same rows, while tools stay ours.
+the same rows, while tools stay ours; and `claude-managed-agents`, which runs the loop on
+Claude Managed Agents while our tools are answered over the session's event stream.
 Seven hosts ship, including Azure AI Foundry on both its surfaces, classic Azure OpenAI,
 OpenRouter and any OpenAI-compatible server on your own machine.
 

@@ -363,6 +363,7 @@ so a recording's header is always true. What each runtime makes of it:
 | same, on `foundry-anthropic` | the same tools at the basic versions (`web_search_20250305`, `web_fetch_20250910`) | yes | yes |
 | `custom` on a chat host, `openai-agents` | refused — chat completions has no hosted web tool | — | — |
 | `claude-agent-sdk`, `claude-cli` | Claude Code's `WebSearch` · `+ WebFetch` | refused | refused |
+| `claude-managed-agents` | the agent toolset's `web_search` · `+ web_fetch`, run by the service | yes, on both tools | refused |
 
 Claude Code refuses both domain lists rather than half-keeping them: its `WebSearch` takes
 domains from the model rather than from us, so a blocked domain could still appear in
@@ -683,8 +684,9 @@ that runtime's table, differing in credentials and model names and in nothing el
 `intel doctor` groups the installed runtimes by loop owner, because that is the
 difference that decides what a runtime can reach and what you can configure about it.
 
-`ask` needs a backend. Five ship: one delegates the loop to a binary on your machine, one
-runs the loop we wrote, and three hand the loop to a vendor's SDK while tools stay ours.
+`ask` needs a backend. Six ship: one delegates the loop to a binary on your machine, one
+runs the loop we wrote, three hand the loop to a vendor's SDK while tools stay ours, and
+one runs the loop on Anthropic's infrastructure while tools stay ours.
 
 - **`claude-cli`** shells to the `claude` binary and borrows the auth you already have —
   no API key. In exchange it owns its own agent loop, so it reaches your sources only as
@@ -746,6 +748,34 @@ runs the loop we wrote, and three hand the loop to a vendor's SDK while tools st
   - **Two differences from `custom`:** a tool name the model invented, or arguments that
     fail the tool's schema, are refused by the SDK before our router, so no tool event
     appears for either. No Windows wheel is published yet.
+- **`claude-managed-agents`** runs the loop on Claude Managed Agents. The agent is a
+  versioned definition the service holds, and each conversation is a session on one
+  version of it. It comes with the base install: the API is in the `anthropic` SDK
+  every install already has.
+  - **Create the agent first:** `intel managed sync --dry-run` prints the agent it would
+    create from the active deployment and what is attached, and spends nothing.
+    `intel managed sync` creates it, or updates it to a new version, plus one cloud
+    environment. The ids are kept in your own config for the deployment, never in the
+    deployment's file. It refuses when a source did not attach.
+  - **A stale agent is refused.** Attach a source, change the persona or skills, or the
+    web scope or approval, and the next turn fails with `managed_stale` until you sync
+    again. `agent_version:` under the runtime pins an older version, which then runs as
+    it is; an eval variant can be a version.
+  - **Tools stay ours:** each tool is a custom tool whose calls come back over the
+    session's own event stream, so no source needs a public endpoint. Of Anthropic's
+    toolset only the web tools the scope names are on; no bash, no files.
+  - **First-party only:** the one host is `anthropic`, with `ANTHROPIC_API_KEY`. It needs
+    the asyncio event loop, as MCP sources do. `max_tool_rounds` is refused, because the
+    service owns its loop; `max_cost_usd` becomes the session's budget.
+  - **Follow-ups continue the session** while each answer finishes, so its budget covers
+    them too. After a stop or a failure, a budget stop included, the next question starts
+    a new session with a fresh budget, and is sent alone: the new session has none of the
+    earlier conversation.
+  - **Costs and data:** $0.08 per session-hour of active time, plus tokens at list price,
+    plus web search at $10 per 1,000 searches. `cost_usd` is this turn's share of the
+    session's cost at list price, not a contracted one, read from the session when the
+    turn ends. **Session history, tool output included, is kept by the service
+    until the session is deleted**: treat a session like the sources it read from.
 
 `anthropic` and `openai` were folded into `custom` on 2026-09-17 — they named a wire
 protocol rather than a loop owner, and the row names it now: set `runtime: custom` and
@@ -815,8 +845,8 @@ Two options bound a turn, set under `runtimes: <name>:` like any other:
 
 | Option | Stops a turn | On |
 |---|---|---|
-| `max_tool_rounds` | after that many model round-trips; 10 by default, `none` for no ceiling | `custom`, `anthropic-sdk`, `openai-agents`, `claude-agent-sdk` |
-| `max_cost_usd` | at that many US dollars | runtimes that report what a turn costs: `claude-agent-sdk`. Refused by name on the others, which are priced after the turn from token usage |
+| `max_tool_rounds` | after that many model round-trips; 10 by default, `none` for no ceiling | `custom`, `anthropic-sdk`, `openai-agents`, `claude-agent-sdk`; refused by `claude-managed-agents`, whose loop is the service's |
+| `max_cost_usd` | at that many US dollars | runtimes that report what a turn costs: `claude-agent-sdk`, and `claude-managed-agents` as the session's budget. Refused by name on the others, which are priced after the turn from token usage |
 
 **A ceiling keeps the work done so far.** The turn ends with the answer it has, and a line
 saying why it stopped:

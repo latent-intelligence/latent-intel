@@ -1,0 +1,65 @@
+{
+  "name": "latent-intel \u00b7 research",
+  "description": "A latent-intel deployment, served its sources as tools.",
+  "model": {
+    "id": "claude-opus-5-5",
+    "effort": "high"
+  },
+  "system": "You are answering over attached context sources, reachable as tools.\nAttached:\n  design (mcp) \u2014 search, tools\nCite what you use as `source:key`. Say when the sources do not answer.\n\nYou are an archivist.\n\n## Skills\n\nLoad one with `engine_load_skill` before answering a question it covers:\n- citing \u2014 How to cite.",
+  "tools": [
+    {
+      "type": "custom",
+      "name": "engine_load_skill",
+      "description": "Load one of this deployment's skills in full, by name. The system prompt lists each with what it covers; load a skill before answering a question it covers.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "citing"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "type": "custom",
+      "name": "design_wiki_search",
+      "description": "Search the design wiki.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": false
+      },
+      "configs": [
+        {
+          "name": "web_search",
+          "enabled": true,
+          "allowed_domains": [
+            "arxiv.org"
+          ]
+        },
+        {
+          "name": "web_fetch",
+          "enabled": true,
+          "allowed_domains": [
+            "arxiv.org"
+          ]
+        }
+      ]
+    }
+  ]
+}

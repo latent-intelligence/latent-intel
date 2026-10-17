@@ -482,6 +482,16 @@ class Message(BaseModel):
     text: str
 
 
+class Provisioning(BaseModel):
+    """What `Session.provision` built for a runtime that creates its agent ahead of any
+    turn — the definition, and what the user's overlay keeps once it is created."""
+
+    runtime: str
+    definition: dict[str, Any]
+    #: Ids, version and fingerprint, for the overlay. None on a dry run.
+    synced: dict[str, Any] | None = None
+
+
 class SessionError(Exception):
     """Anything the session refuses to do, phrased for a person."""
 
