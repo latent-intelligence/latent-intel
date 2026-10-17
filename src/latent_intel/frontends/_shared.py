@@ -344,6 +344,15 @@ def use_brand(brand: brand_module.Brand, overrides: dict[str, str]) -> list[str]
     return unknown
 
 
+def forget(source_id: str) -> bool:
+    """Remove a source the user attached to the active deployment. False if none."""
+    cfg = config_module.load()
+    if not cfg.remove(source_id, settings_module.load().overlay_key):
+        return False
+    config_module.save(cfg)
+    return True
+
+
 def record(
     spec: str,
     descriptor: Descriptor,
@@ -377,6 +386,6 @@ def record(
             remote=remote,
             options=dict(options or {}),
         ),
-        settings_module.load().project_name,
+        settings_module.load().overlay_key,
     )
     return config_module.save(cfg)

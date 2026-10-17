@@ -31,6 +31,7 @@ from .. import _shared
 from .._shared import (
     console,
     err_console,
+    forget,
     record,
     recording,
     recording_path,
@@ -198,11 +199,9 @@ async def _connect(
 @app.command()
 def disconnect(source_id: str = typer.Argument(..., help="The id to detach.")) -> None:
     """Detach a source and forget it."""
-    cfg = config_module.load()
-    if not cfg.remove(source_id):
+    if not forget(source_id):
         err_console.print(f"[fail]✗[/] '{escape(source_id)}' is not attached")
         raise typer.Exit(1)
-    config_module.save(cfg)
     console.print(f"[dim]detached[/] [source]{escape(source_id)}[/]")
 
 

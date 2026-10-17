@@ -31,7 +31,7 @@ def list_deployments() -> None:
     found, collisions = project_module.discover(
         config.deployment_paths, config_module.home()
     )
-    active = settings_module.load().project_name
+    active = settings_module.load().chosen
 
     if not found:
         console.print("[dim]no deployments found[/]")
@@ -154,7 +154,7 @@ def validate(
 ) -> None:
     """Read a deployment and report what is wrong with it, without switching to it."""
     config = config_module.load()
-    target = name or settings_module.load().project_name
+    target = name or settings_module.load().chosen
     if not target:
         err_console.print("[fail]✗[/] no deployment to validate")
         raise typer.Exit(1)
