@@ -127,9 +127,9 @@ async def test_capabilities_come_from_the_server_not_from_tool_names() -> None:
 
 
 async def test_a_server_with_no_resources_does_not_claim_search() -> None:
-    """Declaring the capability is not the same as having any. `lw serve` advertises
-    `resources` and registers none; claiming SEARCH there would put an always-empty
-    heading in every result set."""
+    """Declaring the capability is not the same as having any. `latent-wiki serve`
+    advertises `resources` and registers none; claiming SEARCH there would put an
+    always-empty heading in every result set."""
     connector = await connect(build_server(with_resources=False))
     assert connector.describe().capabilities == [Capability.TOOLS]
     await connector.aclose()
@@ -429,7 +429,7 @@ def test_a_url_goes_straight_to_the_sdk() -> None:
 
 
 def test_a_command_becomes_a_stdio_transport() -> None:
-    transport = _transport("uv run lw serve --store /tmp/x")
+    transport = _transport("uv run latent-wiki serve --deployment /tmp/x")
     assert hasattr(transport, "__aenter__")
 
 
@@ -501,7 +501,7 @@ def test_an_option_the_server_cannot_take_is_refused() -> None:
     """`context:` beside a wiki configured its reader once; a server configures
     itself, so the option would sit there meaning nothing."""
     with pytest.raises(ConnectError, match="context.*would configure nothing"):
-        connectors.build("mcp", "w", "lw serve --store x", context="/ctx")
+        connectors.build("mcp", "w", "latent-wiki serve --deployment x", context="/ctx")
 
 
 async def test_a_server_s_instructions_are_bounded() -> None:

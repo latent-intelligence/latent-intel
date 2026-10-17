@@ -6,7 +6,7 @@
 vector index (`latent-records`), a directory of markdown, a codebase, and any MCP server,
 reachable together with a deployment's persona, skills and commands. It is a client of
 every store and the server of none: a store is reached through its own MCP adapter
-(`lw serve`, `latent-records serve`) as a `kind: mcp` source, like any other server.
+(`latent-wiki serve`, `latent-records serve`) as a `kind: mcp` source, like any other server.
 
 Three frontends are planned. Two exist: a scriptable Typer/Rich CLI and a keyboard-first
 `prompt_toolkit` shell. A web workbench comes later, and the whole design exists so that
@@ -46,7 +46,7 @@ the connector calls it.
 
 **A client depends on a store's adapter, never on its code or its format.** A store owns
 its capability (workspace ADR-001): latent-wiki's ranking, evidence and views live in
-`lw serve`, latent-records' embedding and exact match in `latent-records serve`. This
+`latent-wiki serve`, latent-records' embedding and exact match in `latent-records serve`. This
 package imports neither and reads neither format; it connects to the server. Without a
 server, a wiki's pages are Markdown, and the generic `files` connector can read them
 if pointed at `pages/`, with none of the wiki's tools.

@@ -41,7 +41,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # No extra pulls a sibling package. A store is reached through its own MCP server
-# (`lw serve`, `latent-records serve`), installed beside this one, never imported.
+# (`latent-wiki serve`, `latent-records serve`), installed beside this one, never imported.
 #
 # Each remaining extra is named after the one runtime it enables, so the remedy a
 # runtime prints and the extra that fixes it are the same word.

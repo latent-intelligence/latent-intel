@@ -76,7 +76,7 @@ to the first whitespace, bracket, quote (straight or curly), comma, semicolon, p
 asterisk, `#` or dash, less trailing `. : ! ? _ ~`.
 
 The label is the id this client attached the source under; no server prints it or is
-told it. An MCP server that names its things `<its name>:<key>`, as `lw serve` does with
+told it. An MCP server that names its things `<its name>:<key>`, as `latent-wiki serve` does with
 its store id, has that name swapped for the label: `heronsgate:tide-pool` from a wiki
 attached as `heron` is recorded `heron:tide-pool`. A bare word is never a ref. In a tool's
 output the name belongs to the server that ran the tool. Elsewhere, a name two attached

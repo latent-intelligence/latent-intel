@@ -31,7 +31,7 @@ uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/
 ```
 
 No sibling package is needed. Files, code and MCP servers all work from it. A store — a
-wiki, a records store — is reached through its own MCP server (`lw serve`,
+wiki, a records store — is reached through its own MCP server (`latent-wiki serve`,
 `latent-records serve`), installed with its own package; latent-intel reads no store's
 format itself.
 
@@ -117,12 +117,12 @@ Point at a store and search it. Nothing else is needed — object storage uses w
 credentials your environment already has.
 
 ```bash
-intel connect "lw serve --deployment ~/client/deployments/design" --kind mcp --as design
+intel connect "latent-wiki serve --deployment ~/client/deployments/design" --kind mcp --as design
 intel search "context collapse"
 intel get design:context-collapse
 ```
 
-A wiki is its own server, `lw serve`, attached like any MCP server. It brings the wiki's
+A wiki is its own server, `latent-wiki serve`, attached like any MCP server. It brings the wiki's
 tools for `intel ask`, and lists each page so `intel search` and `intel get` reach it
 without a model. A deployment names its wiki and its context, so the client says nothing
 more; pages come back by their own key, and the `design:` in a citation is this client's
@@ -178,7 +178,7 @@ branding:
 sources:
   - id: design                                     # a wiki, through its own server
     kind: mcp
-    target: lw serve --deployment ~/client/deployments/design
+    target: latent-wiki serve --deployment ~/client/deployments/design
   - id: notes
     kind: files
     target: ~/knowledge/raw

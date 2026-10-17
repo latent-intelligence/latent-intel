@@ -1,7 +1,7 @@
 """The MCP server that ships with the client.
 
 The rule under test: **a source this client can read, an agent can reach.** Agent
-access used to depend on `shutil.which("lw")` — another package's console script, on
+access used to depend on `shutil.which` finding another package's console script, on
 PATH — so a correctly configured store was invisible to the agent for a reason no
 operator could see.
 """

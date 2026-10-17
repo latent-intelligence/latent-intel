@@ -11,7 +11,8 @@ would tie it to the machine that authored it. Point at a registry with
 `KNOWLEDGE_REGISTRY`, or let a project carry its own `registry:`.
 
 There is deliberately **no default store**. Searching the wrong store is worse than
-failing to start — the same reason `lw serve` will not start without `--store`.
+failing to start — the same reason `latent-wiki serve` will not start without
+`--deployment <folder>`.
 """
 
 from __future__ import annotations
@@ -36,9 +37,10 @@ ENV_VAR = "KNOWLEDGE_REGISTRY"
 #: Registry `kind` -> our connector kind. A registry entry we cannot map is listed but
 #: not connectable, which is more useful than hiding it.
 KIND_MAP = {
-    # A wiki is not here: it is reached through its own server, `lw serve`, which its
-    # entry names as `access: mcp:<command>`. This client builds no server command and
-    # reads no store's format, so a wiki entry without that line is not connectable.
+    # A wiki is not here: it is reached through its own server, `latent-wiki serve`,
+    # which its entry names as `access: mcp:<command>`. This client builds no server
+    # command and reads no store's format, so a wiki entry without that line is not
+    # connectable.
     "context-store": "files",
     "markdown-vault": "files",
 }
