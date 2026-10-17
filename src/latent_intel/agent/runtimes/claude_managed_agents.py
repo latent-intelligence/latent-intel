@@ -269,20 +269,29 @@ class ClaudeManagedAgentsRuntime:
         synced = dict(self.synced)
         if synced.get("agent_id") and synced.get("fingerprint") == digest:
             return synced
+        # Nothing runs in the container — bash and files are off — so it may reach only
+        # what the web tools are allowed to: the service refuses a tool's
+        # `allowed_domains` outside the environment's `allowed_hosts`.
+        config = {
+            "type": "cloud",
+            "networking": {"type": "limited", "allowed_hosts": _hosts(definition)},
+        }
+        environment_id = synced.get("environment_id")
         async with self._client() as client:
+            # The environment first: an agent moved ahead of a failed environment
+            # update would leave the overlay a version behind the service, and an
+            # update naming a stale version is refused, so no later sync could recover.
+            if environment_id:
+                await client.beta.environments.update(environment_id, config=config)
             if synced.get("agent_id"):
                 agent = await client.beta.agents.update(
                     synced["agent_id"], version=synced["version"], **definition
                 )
             else:
                 agent = await client.beta.agents.create(**definition)
-            environment_id = synced.get("environment_id")
             if not environment_id:
-                # Nothing runs in the container — bash and files are off — so it may
-                # reach nothing either.
                 environment = await client.beta.environments.create(
-                    name=definition["name"],
-                    config={"type": "cloud", "networking": {"type": "limited"}},
+                    name=definition["name"], config=config
                 )
                 environment_id = environment.id
         return {
@@ -690,6 +699,20 @@ def _toolset(web: WebScope) -> dict[str, Any]:
             for name in WEB_TOOLS.get(web.mode, ())
         ],
     }
+
+
+def _hosts(definition: dict[str, Any]) -> list[str]:
+    """Every domain the definition's web tools are allowed, sorted: the hosts its
+    environment must allow."""
+    return sorted(
+        {
+            domain
+            for tool in definition["tools"]
+            if tool.get("type") == TOOLSET
+            for config in tool["configs"]
+            for domain in config.get("allowed_domains", ())
+        }
+    )
 
 
 #: The built-in tools a scope can turn on, reported as the web's like on every runtime.
