@@ -50,9 +50,8 @@ class Store:
     store_id: str
     serve: Callable[[Path], str]
     lists_keys: Call  # an answer naming every listed resource
-    past_bound: Call  # a search with a limit beyond the contract's bound
-    refuses_past_bound: bool  # refused, rather than capped
-    cut_short: tuple[str, dict[str, Any], str] | None  # call, and the cut it reports
+    past_bound: Call | None  # a search the contract refuses for its limit
+    cut_short: tuple[str, dict[str, Any], str]  # a capped call, and what it says
 
 
 WIKI = Store(
@@ -60,8 +59,7 @@ WIKI = Store(
     store_id="heronsgate",
     serve=latent_wiki_serve,
     lists_keys=("wiki_index", {}),
-    past_bound=("wiki_search", {"query": "pool", "limit": 500}),
-    refuses_past_bound=False,
+    past_bound=None,
     cut_short=("wiki_search", {"query": "pool", "limit": 1}, "cut: first 1;"),
 )
 RECORDS = Store(
@@ -70,8 +68,7 @@ RECORDS = Store(
     serve=records_serve,
     lists_keys=("contains", {"phrase": "the"}),
     past_bound=("search", {"query": "frame", "space": "hivewright", "limit": 500}),
-    refuses_past_bound=True,
-    cut_short=None,
+    cut_short=("contains", {"phrase": "the"}, '"truncated": '),
 )
 
 
@@ -133,6 +130,7 @@ def test_it_starts_from_a_folder_and_refuses_less(
     assert run.returncode != 0
     assert len(said.splitlines()) == 1, said
     assert "Traceback" not in said
+    assert "folder" in said, said
 
 
 async def test_its_name_is_the_store_id_and_every_key_is_under_it(
@@ -146,7 +144,8 @@ async def test_its_name_is_the_store_id_and_every_key_is_under_it(
     assert listed
     for key in (str(r.uri) for r in listed):
         assert f"{name}:{key}" in answer
-        assert key not in answer.replace(f"{name}:{key}", ""), key
+        named_as = re.findall(rf"(?<![\w-])([\w-]+):{re.escape(key)}(?![\w-])", answer)
+        assert set(named_as) == {name}, key
 
 
 async def test_no_tool_writes(store: Store, folder: Path) -> None:
@@ -163,24 +162,18 @@ async def test_no_tool_writes(store: Store, folder: Path) -> None:
         assert not {w.lower().strip(".,") for w in first} & WRITES, tool.name
 
 
-async def test_a_search_past_its_bound_is_capped_or_refused(
-    store: Store, folder: Path
-) -> None:
+async def test_a_search_past_its_bound_is_refused(store: Store, folder: Path) -> None:
+    if store.past_bound is None:
+        pytest.skip("its contract caps the limit without saying it refuses one")
     async with connected(store, folder) as client:
         result = await client.call_tool(*store.past_bound)
-    said = text_of(result)
-    if store.refuses_past_bound:
-        assert result.is_error
-        assert len(said.strip().splitlines()) == 1, said
-        assert "limit" in said
-    else:
-        assert not result.is_error
-        assert "cut:" in said
+    said = text_of(result).strip()
+    assert result.is_error
+    assert len(said.splitlines()) == 1, said
+    assert "limit" in said
 
 
-async def test_a_search_cut_short_says_what_it_cut(store: Store, folder: Path) -> None:
-    if store.cut_short is None:
-        pytest.skip("its contract gives search no account of what it cut")
+async def test_a_capped_answer_says_what_it_cut(store: Store, folder: Path) -> None:
     tool, arguments, cut = store.cut_short
     async with connected(store, folder) as client:
         said = text_of(await client.call_tool(tool, arguments))
