@@ -299,5 +299,6 @@ intel deployment show                # every resolved value, and which layer set
 
 **Our own branding takes the client path.** The engine's identity is a deployment file
 like any other — `src/latent_intel/data/projects/latent.yaml` — so the path you use is the one
-we use, and it cannot rot unnoticed. Copy that file to start: every field is shown in it,
-commented, in the order the loader reads them.
+we use, and it cannot rot unnoticed. `intel deployment new <name> [directory]` starts
+from it: every field is shown, commented, in the order the loader reads them, and the
+folder, the file and `name:` share one name.

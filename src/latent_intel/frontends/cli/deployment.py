@@ -4,13 +4,15 @@ One active deployment at a time. Several at once was rejected: it makes every so
 ambiguous about which deployment it belongs to, and nobody has yet needed to answer one
 question across two clients.
 
-Nothing here writes a deployment file. The engine reads deployments and writes only the
+Nothing here edits a deployment file. The engine reads deployments and writes only the
 user's own config — a deployment belongs to whoever owns it, and a tool that edited it
-would make a checked-out deployment repo dirty on first use.
+would make a checked-out deployment repo dirty on first use. `new` writes a deployment
+that does not exist yet, and refuses one that does.
 """
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import typer
@@ -114,6 +116,38 @@ def show() -> None:
 
     for note in resolved.problems:
         err_console.print(f"[warn]![/] [dim]{escape(note)}[/]")
+
+
+@app.command()
+def new(
+    name: str = typer.Argument(..., help="Lowercase letters, digits and hyphens."),
+    directory: Path = typer.Argument(
+        Path("."), help="Where its folder goes; the current directory by default."
+    ),
+) -> None:
+    """Write a new deployment, `<directory>/<name>/<name>.yaml`, from the example.
+
+    The one command that writes a deployment file, and only a new one: it refuses a
+    folder that exists and a name already found, so it never shadows or edits one.
+    """
+    config = config_module.load()
+    found, _ = project_module.discover(config.deployment_paths, config_module.home())
+    if name in found:
+        err_console.print(
+            f"[fail]✗[/] a deployment '{escape(name)}' already exists: "
+            f"[dim]{escape(str(found[name]))}[/]"
+        )
+        raise typer.Exit(1)
+    try:
+        path = project_module.create(directory, name)
+    except (project_module.ProjectError, OSError) as exc:
+        err_console.print(f"[fail]✗[/] {escape(str(exc))}")
+        raise typer.Exit(1) from exc
+
+    folder = shlex.quote(str(path.parent.resolve()))
+    console.print(f"[ok]✓[/] [dim]wrote[/] {escape(str(path.resolve()))}")
+    console.print(f"[dim]next:[/] intel deployment add {escape(folder)}")
+    console.print(f"[dim]then:[/] intel deployment use {escape(name)}")
 
 
 @app.command()
