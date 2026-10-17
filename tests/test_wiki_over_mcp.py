@@ -1,4 +1,4 @@
-"""A wiki through its own adapter: `lw serve`, reached like any other MCP server.
+"""A wiki through its own adapter, `latent-wiki serve`, reached like any MCP server.
 
 latent-intel reads no wiki format itself. This is the one test against the real server,
 over a deployment built around the copied format fixtures, and it is skipped where
@@ -49,16 +49,18 @@ def deployment(tmp_path: Path) -> Path:
     return root
 
 
-def lw_serve(deployment: Path) -> str:
+def latent_wiki_serve(deployment: Path) -> str:
     """The server itself, not a wrapper: the interpreter running these tests."""
     argv = [sys.executable, "-m", "latent_wiki.cli.main", "serve"]
     argv += ["--deployment", str(deployment)]
     return shlex.join(argv)
 
 
-async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve(deployment: Path) -> None:
+async def test_a_wiki_is_an_mcp_source_pointing_at_latent_wiki_serve(
+    deployment: Path,
+) -> None:
     connector = await connectors.open_connector(
-        connectors.build("mcp", "heron", lw_serve(deployment))
+        connectors.build("mcp", "heron", latent_wiki_serve(deployment))
     )
     try:
         tools = {t.name: t for t in connector.tools()}
@@ -92,7 +94,7 @@ async def test_a_wiki_s_refs_are_labelled_here_and_never_by_the_server(
     carry the label this session attached it under."""
     runtime = CallingRuntime("heron", "wiki_search", {"query": "limpets"})
     session = Session(runtime=runtime)
-    await session.connect(lw_serve(deployment), kind="mcp", source_id="heron")
+    await session.connect(latent_wiki_serve(deployment), kind="mcp", source_id="heron")
     result = await result_of(session)
     assert "heron:" not in result.output
     assert result.refs == ["heron:count-limpets"]

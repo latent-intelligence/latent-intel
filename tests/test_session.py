@@ -448,7 +448,7 @@ def test_a_registered_wiki_is_reached_only_through_the_server_it_names(
     registry.clear_cache()
     with pytest.raises(ConnectError, match="access: mcp:<server command>") as caught:
         registry.resolve("w", str(path))
-    assert "lw serve" not in str(caught.value)
+    assert "latent-wiki serve" not in str(caught.value)
 
 
 def test_a_wiki_registered_with_its_own_server_keeps_it(tmp_path: Path) -> None:
@@ -532,7 +532,7 @@ def test_runtime_kinds_reports_whether_each_can_run() -> None:
 
 @pytest.mark.anyio
 async def test_a_source_this_client_can_read_the_agent_can_reach() -> None:
-    """The rule that replaced `shutil.which("lw")`.
+    """The rule that replaced finding the wiki's console script with `shutil.which`.
 
     Agent access used to depend on another package's console script being on `PATH`, so
     a source the client read perfectly was invisible to the agent for a reason the

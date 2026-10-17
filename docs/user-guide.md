@@ -37,7 +37,7 @@ uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/
 ```
 
 **That is the whole install.** Files, code and MCP servers all work from it. A store
-— a wiki, a records store — is reached through its own MCP server (`lw serve`,
+— a wiki, a records store — is reached through its own MCP server (`latent-wiki serve`,
 `latent-records serve`), installed with its own package and attached like any other
 server; this package reads no store's format itself.
 
@@ -94,8 +94,8 @@ from a directory's contents would be wrong exactly when it matters:
 intel connect ~/knowledge/context/raw --kind files --as notes
 ```
 
-A registered wiki is reached through its own server, `lw serve`, and nothing else: its
-registry entry names the command (`access: mcp:lw serve --deployment <path>`),
+A registered wiki is reached through its own server, `latent-wiki serve`, and nothing else: its
+registry entry names the command (`access: mcp:latent-wiki serve --deployment <path>`),
 or you attach the command directly, as above. This program never builds that command.
 The wiki and the material it summarises are a **pair**, and `--deployment` carries both:
 
@@ -103,7 +103,7 @@ The wiki and the material it summarises are a **pair**, and `--deployment` carri
 sources:
   - id: design
     kind: mcp
-    target: lw serve --deployment ~/client/deployments/design
+    target: latent-wiki serve --deployment ~/client/deployments/design
 ```
 
 The pairing is what lets `wiki_raw` escalate from a page to the source it derives from.
@@ -156,7 +156,7 @@ published one is current:
 intel connect design-wiki --remote --as design
 ```
 
-A registered wiki connects through the server its entry names (`access: mcp:lw serve
+A registered wiki connects through the server its entry names (`access: mcp:latent-wiki serve
 --deployment <path>`), under any id you like; `--remote` does not apply, since the command
 chooses the store. An entry without that line is listed as not connectable, and `connect`
 says which line to add.
@@ -510,11 +510,11 @@ shadowing the other. Each tool shows its **declared** effect — `none`, `extern
 
 Two things worth knowing:
 
-**An installed command or `uv run` both work.** `target: lw serve …` for a server
-installed with `uv tool install`, or `target: uv run --directory ~/src/latent-wiki lw
+**An installed command or `uv run` both work.** `target: latent-wiki serve …` for a server
+installed with `uv tool install`, or `target: uv run --directory ~/src/latent-wiki latent-wiki
 serve …` from a checkout; closing the session stops either cleanly.
 
-**Our own stores are servers too.** A wiki is `lw serve`, a records store is
+**Our own stores are servers too.** A wiki is `latent-wiki serve`, a records store is
 `latent-records serve`, attached exactly like the servers above. Another agent — Claude
 Code, say — attaches the same server directly; nothing here needs to run for it.
 

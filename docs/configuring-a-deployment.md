@@ -234,7 +234,7 @@ skipped.
 ## Reaching a deployment's stores from another agent
 
 A deployment's stores have their own servers, so another agent attaches them directly:
-in Claude Code, `claude mcp add design -- lw serve --deployment <latent-wiki deployment>`. `lw serve --transport http` serves a store behind a bearer token, for a
+in Claude Code, `claude mcp add design -- latent-wiki serve --deployment <latent-wiki deployment>`. `latent-wiki serve --transport http` serves a store behind a bearer token, for a
 shared host. The persona, skills
 and commands in this file are read by `intel ask` and the shell.
 

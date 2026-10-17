@@ -4,9 +4,9 @@ The simplest thing that is genuinely useful, and the one that ships with no opti
 dependency. It exists for two reasons beyond its own utility:
 
 **Raw material is reachable without a wiki.** A directory of handbooks, papers or notes
-has no curated layer, and `lw serve` does not serve one, deliberately — the wiki is the
-access layer over context. But a person at a terminal should still be able to grep it,
-and this is how.
+has no curated layer, and `latent-wiki serve` does not serve one, deliberately — the
+wiki is the access layer over context. But a person at a terminal should still be able
+to grep it, and this is how.
 
 **It keeps the base install honest.** If the only working connector required
 `latent-wiki`, the claim that the client does not depend on the stack it fronts would be

@@ -1,7 +1,7 @@
 """Any MCP server — the connector that makes this program a host.
 
 This is how latent-intel reaches any MCP server: a GitHub server, Context7, a client's
-internal server — and our own stores, through their adapters (`lw serve`,
+internal server — and our own stores, through their adapters (`latent-wiki serve`,
 `latent-records serve`). latent-intel reads no store's format itself; a store owns its
 capability, and this client connects to it like any other.
 
@@ -19,8 +19,8 @@ under-declared. That is the safe end of the guess, and it is recorded as a guess
 
 **A wrapper is fine.** `stdio_client` in mcp 2.x terminates the whole process tree it
 started, so `uv run --directory <checkout> <server> …` stops cleanly with the client —
-measured 2026-10-12 against `lw serve`. (Under 1.x it killed only `uv` and orphaned the
-server, which is why older notes say to point at the executable.)
+measured 2026-10-12 against `latent-wiki serve`. (Under 1.x it killed only `uv` and
+orphaned the server, which is why older notes say to point at the executable.)
 
 **The four keys a server registration carries, and what each becomes here.** `command`
 and `args` are the target, one string split with `shlex`. `env` is a list, each item a

@@ -263,7 +263,7 @@ def test_the_kind_help_names_no_store() -> None:
     result = runner.invoke(app, ["connect", "--help"])
     out = flat(result.stdout)
     assert "vector" not in out
-    assert "lw serve" not in out
+    assert "latent-wiki serve" not in out
 
 
 def test_doctor_names_the_variables_a_runtime_is_missing() -> None:

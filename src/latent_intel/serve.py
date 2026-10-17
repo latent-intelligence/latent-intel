@@ -6,14 +6,14 @@ server. This module is that server, and it works for every connector kind the
 client can already read.
 
 **Why it lives here rather than shelling to another package's CLI.** The wiki connector
-(since removed) used to return `shutil.which("lw")` as its launch spec, so a store this
-client read perfectly became invisible to the agent whenever a *different* package's
-console script was absent from `PATH`. That is a failure the operator did not cause
-and cannot see: the config is right, `search` works, and only `ask` is quietly
-answering without the source.
+(since removed) used to return the wiki's console script, found with `shutil.which`, as
+its launch spec, so a store this client read perfectly became invisible to the agent
+whenever a *different* package's console script was absent from `PATH`. That is a
+failure the operator did not cause and cannot see: the config is right, `search` works,
+and only `ask` is quietly answering without the source.
 It fired for real — `uv tool install .` drops a `--with` sibling, and `uv tool install`
-links only the *main* package's entry points, so `lw` existed in the tool environment
-and still was not on `PATH`.
+links only the *main* package's entry points, so the wiki's script existed in the tool
+environment and still was not on `PATH`.
 
 The rule that replaces it: **a source the client can read, the agent can reach.** The
 launcher is `sys.executable -m latent_intel.serve`, which is the interpreter already

@@ -33,7 +33,7 @@ uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/
 Sources are attached one at a time and recorded in your own config. The can be local, remote, or both. 
 
 ```
-intel connect "lw serve --deployment s3://<bucket>/deployments/design" --kind mcp --as design
+intel connect "latent-wiki serve --deployment s3://<bucket>/deployments/design" --kind mcp --as design
   ✓ mcp     design    …            [tools search fetch]
 
 $ intel connect ~/knowledge/raw --kind files --as manuals
@@ -65,7 +65,7 @@ branding:
 sources:
   - id: design                  # a wiki, through its own server
     kind: mcp
-    target: "lw serve --deployment s3://<bucket>/deployments/design"
+    target: "latent-wiki serve --deployment s3://<bucket>/deployments/design"
   - id: notes
     kind: files
     target: ~/knowledge/raw
@@ -207,7 +207,7 @@ sibling package is needed to build, test or type-check. It also runs the import
 contracts, so some architectural rules fail the build rather than review; they are stated
 once, in [CLAUDE.md](CLAUDE.md).
 
-A wiki or records store is reached through its own server (`lw serve`,
+A wiki or records store is reached through its own server (`latent-wiki serve`,
 `latent-records serve`), installed with its own package.
 
 ## Status
