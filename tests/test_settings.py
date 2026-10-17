@@ -48,7 +48,7 @@ def test_a_project_default_is_read_in_either_form(
     assert resolved.web == WebScope(
         mode="browse", allowed_domains=["arxiv.org"], max_uses=5
     )
-    assert resolved.origin["web"] == "project"
+    assert resolved.origin["web"] == "deployment"
 
 
 def test_the_user_layer_wins_over_the_project_s(

@@ -82,16 +82,18 @@ class Overlay:
 
 @dataclass
 class Config:
-    #: Which project is active. `None` means none, which is a valid state: the engine
-    #: works with no project, it just has no sources.
-    project: str | None = None
-    #: Extra directories (or files) to search for projects, added by `project add`.
-    project_paths: list[str] = field(default_factory=list)
+    #: Which deployment is active. `None` means none, which is a valid state: the
+    #: engine works with no deployment, it just has no sources. Written as
+    #: `deployment:`; a file from before the rename says `project:`, which still reads.
+    deployment: str | None = None
+    #: Extra directories (or files) to search for deployments, added by `deployment
+    #: add`. Written as `deployment_paths:`; `project_paths:` still reads.
+    deployment_paths: list[str] = field(default_factory=list)
     #: Per-project user changes, keyed by project name.
     overlays: dict[str, Overlay] = field(default_factory=dict)
     #: Theme token overrides, merged over the project's and the engine's.
     theme: dict[str, str] = field(default_factory=dict)
-    #: A pre-projects `sources:` block, kept verbatim until `project migrate` runs.
+    #: A pre-projects `sources:` block, kept verbatim until `deployment migrate` runs.
     #:
     #: Neither obvious alternative is safe. Dropping it from the known set sweeps it
     #: into `extra`, which `save` round-trips while *nothing attaches* — the file still
@@ -242,6 +244,10 @@ def load() -> Config:
         "runtimes",
         "approval",
         "web",
+        "deployment",
+        "deployment_paths",
+        # The names before the rename. Read below and never written back, so the
+        # first save moves a user's file to the new keys.
         "project",
         "project_paths",
         "overlays",
@@ -253,8 +259,11 @@ def load() -> Config:
         if isinstance(options, dict)
     }
     return Config(
-        project=data.get("project") or None,
-        project_paths=[str(p) for p in (data.get("project_paths") or [])],
+        deployment=data.get("deployment") or data.get("project") or None,
+        deployment_paths=[
+            str(p)
+            for p in (data.get("deployment_paths") or data.get("project_paths") or [])
+        ],
         overlays=overlays,
         theme={str(k): str(v) for k, v in (data.get("theme") or {}).items()},
         legacy_sources=rows(data.get("sources")),
@@ -287,14 +296,14 @@ def save(config: Config) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Unrecognised keys first, so anything this build knows about still wins.
     payload: dict[str, Any] = dict(config.extra)
-    # Emitted verbatim until `project migrate` runs. Writing it back is what stops a
+    # Emitted verbatim until `deployment migrate` runs. Writing it back is what stops a
     # keystroke deleting a block this build no longer populates.
     if config.legacy_sources:
         payload["sources"] = [_row(source) for source in config.legacy_sources]
-    if config.project:
-        payload["project"] = config.project
-    if config.project_paths:
-        payload["project_paths"] = config.project_paths
+    if config.deployment:
+        payload["deployment"] = config.deployment
+    if config.deployment_paths:
+        payload["deployment_paths"] = config.deployment_paths
     payload["approval"] = config.approval
     if config.web is not None:
         payload["web"] = config.web

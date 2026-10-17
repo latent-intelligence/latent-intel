@@ -32,7 +32,7 @@ is an event with the common envelope:
 ## The header — `run_context`
 
 **The first line of a recording is a `run_context`**, and another follows whenever what
-it describes changes: a runtime, model, host or project switch, a source attached or
+it describes changes: a runtime, model, host or deployment switch, a source attached or
 dropped, a skill edited. Each describes the events after it, up to the next. Every
 header repeats `format` and `format_version`, so files can be concatenated freely.
 
@@ -46,7 +46,7 @@ header repeats `format` and `format_version`, so files can be concatenated freel
 | `runtime`, `host`, `model` | string or null | what answers `ask`; null when none is configured. The runtime's other options are left out — a `cwd` or a binary path is a location |
 | `approval` | string | `ask`, `auto`, … |
 | `web` | object or null | how much of the open web the turns after it could reach: `mode` (`off` · `search` · `browse`), `allowed_domains`, `blocked_domains`, `max_uses`. Null in a header written before the field existed — "not recorded", not `off` |
-| `project` | string or null | the active project's name, never its path |
+| `project` | string or null | the active deployment's name, never its path. The field keeps its name from before the rename |
 | `context` | object | the context engineering in force — see below |
 | `sources` | list of `{id, kind}` | attached sources; never a path or a target |
 | `case_id`, `variant_id`, `epoch` | string, string, integer, or null | set by batch eval runs |

@@ -112,7 +112,7 @@ def help_text(procedures: dict[str, Any] | None = None) -> str:
         "  [tool]ask[/] <question>   the agent",
     ]
     if procedures:
-        lines += ["", "[accent.strong]this project[/]"]
+        lines += ["", "[accent.strong]this deployment[/]"]
         for name, procedure in sorted(procedures.items()):
             summary = escape(getattr(procedure, "description", ""))
             lines.append(f"  [tool]/{name}[/]{' ' * max(1, 14 - len(name))}{summary}")
@@ -312,9 +312,9 @@ async def _dispatch(
     with open_recording(recording.path) as tee:
         if recording.path is not None:
             # Checked before every command rather than hooked into each one that can
-            # change it: `/runtime`, `/model`, `/host`, `/project`, an attach, a skill
-            # edited on disk — one comparison covers all of them, including the ones
-            # nobody thought to hook.
+            # change it: `/runtime`, `/model`, `/host`, `/deployment`, an attach, a
+            # skill edited on disk — one comparison covers all of them, including the
+            # ones nobody thought to hook.
             _head(session, recording, tee)
         async for event in session.run(command):
             if isinstance(event, ev.RetrievalResult):
@@ -393,37 +393,39 @@ def _local(
             # shell that phrased an endpoint's needs differently from the CLI would
             # be a second answer to keep in step with the first.
             print_hosts()
-        case "project":
-            _project(session, local.argument)
+        case "deployment":
+            _deployment(session, local.argument)
         case "scope":
             _scope(session, local, recording)
     return False
 
 
-def _project(session: Session, name: str) -> None:
-    """Report or switch the active project.
+def _deployment(session: Session, name: str) -> None:
+    """Report or switch the active deployment.
 
-    Switching mid-session does not reattach — the sources of the project you left are
+    Switching mid-session does not reattach — the sources of the deployment you left are
     still open, and silently swapping them under a running shell would be worse than
     saying so. Restart to pick up the new set.
     """
     resolved = settings_module.load()
     if not name:
-        console.print(f"[dim]project[/] [source]{resolved.project_name or 'none'}[/]")
+        console.print(
+            f"[dim]deployment[/] [source]{resolved.project_name or 'none'}[/]"
+        )
         return
 
     overridden = session.web_override is not None
     config = config_module.load()
-    config.project = None if name in {"none", "off"} else name
+    config.deployment = None if name in {"none", "off"} else name
     config_module.save(config)
     settings_module.invalidate()
-    console.print(f"[dim]project[/] [source]{escape(name)}[/]")
-    # The session drops its own scope with the project it was set under; say so, or
+    console.print(f"[dim]deployment[/] [source]{escape(name)}[/]")
+    # The session drops its own scope with the deployment it was set under; say so, or
     # the next answer runs under a scope nobody was told about.
     if overridden:
         console.print(
             f"[dim]web[/] [source]{escape(str(session.web))}[/] "
-            "[dim]— this session's /scope was for the project you left[/]"
+            "[dim]— this session's /scope was for the deployment you left[/]"
         )
     console.print("[dim]restart the shell to attach its sources[/]")
 
@@ -671,8 +673,7 @@ def _runtime_option(session: Session, key: str, name: str) -> None:
     if not name:
         shown = Session.runtime_setting(current, key) or "unset"
         console.print(
-            f"[dim]{key}[/] [source]{escape(shown)}[/] "
-            f"[dim]for {escape(current)}[/]"
+            f"[dim]{key}[/] [source]{escape(shown)}[/] [dim]for {escape(current)}[/]"
         )
         _report_reason(Session.runtime_reason(current))
         return

@@ -1,12 +1,12 @@
-"""`intel project` — which deployment this install is serving.
+"""`intel deployment` — which deployment this install is serving.
 
-One active project at a time. Several at once was rejected: it makes every source
+One active deployment at a time. Several at once was rejected: it makes every source
 ambiguous about which deployment it belongs to, and nobody has yet needed to answer one
 question across two clients.
 
-Nothing here writes a project file. The engine reads projects and writes only the user's
-own config — a project belongs to whoever owns the deployment, and a tool that edited it
-would make a checked-out project repo dirty on first use.
+Nothing here writes a deployment file. The engine reads deployments and writes only the
+user's own config — a deployment belongs to whoever owns it, and a tool that edited it
+would make a checked-out deployment repo dirty on first use.
 """
 
 from __future__ import annotations
@@ -21,20 +21,20 @@ from ... import project as project_module
 from ... import settings as settings_module
 from .._shared import console, err_console
 
-app = typer.Typer(name="project", help=__doc__, no_args_is_help=True)
+app = typer.Typer(name="deployment", help=__doc__, no_args_is_help=True)
 
 
 @app.command("list")
-def list_projects() -> None:
-    """Every project this install can find, and where each came from."""
+def list_deployments() -> None:
+    """Every deployment this install can find, and where each came from."""
     config = config_module.load()
     found, collisions = project_module.discover(
-        config.project_paths, config_module.home()
+        config.deployment_paths, config_module.home()
     )
     active = settings_module.load().project_name
 
     if not found:
-        console.print("[dim]no projects found[/]")
+        console.print("[dim]no deployments found[/]")
         return
     for name, path in sorted(found.items()):
         mark = "[ok]✓[/]" if name == active else " "
@@ -44,27 +44,28 @@ def list_projects() -> None:
 
 
 @app.command()
-def use(name: str = typer.Argument(..., help="A project name, or `none`.")) -> None:
-    """Switch the active project."""
+def use(name: str = typer.Argument(..., help="A deployment name, or `none`.")) -> None:
+    """Switch the active deployment."""
     config = config_module.load()
     if name == "none":
-        config.project = None
+        config.deployment = None
         config_module.save(config)
-        console.print("[dim]no project[/]")
+        console.print("[dim]no deployment[/]")
         return
 
-    found, _ = project_module.discover(config.project_paths, config_module.home())
+    found, _ = project_module.discover(config.deployment_paths, config_module.home())
     if name not in found:
         known = ", ".join(sorted(found)) or "none found"
         err_console.print(
-            f"[fail]✗[/] no project '{escape(name)}' [dim](found: {escape(known)})[/]"
+            f"[fail]✗[/] no deployment '{escape(name)}' "
+            f"[dim](found: {escape(known)})[/]"
         )
         raise typer.Exit(1)
 
-    config.project = name
+    config.deployment = name
     config_module.save(config)
     resolved = settings_module.load()
-    console.print(f"[dim]project[/] [source]{escape(name)}[/]")
+    console.print(f"[dim]deployment[/] [source]{escape(name)}[/]")
     for note in resolved.problems:
         err_console.print(f"[warn]![/] [dim]{escape(note)}[/]")
 
@@ -78,7 +79,7 @@ def show() -> None:
     """
     resolved = settings_module.load()
     if resolved.project is None:
-        console.print("[dim]no project — engine defaults only[/]")
+        console.print("[dim]no deployment — engine defaults only[/]")
     else:
         loaded = resolved.project
         console.print(
@@ -87,6 +88,8 @@ def show() -> None:
         console.print(f"[dim]{escape(str(loaded.path))}[/]")
         if loaded.description:
             console.print(f"[dim]{escape(loaded.description)}[/]")
+        root = str(loaded.root) if loaded.root is not None else "unresolved"
+        console.print(f"[dim]{'root':<10}[/] {escape(root)}")
 
     console.print("\n[accent.strong]sources[/]")
     for spec in resolved.sources:
@@ -115,12 +118,12 @@ def show() -> None:
 
 @app.command()
 def add(
-    path: Path = typer.Argument(..., help="A project file, or a directory."),
+    path: Path = typer.Argument(..., help="A deployment file, or a directory."),
 ) -> None:
-    """Search a directory for projects, without copying anything.
+    """Search a directory for deployments, without copying anything.
 
     A client repo checked out anywhere becomes usable in place, which is the actual
-    "stand up project N+1" workflow — not copying a file into a hidden directory.
+    "stand up deployment N+1" workflow — not copying a file into a hidden directory.
     """
     resolved = path.expanduser().resolve()
     if not resolved.exists():
@@ -129,13 +132,13 @@ def add(
 
     directory = resolved if resolved.is_dir() else resolved.parent
     config = config_module.load()
-    if str(directory) in config.project_paths:
+    if str(directory) in config.deployment_paths:
         console.print(f"[dim]already searched[/] [dim]{escape(str(directory))}[/]")
         return
-    config.project_paths.append(str(directory))
+    config.deployment_paths.append(str(directory))
     config_module.save(config)
 
-    found, _ = project_module.discover(config.project_paths, config_module.home())
+    found, _ = project_module.discover(config.deployment_paths, config_module.home())
     names = [n for n, p in found.items() if p.parent == directory]
     console.print(
         f"[ok]✓[/] [dim]searching[/] {escape(str(directory))} "
@@ -146,19 +149,19 @@ def add(
 @app.command()
 def validate(
     name: str = typer.Argument(
-        None, help="A project name; defaults to the active one."
+        None, help="A deployment name; defaults to the active one."
     ),
 ) -> None:
-    """Read a project and report what is wrong with it, without switching to it."""
+    """Read a deployment and report what is wrong with it, without switching to it."""
     config = config_module.load()
     target = name or settings_module.load().project_name
     if not target:
-        err_console.print("[fail]✗[/] no project to validate")
+        err_console.print("[fail]✗[/] no deployment to validate")
         raise typer.Exit(1)
 
-    found, _ = project_module.discover(config.project_paths, config_module.home())
+    found, _ = project_module.discover(config.deployment_paths, config_module.home())
     if target not in found:
-        err_console.print(f"[fail]✗[/] no project '{escape(target)}'")
+        err_console.print(f"[fail]✗[/] no deployment '{escape(target)}'")
         raise typer.Exit(1)
 
     try:
@@ -182,12 +185,14 @@ def validate(
 
 @app.command()
 def migrate(
-    to: str = typer.Option(None, "--to", help="Make a new project from these sources."),
+    to: str = typer.Option(
+        None, "--to", help="Make a new deployment from these sources."
+    ),
 ) -> None:
-    """Move a pre-projects `sources:` block out of the top of config.yaml.
+    """Move a legacy `sources:` block out of the top of config.yaml.
 
-    With `--to` this writes a real project file, so the migration is how someone gets
-    their first project rather than a chore they are nagged about.
+    With `--to` this writes a real deployment file, so the migration is how someone
+    gets their first deployment rather than a chore they are nagged about.
     """
     config = config_module.load()
     if not config.legacy_sources:
@@ -223,10 +228,10 @@ def migrate(
             f"branding:\n  name: {to.upper()}\n\nsources:\n{rows}\n",
             encoding="utf-8",
         )
-        config.project = to
+        config.deployment = to
         config_module.save(config)
         console.print(f"[ok]✓[/] [dim]wrote[/] {escape(str(path))}")
-        console.print(f"[dim]project[/] [source]{escape(to)}[/]")
+        console.print(f"[dim]deployment[/] [source]{escape(to)}[/]")
     else:
         for spec in moved:
             config.add(spec, None)

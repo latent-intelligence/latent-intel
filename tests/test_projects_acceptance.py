@@ -29,7 +29,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "projects" / "research"
 def research(monkeypatch: pytest.MonkeyPatch) -> settings_module.Settings:
     monkeypatch.setenv(project_module.ENV_PROJECTS, str(FIXTURE))
     config = config_module.load()
-    config.project = "research"
+    config.deployment = "research"
     config_module.save(config)
     settings_module.invalidate()
     return settings_module.load()
@@ -68,7 +68,7 @@ def test_the_environment_overrides_a_committed_location(
     monkeypatch.setenv("RESEARCH_MIRROR", "s3://deployed/li")
     monkeypatch.setenv(project_module.ENV_PROJECTS, str(FIXTURE))
     config = config_module.load()
-    config.project = "research"
+    config.deployment = "research"
     config_module.save(config)
     settings_module.invalidate()
 
@@ -112,7 +112,7 @@ def test_a_user_source_overlays_without_touching_the_project_file(
     resolved = settings_module.load()
     assert resolved.source("scratch") is not None
     assert resolved.origin["source:scratch"] == "user"
-    assert resolved.origin["source:notes"] == "project"
+    assert resolved.origin["source:notes"] == "deployment"
     assert (FIXTURE / "research.yaml").read_bytes() == before
 
 
@@ -191,7 +191,7 @@ def test_a_fresh_install_works_with_no_project_at_all() -> None:
 
 def test_the_shipped_default_is_a_real_project(monkeypatch: pytest.MonkeyPatch) -> None:
     config = config_module.load()
-    config.project = "latent"
+    config.deployment = "latent"
     config_module.save(config)
     settings_module.invalidate()
 

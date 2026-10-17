@@ -1,13 +1,14 @@
 """The three layers, resolved into one view.
 
-    engine default  →  project  →  user
+    engine default  →  deployment  →  user
 
-Per key, the later layer wins. Two keys merge instead: **sources** (the project's list,
-plus the user's additions, minus what the user detached) and **theme** (token by token).
+Per key, the later layer wins. Two keys merge instead: **sources** (the deployment's
+list, plus the user's additions, minus what the user detached) and **theme** (token by
+token).
 
 `origin` records which layer each value came from. "Why is this source here?" is the
 question layering invites, and answering it with a guess is worse than not layering at
-all. `intel project show` and `doctor` read it.
+all. `intel deployment show` and `doctor` read it.
 
 **A broken project must not brick the tool.** One that fails to parse yields
 engine-defaults-only with the error in `problems`. `intel doctor` has to work on the
@@ -59,7 +60,7 @@ class Settings:
     agents: list[subagents_module.Subagent] = field(default_factory=list)
     theme: dict[str, str] = field(default_factory=dict)
     registry_path: str | None = None
-    #: key -> "engine" | "project" | "user", for `project show`.
+    #: key -> "engine" | "deployment" | "user", for `deployment show`.
     origin: dict[str, str] = field(default_factory=dict)
     #: Non-fatal complaints: a bad project file, a shadowed name, a legacy block.
     problems: list[str] = field(default_factory=list)
@@ -87,7 +88,7 @@ def _active(config: config_module.Config) -> str | None:
     """
     import os
 
-    return os.environ.get(project_module.ENV_ACTIVE) or config.project
+    return os.environ.get(project_module.ENV_ACTIVE) or config.deployment
 
 
 def load(name: str | None = None) -> Settings:
@@ -105,12 +106,14 @@ def load(name: str | None = None) -> Settings:
 
     if chosen:
         found, collisions = project_module.discover(
-            config.project_paths, config_module.home()
+            config.deployment_paths, config_module.home()
         )
         problems += collisions
         path = found.get(chosen)
         if path is None:
-            problems.append(f"project '{chosen}' not found — `intel project list`")
+            problems.append(
+                f"deployment '{chosen}' not found — `intel deployment list`"
+            )
         else:
             try:
                 loaded = project_module.load(path)
@@ -129,10 +132,10 @@ def load(name: str | None = None) -> Settings:
         sources = [s for s in sources if s.id != key_source.id] + [key_source]
         origin[f"source:{key_source.id}"] = "user"
     for source in declared:
-        origin.setdefault(f"source:{source.id}", "project")
+        origin.setdefault(f"source:{source.id}", "deployment")
 
-    # A pre-projects `sources:` block keeps working until `project migrate` runs, so an
-    # unmigrated install behaves exactly as it did.
+    # A pre-projects `sources:` block keeps working until `deployment migrate` runs, so
+    # an unmigrated install behaves exactly as it did.
     if config.legacy_sources:
         known = {s.id for s in sources}
         for source in config.legacy_sources:
@@ -140,7 +143,8 @@ def load(name: str | None = None) -> Settings:
                 sources.append(source)
                 origin[f"source:{source.id}"] = "legacy"
         problems.append(
-            "sources: at the top of config.yaml is legacy — run `intel project migrate`"
+            "sources: at the top of config.yaml is legacy — "
+            "run `intel deployment migrate`"
         )
     settings.sources = sources
 
@@ -152,7 +156,7 @@ def load(name: str | None = None) -> Settings:
     origin["approval"] = (
         "user"
         if config.approval != "ask"
-        else ("project" if defaults.get("approval") else "engine")
+        else ("deployment" if defaults.get("approval") else "engine")
     )
 
     # A value that does not parse resolves to `off`, not to the layer beneath: a user
@@ -161,7 +165,7 @@ def load(name: str | None = None) -> Settings:
     layer, raw = (
         ("user", config.web)
         if config.web is not None
-        else ("project", defaults["web"])
+        else ("deployment", defaults["web"])
         if defaults.get("web") is not None
         else ("engine", None)
     )
@@ -173,7 +177,9 @@ def load(name: str | None = None) -> Settings:
 
     settings.runtime = config.runtime or agent.get("runtime")
     origin["runtime"] = (
-        "user" if config.runtime else ("project" if agent.get("runtime") else "engine")
+        "user"
+        if config.runtime
+        else ("deployment" if agent.get("runtime") else "engine")
     )
 
     project_runtimes = {
@@ -211,5 +217,5 @@ def load(name: str | None = None) -> Settings:
 
 
 def project_home() -> Path:
-    """Where `intel project migrate` and `project add --copy` write."""
+    """Where `intel deployment migrate` writes."""
     return config_module.home() / "projects"

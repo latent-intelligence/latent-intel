@@ -196,8 +196,8 @@ class ClaudeAgentSdkRuntime:
         if "builtin_tools" in unknown:
             raise RuntimeUnavailable(
                 f"`builtin_tools` under runtime '{self.id}' was replaced by `web:` — "
-                f"set `defaults.web: browse` (or `search`) in the project, or `web:` "
-                f"in config, and remove `builtin_tools`"
+                f"set `defaults.web: browse` (or `search`) in the deployment, or "
+                f"`web:` in config, and remove `builtin_tools`"
             )
         # Rejected, not ignored, for the reason `custom.py` gives: a key nothing reads
         # is a setting the file says is on and no one honours.

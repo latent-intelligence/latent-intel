@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 
 import pytest
+from upath import UPath
 
 from latent_intel import project
 from latent_intel.models import Skill
@@ -507,7 +508,7 @@ def test_a_skill_named_like_a_project_command_is_a_problem(tmp_path: Path) -> No
     path = write(tmp_path, "clash", "skills: ./skills\ncommands: ./commands\n")
 
     assert project.load(path).problems == [
-        "skills: /brief is also a project command; the skill wins"
+        "skills: /brief is also a deployment command; the skill wins"
     ]
 
 
@@ -590,3 +591,59 @@ def test_a_relative_context_resolves_against_the_project_file(
     options = loaded.sources[0].options
     assert options["context"] == str((tmp_path / "store" / "context").resolve())
     assert options["pattern"] == "**/*.md"
+
+
+# -- root -------------------------------------------------------------------
+
+
+def test_root_defaults_to_the_deployment_directory(tmp_path: Path) -> None:
+    loaded = project.load(write(tmp_path / "deploy", "p", "name: p\n"))
+    assert loaded.root == UPath(tmp_path / "deploy")
+    assert not loaded.problems
+
+
+def test_a_relative_root_resolves_against_the_file_not_the_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = write(tmp_path / "deploy", "p", "root: ../products\n")
+    monkeypatch.chdir(tmp_path.parent)
+    loaded = project.load(path)
+    assert loaded.root == UPath((tmp_path / "products").resolve())
+    assert not loaded.problems
+
+
+def test_a_remote_root_is_kept_as_a_uri(tmp_path: Path) -> None:
+    loaded = project.load(write(tmp_path, "p", "root: memory://bucket/deploy\n"))
+    assert loaded.root is not None
+    assert loaded.root.protocol == "memory"
+    assert str(loaded.root) == "memory://bucket/deploy"
+    (loaded.root / "runs").mkdir(parents=True, exist_ok=True)
+    assert (loaded.root / "runs").is_dir()
+
+
+def test_an_s3_root_is_accepted_without_touching_the_network(tmp_path: Path) -> None:
+    loaded = project.load(write(tmp_path, "p", "root: s3://bucket/deploy\n"))
+    assert loaded.root is not None
+    assert loaded.root.protocol == "s3"
+    assert str(loaded.root) == "s3://bucket/deploy"
+
+
+def test_a_root_variable_is_substituted(tmp_path: Path) -> None:
+    loaded = project.load(
+        write(
+            tmp_path,
+            "p",
+            "vars: {BUCKET: memory://bucket}\nroot: ${BUCKET}/deploy\n",
+        )
+    )
+    assert str(loaded.root) == "memory://bucket/deploy"
+
+
+def test_a_root_that_cannot_be_resolved_is_a_problem_not_the_default(
+    tmp_path: Path,
+) -> None:
+    """Falling back to the deployment directory would write products somewhere the
+    author did not ask for, and say nothing."""
+    loaded = project.load(write(tmp_path, "p", "root: ${NOWHERE_SET}/deploy\n"))
+    assert loaded.root is None
+    assert any(p.startswith("root:") and "NOWHERE_SET" in p for p in loaded.problems)
