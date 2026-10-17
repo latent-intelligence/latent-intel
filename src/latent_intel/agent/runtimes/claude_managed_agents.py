@@ -64,8 +64,8 @@ from ..protocols.messages import STOP_FAILURES
 HOSTS = {"anthropic": hosts.HOSTS["anthropic"]}
 HOST = "anthropic"
 
-#: The first `anthropic` release with the Managed Agents API, and the base install's
-#: floor. Checked anyway: an environment can hold an older copy than the pin allows.
+#: The base install's floor: the first `anthropic` release read with the Managed Agents
+#: API. Checked anyway: an environment can hold an older copy than the pin allows.
 MIN_SDK = (1, 5)
 
 #: Anthropic's built-in toolset, named by its dated type. Everything in it is off
