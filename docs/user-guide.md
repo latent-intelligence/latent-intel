@@ -111,7 +111,7 @@ Leave it out and every other tool still works — only that escalation reports i
 nothing to read. A source's tools are discovered when it connects; `/tools` in the
 shell lists them.
 
-`--deployment` takes the deployment's own folder, the one holding its `<name>.yaml`, as a
+`--deployment` takes the deployment's own folder, the one holding `<folder name>.yaml`, as a
 local path or any fsspec URI such as `s3://`; the server reads the wiki and its context
 from that declaration. A registered wiki records this command as its `access:` line. The
 server names pages `<store id>:<key>` and knows nothing about this client; the
