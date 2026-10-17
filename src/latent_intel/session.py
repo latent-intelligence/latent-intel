@@ -30,6 +30,7 @@ import hashlib
 import json
 import re
 from collections.abc import AsyncIterator, Sequence
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -96,8 +97,12 @@ class Session:
         session_id: UUID | None = None,
         runtime: agent.Runtime | None = None,
         registry_path: str | None = None,
+        deployment: Path | None = None,
     ) -> None:
         self.session_id = session_id or uuid4()
+        #: A deployment file this session runs on instead of the active one — one
+        #: variant of a batch eval run. None reads the active deployment, as before.
+        self._deployment = deployment
         #: Which registry names resolve against. Injected rather than read from config,
         #: for the same reason `runtime` is: a Session must be constructible in a test
         #: without a config on disk.
@@ -456,7 +461,7 @@ class Session:
     def web(self) -> WebScope:
         """The web scope a turn runs under: this session's own, or the resolved one."""
         override = self.web_override
-        return override if override is not None else settings_module.load().web
+        return override if override is not None else self._settings().web
 
     @property
     def web_override(self) -> WebScope | None:
@@ -470,9 +475,13 @@ class Session:
             self._web = None
         return self._web
 
-    @staticmethod
-    def _project() -> str | None:
-        return settings_module.load().project_name
+    def _project(self) -> str | None:
+        return self._settings().project_name
+
+    def _settings(self) -> settings_module.Settings:
+        """The resolved view this session runs on: its own deployment, or the active
+        one."""
+        return settings_module.load(path=self._deployment)
 
     def set_web(self, scope: WebScope | None) -> None:
         """Set the web scope for this session only, or None to return to the resolved
@@ -506,11 +515,15 @@ class Session:
             self._runtime = None
             self._runtime_kind = None
             return
-        self._runtime = agent.build(kind, **self._runtime_options(kind))
+        self._runtime = agent.build(
+            kind, **self._runtime_options(kind, self._settings())
+        )
         self._runtime_kind = kind
 
     @staticmethod
-    def _runtime_options(kind: str) -> dict[str, Any]:
+    def _runtime_options(
+        kind: str, resolved: settings_module.Settings | None = None
+    ) -> dict[str, Any]:
         """What to build one runtime with — the resolved view, not the user's file.
 
         Both halves of this were silently dropped before. A project declaring
@@ -520,7 +533,7 @@ class Session:
         the cautious gate anyway. A setting that does nothing is worse than one that is
         missing: the file says it is on.
         """
-        resolved = settings_module.load()
+        resolved = resolved or settings_module.load()
         # `approval` last: it is resolved across all three layers, and a copy nested
         # under `runtimes:<kind>:` would otherwise override the resolved one from the
         # layer beneath it. `settings.load()` reports that key rather than honouring it.
@@ -535,12 +548,12 @@ class Session:
         offers. Empty when there is nothing to check or no runtime that runs subagents:
         `doctor`'s runtime block already says when the configured one does not.
         """
-        resolved = settings_module.load()
+        resolved = self._settings()
         if not resolved.agents or not resolved.runtime:
             return []
         try:
             runtime = agent.build(
-                resolved.runtime, **self._runtime_options(resolved.runtime)
+                resolved.runtime, **self._runtime_options(resolved.runtime, resolved)
             )
         except Exception:  # noqa: BLE001 — the runtime block reports a broken build
             return []
@@ -583,7 +596,7 @@ class Session:
         for connector in self._connectors.values():
             if isinstance(connector, connectors.ToolProvider):
                 specs.extend(connector.tools())
-        specs.extend(engine_tools.specs(settings_module.load().skills))
+        specs.extend(engine_tools.specs(self._settings().skills))
         return specs
 
     async def call_tool(
@@ -596,9 +609,7 @@ class Session:
         from output; a string would reach the model looking like an answer.
         """
         if source_id == engine_tools.ENGINE_ID:
-            return await engine_tools.call(
-                settings_module.load().skills, name, arguments
-            )
+            return await engine_tools.call(self._settings().skills, name, arguments)
         connector = self._connectors.get(source_id)
         if connector is None:
             raise SessionError(f"'{source_id}' is not connected")
@@ -671,7 +682,7 @@ class Session:
         leaves the listing.
         """
         runtime = self._resolve_runtime()
-        resolved = settings_module.load()
+        resolved = self._settings()
         emitter = ev.Emitter(self.session_id)
         # Checked here as well as by a runtime that declares web access, because one
         # that does not may never read `web=` at all — and a scope ignored in silence
@@ -769,11 +780,13 @@ class Session:
         """The configured runtime, or a failure naming what to do about it."""
         if self._runtime is not None:
             return self._runtime
-        resolved = settings_module.load()
+        resolved = self._settings()
         if not resolved.runtime:
             raise RuntimeUnavailable(NO_RUNTIME)
         kind = resolved.runtime
-        runtime = self._probe(kind) or agent.build(kind, **self._runtime_options(kind))
+        runtime = self._probe(kind) or agent.build(
+            kind, **self._runtime_options(kind, resolved)
+        )
         if not runtime.available():
             reason = (
                 runtime.unavailable_reason()
@@ -803,7 +816,7 @@ class Session:
             raise SessionError(
                 f"no purpose '{purpose}' — one of {', '.join(ev.PURPOSES)}"
             )
-        resolved = settings_module.load()
+        resolved = self._settings()
         kind = self._runtime_kind or resolved.runtime
         runtime = self._answering()
         context: ev.RunContext = ev.Emitter(self.session_id).emit(
@@ -826,7 +839,7 @@ class Session:
         """The runtime that would answer now — the session's own when one is built,
         otherwise one built to be read. None when none is configured or it cannot be
         built."""
-        kind = self._runtime_kind or settings_module.load().runtime
+        kind = self._runtime_kind or self._settings().runtime
         return self._runtime or (self._probe(kind) if kind else None)
 
     def _probe(self, kind: str) -> agent.Runtime | None:
@@ -834,7 +847,7 @@ class Session:
         so a shell checking its header before every command builds it once, and the
         first `ask` takes it over rather than building another. None when it cannot
         be built: an unbuildable runtime has no settings to report."""
-        options = self._runtime_options(kind)
+        options = self._runtime_options(kind, self._settings())
         if self._probed is not None and self._probed[:2] == (kind, options):
             return self._probed[2]
         try:

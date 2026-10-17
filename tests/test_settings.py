@@ -87,3 +87,39 @@ def test_a_scope_with_a_key_that_is_not_a_string_is_a_problem_not_a_crash() -> N
     resolved = settings_module.load()
     assert resolved.web.mode == "off"
     assert any("unknown key" in p for p in resolved.problems)
+
+
+def test_a_deployment_loaded_by_path_is_not_made_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(tmp_path, monkeypatch, "defaults: {web: search}\n")
+    other = tmp_path / "other.yaml"
+    other.write_text("name: other\ndefaults: {web: browse}\n", encoding="utf-8")
+
+    assert settings_module.load(path=other).project_name == "other"
+    assert settings_module.load(path=other).web.mode == "browse"
+    assert settings_module.load().project_name == "deploy"
+
+
+def test_a_deployment_by_path_keeps_its_user_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The overlay is kept under a deployment's name, so loading it by path finds the
+    sources its user added, as `intel deployment use` would have."""
+    other = tmp_path / "other.yaml"
+    other.write_text("name: other\n", encoding="utf-8")
+    config = config_module.load()
+    config.overlays["other"] = config_module.Overlay(
+        sources=[config_module.SourceSpec(id="notes", kind="files", target="~/notes")]
+    )
+    config_module.save(config)
+
+    assert [s.id for s in settings_module.load(path=other).sources] == ["notes"]
+
+
+def test_a_broken_deployment_by_path_is_a_problem_not_a_crash(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.yaml"
+    broken.write_text("name: [unclosed\n", encoding="utf-8")
+    resolved = settings_module.load(path=broken)
+    assert resolved.project is None
+    assert any("broken.yaml" in p for p in resolved.problems)

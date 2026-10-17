@@ -1740,3 +1740,34 @@ async def test_every_failure_to_close_is_reported() -> None:
         "b would not close",
     ]
     assert session.sources() == []
+
+
+async def test_a_session_given_a_deployment_runs_on_it_not_the_active_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch eval run loads each variant's deployment by path; the active one must
+    not leak into its persona, its skills or the name its header records."""
+    _project(tmp_path, monkeypatch, "name: deploy\n")
+    other = tmp_path / "elsewhere" / "other.yaml"
+    other.parent.mkdir()
+    (other.parent / "persona.md").write_text(
+        "You are a tide clerk.\n", encoding="utf-8"
+    )
+    (other.parent / "skills").mkdir()
+    (other.parent / "skills" / "tides.md").write_text(
+        "---\nname: tides\n---\nRead the table.\n", encoding="utf-8"
+    )
+    other.write_text(
+        "name: other\nagent: {persona: ./persona.md}\nskills: ./skills\n",
+        encoding="utf-8",
+    )
+
+    runtime = FakeRuntime()
+    session = Session(runtime=runtime, deployment=other)
+    context = session.run_context()
+    assert context.project == "other"
+    assert context.context.persona and set(context.context.skills) == {"tides"}
+    assert Session(runtime=FakeRuntime()).run_context().project == "deploy"
+
+    [e async for e in session.ask("when is high water?")]
+    assert runtime.saw["options"]["persona"] == "You are a tide clerk."

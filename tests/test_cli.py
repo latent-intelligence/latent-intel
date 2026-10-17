@@ -1209,3 +1209,98 @@ def test_there_is_no_deployment_migrate() -> None:
     result = runner.invoke(app, ["deployment", "migrate"])
     assert result.exit_code != 0
     assert "No such command" in result.output
+
+
+# -- intel eval run -----------------------------------------------------------
+
+from tests.test_batch import setup  # noqa: E402,F401 — the fixture, by name
+
+
+def _eval(setup: dict[str, Any], *extra: str) -> Any:  # noqa: F811
+    work = setup["work"]
+    return runner.invoke(
+        app,
+        ["eval", "run", str(work / "cases.yaml"), str(work / "variants.yaml"), *extra],
+    )
+
+
+def test_eval_dry_run_prints_the_matrix_and_spends_nothing(
+    setup: dict[str, Any],  # noqa: F811
+) -> None:
+    from tests.test_batch import FakeRuntime
+
+    result = _eval(setup, "--repeat", "2", "--dry-run")
+    assert result.exit_code == 0, result.output
+    assert "2 cases × 2 variants × 2 = 8 runs" in result.output
+    assert "small" in result.output and "paid" in result.output
+    assert FakeRuntime.turns == []
+    assert not setup["root"].exists()
+
+
+def test_eval_says_when_the_case_file_is_unstamped(
+    setup: dict[str, Any],  # noqa: F811
+) -> None:
+    (setup["work"] / "cases.yaml").write_text(
+        "cases:\n  - {id: q1, input: {question: hi}}\n", encoding="utf-8"
+    )
+    result = _eval(setup, "--dry-run")
+    assert result.exit_code == 0, result.output
+    assert "unstamped" in result.output
+    assert "unstamped" not in _eval_stamped(setup).output
+
+
+def _eval_stamped(setup: dict[str, Any]) -> Any:  # noqa: F811
+    from tests.test_batch import CASES
+
+    (setup["work"] / "cases.yaml").write_text(CASES, encoding="utf-8")
+    return _eval(setup, "--dry-run")
+
+
+def test_eval_shows_a_variant_that_cannot_run_and_refuses_to_run_it(
+    setup: dict[str, Any],  # noqa: F811
+) -> None:
+    from tests.test_batch import _variants
+
+    _variants(
+        setup["work"],
+        "variants:\n  - {id: small, runtime: fake, options: {unavailable: true}}\n",
+    )
+    dry = _eval(setup, "--dry-run")
+    assert dry.exit_code == 0, dry.output
+    assert "FAKE_KEY" in dry.output
+    run = _eval(setup, "--yes")
+    assert run.exit_code == 1
+    assert "cannot run here" in run.output
+    assert not setup["root"].exists()
+
+
+def test_eval_refuses_paid_variants_with_no_one_to_ask(
+    setup: dict[str, Any],  # noqa: F811
+) -> None:
+    result = _eval(setup)
+    assert result.exit_code == 1
+    assert "--yes" in result.output
+    assert not setup["root"].exists()
+
+
+def test_eval_with_yes_runs_and_names_the_manifest(
+    setup: dict[str, Any],  # noqa: F811
+) -> None:
+    result = _eval(setup, "--yes")
+    assert result.exit_code == 0, result.output
+    assert "4 of 4 ok" in result.output
+    [run] = list((setup["root"] / "runs").iterdir())
+    assert (run / "manifest.json").exists()
+
+
+def test_eval_from_the_built_in_deployment_refuses_and_writes_nothing(
+    setup: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from latent_intel import batch
+
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "latent")
+    result = _eval(setup, "--yes")
+    assert result.exit_code == 1
+    assert "intel deployment use" in result.output
+    assert not (batch.PACKAGE / "data" / "projects" / "runs").exists()
