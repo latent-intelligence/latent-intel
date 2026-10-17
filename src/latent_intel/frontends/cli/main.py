@@ -65,9 +65,9 @@ app = typer.Typer(
 )
 
 
-from . import project as project_cli  # noqa: E402
+from . import deployment as deployment_cli  # noqa: E402
 
-app.add_typer(project_cli.app)
+app.add_typer(deployment_cli.app)
 
 
 @app.callback()
@@ -342,7 +342,7 @@ async def _stream(
 
 @app.command()
 def run(
-    name: str = typer.Argument(None, help="A project command. Omit to list them."),
+    name: str = typer.Argument(None, help="A deployment command. Omit to list them."),
     argument: list[str] = typer.Argument(None, help="Passed as {{argument}}."),
     as_json: bool = typer.Option(False, "--json", help="Emit raw events."),
     record_to: Path = typer.Option(
@@ -351,9 +351,9 @@ def run(
     purpose: str = _PURPOSE,
     title: str = _TITLE,
 ) -> None:
-    """Run one of the active project's commands.
+    """Run one of the active deployment's commands.
 
-    Always available and unambiguous, so a project command works even when its name
+    Always available and unambiguous, so a deployment command works even when its name
     collides with something built in.
     """
     from ... import procedures as procedures_module
@@ -366,7 +366,7 @@ def run(
 
     if not name:
         if not catalogue:
-            console.print("[dim]this project defines no commands[/]")
+            console.print("[dim]this deployment defines no commands[/]")
             return
         for command_name, procedure in sorted(catalogue.items()):
             console.print(
@@ -524,7 +524,7 @@ async def _doctor() -> None:
     if resolved.agents and configured in runtimes and configured not in runs_them:
         able = sorted(runs_them)
         console.print(
-            f"  [warn]![/] [dim]this project declares {len(resolved.agents)} "
+            f"  [warn]![/] [dim]this deployment declares {len(resolved.agents)} "
             f"subagent(s), and {escape(configured)} does not run them"
             + (f" — runtimes that do: {', '.join(able)}" if able else "")
             + "[/]"

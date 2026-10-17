@@ -79,7 +79,7 @@ CLI is a new process every time, so "attached" lives in a config file rather tha
 memory.
 
 **By registered name.** A registry records what exists on this machine and where, so a
-name is enough. Point at one with `KNOWLEDGE_REGISTRY`, or let a project carry its own:
+name is enough. Point at one with `KNOWLEDGE_REGISTRY`, or let a deployment carry its own:
 
 ```
 $ intel connect handbook-wiki --as handbook
@@ -118,7 +118,7 @@ server names pages `<store id>:<key>` and knows nothing about this client; the
 `design:` in a citation is swapped in here for the store id, from the id you attached the
 source under, so rename a source freely. A relative path resolves against the directory the server starts
 in;
-give the source `cwd: .` to start it beside the project file.
+give the source `cwd: .` to start it beside the deployment file.
 
 A records store is the same shape: its own server, `latent-records serve`, attached as
 `kind: mcp`.
@@ -141,7 +141,7 @@ $ intel get repo:src/app/models.py:40-80
 A key may end in a line span — `:40` or `:40-80` — and the lines come back numbered. Search
 matches paths and file contents, skipping files over 1 MB, and each hit shows the first
 matching line. Source, config and docs files are included and `.git .venv node_modules dist
-build __pycache__` are skipped; a project can override either with `include:` and `exclude:`
+build __pycache__` are skipped; a deployment can override either with `include:` and `exclude:`
 options (space-separated globs). An excluded file cannot be fetched either, so `.env` stays
 closed. The agent gets `search_code`, `read_file` and `list_files`, all read-only. A
 `graph:` option is refused for now: there is no symbol index behind this kind yet, and a
@@ -240,8 +240,9 @@ once it has chosen…
 | `/replay <file> [--since N]` | render a recording, exactly as `intel replay` does |
 | `/runtime [name]` `/model [name]` `/host [name]` | which backend answers `ask`, which model it uses, which host it talks to |
 | `/hosts` | every host either runtime can reach, and what each one needs |
+| `/deployment [name]` | which deployment is active; with a name, switch to it (restart the shell to attach its sources) |
 | `/clear` `/exit` | clear the screen · leave (Ctrl-D also leaves) |
-| `/<skill> [question]` | run one of the project's skills; it stays for the session — see [skills](configuring-a-deployment.md#persona-and-skills) |
+| `/<skill> [question]` | run one of the deployment's skills; it stays for the session — see [skills](configuring-a-deployment.md#persona-and-skills) |
 | `search <query>` | every attached source, grouped |
 | `open <source:key>` | one document in full |
 | `ask <question>` | the agent — see [runtimes](#no-agent-runtime-configured) |
@@ -347,8 +348,9 @@ survives you turning search on; `--allow` or `--block` replaces the list, and `-
 drops both lists and `max_uses` — the way to use a configured scope on a runtime that
 refuses them, short of `off`. Hostnames are compared lowercase, without a trailing dot.
 `/scope` is never written to your config: a scope left on by yesterday's shell is the
-mistake this setting exists to stop. It also lasts only as long as the project it was set
-under: `/project` to another one drops it, says so, and that project's own `web:` applies.
+mistake this setting exists to stop. It also lasts only as long as the deployment it was set
+under: `/deployment` to another one drops it, says so, and that deployment's own `web:`
+applies.
 
 **A runtime honours the scope or refuses the question.** Answering without the web while
 the scope said `search` — or the reverse — would make an internal-only answer
@@ -457,7 +459,7 @@ same recording wherever each was typed. A filename is used as typed: `run.jsonl`
 `./run` is in the working directory, which is also how a `--json` capture is replayed.
 
 **A recording says what produced it.** Its first line is a `run_context`: purpose
-(`share`, `demo` or `eval`; `share` by default), title, runtime, host, model, project,
+(`share`, `demo` or `eval`; `share` by default), title, runtime, host, model, deployment,
 a hash of the persona, skills and agents in force, and the attached sources by id and
 kind — never a path. Replay shows it as one line beginning `●`. The format is specified
 in [`formats/recording.md`](formats/recording.md). Tool output in a recording carries
@@ -478,7 +480,7 @@ rather than ignored.
 
 In the shell, `/record <file> [--purpose p] [--title t]` starts and `/record off` stops,
 reporting how many events it wrote; bare `/record` says which file is being written, or
-that none is. Before each command the shell checks whether the runtime, model, project,
+that none is. Before each command the shell checks whether the runtime, model, deployment,
 skills or sources changed, and writes a new header when they did. `/replay <file>` prints
 what `intel replay` prints. Session state, and nothing about it is written to your
 config.
@@ -545,7 +547,7 @@ sources:
       cwd: ./server
 ```
 
-A bare `NAME` forwards your current value, which a `.env` beside the project file can
+A bare `NAME` forwards your current value, which a `.env` beside the deployment file can
 set; `NAME=value` writes a literal, for what is not a secret — a region, a data path.
 A bare name that is unset is refused, rather than starting a server that fails later for
 a reason nobody can see. In a `.mcp.json`, `"NAME": "${NAME}"` means the same thing and
@@ -555,7 +557,7 @@ Credentials a server finds for itself need nothing forwarded: a server reading `
 works with no `env` at all, because `HOME` is inherited.
 
 `cwd` is for a server that looks for its own `.env` in the working directory, and for
-`python -m`. A relative `cwd` in a project file resolves against the project file, never
+`python -m`. A relative `cwd` in a deployment file resolves against that file, never
 against where you happened to be standing.
 
 **On Windows**, two things differ and neither is a bug you can fix from here: the
@@ -694,7 +696,7 @@ runs the loop we wrote, and three hand the loop to a vendor's SDK while tools st
   `LATENT_INTEL_CLAUDE_AGENT_SDK_HOST`. What else it does and does not do:
   - **Isolated from your own Claude setup.** Your `~/.claude` settings, `CLAUDE.md`,
     memory, skills and MCP servers are never loaded, and anything off its tool list is
-    refused rather than prompted for. The project's skills load on demand through
+    refused rather than prompted for. The deployment's skills load on demand through
     `load_skill`, as under the in-process runtimes.
   - **API key or Foundry only.** It authenticates with the host row's variables and
     never with a claude.ai login, which Anthropic does not permit for a product built on
@@ -707,7 +709,7 @@ runs the loop we wrote, and three hand the loop to a vendor's SDK while tools st
     turn reports its cost — the binary's own estimate. `cwd` and `cli_path` are as for
     `claude-cli`. Its web tools are turned on by `web:`, not by an option here — see
     [research scope](#research-scope).
-  - **Subagents** from the project's `agents/` directory run here and nowhere else —
+  - **Subagents** from the deployment's `agents/` directory run here and nowhere else —
     see [configuring a deployment](configuring-a-deployment.md#subagents).
   - **Two differences from `custom`:** a tool name the model invented, or arguments that
     fail the tool's schema, are refused by the SDK before our router, so no tool event
@@ -734,7 +736,7 @@ installed and marks which one is configured. Bare `/model` and `/host` print the
 force — what the runtime actually holds, including one set through the environment. The
 model and the host are remembered **per runtime**, because neither means anything without
 the backend it belongs to, and `/model none` or `/host none` clears your override; a value
-the project declares stays in force, and the command prints what is in force:
+the deployment declares stays in force, and the command prints what is in force:
 
 ```yaml
 runtime: custom
@@ -761,7 +763,7 @@ runtimes:
     max_budget_usd: 0.50     # optional — stops a run by cost
 ```
 
-The same block may be written by a project, under `agent:` — which is how a deployment
+The same block may be written in a deployment file, under `agent:` — which is how a deployment
 ships its runtime and model as configuration rather than setup:
 
 ```yaml
@@ -784,7 +786,7 @@ way — whoever drives the loop — so everything attached is a tool.
 
 **Credentials for the in-process runtimes.** Names only, always in the environment,
 never in a config file.
-A project's `.env` is loaded before the runtime is built, so deployment credentials live
+A deployment's `.env` is loaded before the runtime is built, so deployment credentials live
 there.
 
 One table, whichever runtime dials it. `custom` reaches every row; `anthropic-sdk` and

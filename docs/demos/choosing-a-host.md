@@ -43,7 +43,7 @@ OPENAI_API_VERSION for host 'azure-openai'
   · local           set LOCAL_OPENAI_BASE_URL for host 'local'
 
 Names of variables, never values — safe to paste. Set them in a `.env` beside the
-project file, or export them.
+deployment file, or export them.
 ```
 
 Seven endpoints across two protocols, and the shortest way in is visible without reading

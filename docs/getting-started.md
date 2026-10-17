@@ -7,7 +7,7 @@ this page.
 - [Install](#install)
 - [One source, right now](#one-source-right-now)
 - [The shell](#the-shell)
-- [A project — several sources, plus branding](#a-project--several-sources-plus-branding)
+- [A deployment — several sources, plus branding](#a-deployment--several-sources-plus-branding)
 - [Where state lives](#where-state-lives)
 - [Next](#next)
 
@@ -53,7 +53,7 @@ Nothing to set, normally. Object storage uses `fsspec` and `botocore`, so `aws
 configure`, `AWS_PROFILE`, SSO and instance roles work exactly as they already do. This
 package holds no credential code.
 
-On a machine with none of that configured, a `.env` beside the project file supplies
+On a machine with none of that configured, a `.env` beside the deployment file supplies
 them:
 
 ```bash
@@ -63,11 +63,11 @@ AWS_SECRET_ACCESS_KEY=…
 AWS_DEFAULT_REGION=us-east-1
 ```
 
-`~/.config/latent-intel/.env` is the machine-wide equivalent; the project's file wins
+`~/.config/latent-intel/.env` is the machine-wide equivalent; the deployment's file wins
 where both set a variable, and **anything already exported beats both** — so a one-off
 `AWS_PROFILE=other intel search …` still does what you mean.
 
-The `custom` runtime reads its key from the same place: a project's `.env` is loaded
+The `custom` runtime reads its key from the same place: a deployment's `.env` is loaded
 before the runtime is built, so deployment credentials live there too. Which variables,
 per host, is in [`user-guide.md`](user-guide.md#choosing-a-runtime).
 
@@ -78,7 +78,7 @@ was loaded, or the two paths it looked in when none was.
 Credential *values* never reach a command line: a served source is a subprocess handed
 the file's path, not its contents. `.env` is git-ignored at every depth, and a deployment
 directory is git-ignored too — nothing here is designed to be committed. A `.env` cannot
-select the active project either; that is `intel project use`, which persists.
+select the active deployment either; that is `intel deployment use`, which persists.
 
 **Working on the package itself?** The two builds differ in one thing — whether the
 `intel` on your PATH moves when the repository does.
@@ -110,8 +110,8 @@ prefix everything below with `uv run`.
 ## One source, right now
 
 This section and the next are **two ways in, not two steps.** Attach sources one at a
-time as below, or describe them all in a project file ([below](#a-project--several-sources-plus-branding)).
-A project needs nothing from this section, and a real deployment usually starts there.
+time as below, or describe them all in a deployment file ([below](#a-deployment--several-sources-plus-branding)).
+A deployment needs nothing from this section, and a real one usually starts there.
 
 Point at a store and search it. Nothing else is needed — object storage uses whatever
 credentials your environment already has.
@@ -158,12 +158,13 @@ your last search, and Ctrl-D leaves.
 
 ---
 
-## A project — several sources, plus branding
+## A deployment — several sources, plus branding
 
-A project is one YAML file describing a deployment: its sources, its branding, its saved
-commands. The engine is installed once and reads projects; it never writes them.
+A deployment is one YAML file, and the directory around it: its sources, its branding,
+its saved commands. The engine is installed once and reads deployments; it never writes
+them.
 
-You do not need to have attached anything above first — a project declares its own
+You do not need to have attached anything above first — a deployment declares its own
 sources, and switching to one attaches all of them at once.
 
 ```yaml
@@ -185,20 +186,21 @@ sources:
 ```
 
 ```bash
-intel project add ~/deployments/research   # finds it in place; nothing is copied
-intel project use research
-intel                                    # branded shell, both sources attached
+intel deployment add ~/deployments/research   # finds it in place; nothing is copied
+intel deployment use research
+intel                                       # branded shell, both sources attached
 ```
 
 Three things worth knowing, and they are the ones that bite otherwise:
 
-- **Relative paths resolve against the project file**, never your working directory — so
-  a project repo checked out anywhere works there.
+- **Relative paths resolve against the deployment file**, never your working directory —
+  so a deployment repo checked out anywhere works there. That includes `root:`, where its
+  products go; it defaults to the file's directory and may be a URI such as `s3://…`.
 - **`context:` pairs a wiki with what it summarises.** Optional: leave it out and search
   and `open` are unaffected, only escalation to a page's underlying source has nothing to
   read.
-- **`intel connect` never edits the project file.** It records into your own overlay for
-  the active project, so a checked-out deployment repo stays clean.
+- **`intel connect` never edits the deployment file.** It records into your own overlay
+  for the active deployment, so a checked-out deployment repo stays clean.
 
 Copy `src/latent_intel/data/projects/latent.yaml` to start — it is the worked example,
 with every field commented in the order the loader reads them.
@@ -206,8 +208,8 @@ with every field commented in the order the loader reads them.
 Verify before trusting it:
 
 ```bash
-intel project validate research   # what is wrong with it, without switching
-intel project show             # every resolved value, and which layer it came from
+intel deployment validate research   # what is wrong with it, without switching
+intel deployment show                # every resolved value, and which layer it came from
 ```
 
 ---
@@ -215,7 +217,7 @@ intel project show             # every resolved value, and which layer it came f
 ## Where state lives
 
 ```
-~/.config/latent-intel/config.yaml     the active project, your overlays, preferences
+~/.config/latent-intel/config.yaml     the active deployment, your overlays, preferences
 ~/.local/share/latent-intel/           history and caches
 LATENT_INTEL_HOME                      overrides both — a throwaway setup for trying things
 ```

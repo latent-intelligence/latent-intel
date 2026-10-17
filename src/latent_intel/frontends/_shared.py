@@ -276,7 +276,7 @@ def print_hosts() -> None:
 
     console.print(
         "[dim]Names of variables, never values — safe to paste. Set them in a `.env` "
-        "beside the project file, or export them.[/]"
+        "beside the deployment file, or export them.[/]"
     )
 
 
@@ -309,8 +309,8 @@ def load_env() -> list[Path]:
     Deliberately *after* the project is resolved and *before* anything reads a
     credential: the project's directory is where its `.env` lives. The consequence,
     stated so nobody debugs it twice: a `.env` cannot choose the active project — that
-    is `intel project use`, which persists. It can set anything read later, so settings
-    are invalidated afterwards.
+    is `intel deployment use`, which persists. It can set anything read later, so
+    settings are invalidated afterwards.
     """
     resolved = settings_module.load()
     directory = resolved.project.directory if resolved.project else None

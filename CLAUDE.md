@@ -68,22 +68,25 @@ vocabulary free to change without touching a single connector.
   Both are Python entry points (`latent_intel.connectors`, `latent_intel.runtimes`), and our own adapters register
   through them so the extension path is the one we take ourselves.
 
-  A **project** composes what already exists — sources, saved searches, prompt
-  templates, branding — and is declarative YAML and markdown, because composition needs
+  A **deployment** (`project.py`, `Project` in code; `intel deployment` and
+  `/deployment` to the user) composes what already exists — sources, saved searches,
+  prompt templates, branding — and is declarative YAML and markdown, because composition needs
   no code and must be authorable by whoever owns the deployment rather than whoever owns
   the engine. This amends the earlier "entry points, not a plugin directory" rule, which
   did not anticipate the distinction.
 
   The test is mechanical: **if it can be expressed as `list[Command]` over installed
-  capabilities it is a composition and belongs in a project; if it needs a new
+  capabilities it is a composition and belongs in a deployment; if it needs a new
   `Connector` or `Runtime` it is a capability and belongs in an entry point.**
-- **A project is read, never written.** The engine writes only the user's own config.
-  `connect` records into that user's overlay for the active project; `disconnect` on a
-  project-declared source records a detachment. A tool that edited the project file
-  would make a checked-out deployment repo dirty on first use.
-- **Relative paths in a project resolve against the project file, not the cwd.** Same
-  discipline as `SourceSpec` recording a name rather than a resolved path, and the same
-  failure if broken: something that only works on the machine that authored it.
+- **A deployment is read, never written.** The engine writes only the user's own config.
+  `connect` records into that user's overlay for the active deployment; `disconnect` on a
+  deployment-declared source records a detachment. A tool that edited the deployment
+  file would make a checked-out deployment repo dirty on first use.
+- **Relative paths in a deployment resolve against its file, not the cwd** — `root:`
+  included, which defaults to the file's directory and is a `UPath`, so it may be
+  `s3://…`. Same discipline as `SourceSpec` recording a name rather than a resolved path,
+  and the same failure if broken: something that only works on the machine that
+  authored it.
 - **The engine knows about no client.** No client name, path, bucket or store id in
   `src/` — `tests/test_projects_acceptance.py` greps for it. A registry default that
   pointed at one operator's home already leaked that operator's catalogue into every

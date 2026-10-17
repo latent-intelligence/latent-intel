@@ -305,7 +305,7 @@ whole thing work, and nothing you learn is wasted when you move to a paid endpoi
 OPENROUTER_API_KEY=sk-or-…
 ```
 
-A `.env` beside a project file does the same thing for one deployment, and anything
+A `.env` beside a deployment file does the same thing for one deployment, and anything
 already exported beats both. Get the key from
 [openrouter.ai/keys](https://openrouter.ai/keys).
 

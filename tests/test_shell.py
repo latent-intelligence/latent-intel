@@ -932,7 +932,7 @@ def test_scope_any_reaches_the_session_without_the_configured_cap(
     assert session.web == WebScope(mode="browse")
 
 
-def test_switching_project_says_the_session_s_scope_was_dropped(
+def test_switching_deployment_says_the_session_s_scope_was_dropped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from latent_intel.frontends.shell import repl
@@ -943,8 +943,19 @@ def test_switching_project_says_the_session_s_scope_was_dropped(
     repl._local(session, Local("scope", "search"), repl.Recording())
     (tmp_path / "other.yaml").write_text("name: other\n")
     monkeypatch.setenv("LATENT_INTEL_PROJECTS", str(tmp_path))
-    repl._local(session, Local("project", "other"), repl.Recording())
+    repl._local(session, Local("deployment", "other"), repl.Recording())
 
     printed = " ".join(console.export_text().split())
-    assert "was for the project you left" in printed
+    assert "was for the deployment you left" in printed
     assert session.web.mode == "off"
+
+
+def test_deployment_parses_bare_and_with_a_name() -> None:
+    for line, argument in (("/deployment", ""), ("/deployment research", "research")):
+        result = parse(line)
+        assert isinstance(result, Local)
+        assert result.action == "deployment" and result.argument == argument
+
+
+def test_project_is_no_longer_a_slash_command() -> None:
+    assert not isinstance(parse("/project research"), Local)

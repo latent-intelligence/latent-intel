@@ -1122,3 +1122,98 @@ def test_doctor_warns_when_the_configured_runtime_would_refuse_the_scope() -> No
     printed = " ".join(result.stdout.split())
     assert "claude-cli would refuse this scope" in printed
     assert "max_uses" in printed
+
+
+# -- intel deployment ---------------------------------------------------------
+
+
+def _deployment(tmp_path: Path, name: str, body: str = "") -> Path:
+    """A deployment file in the search directory the suite points every test at."""
+    directory = tmp_path / "projects"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.yaml"
+    path.write_text(f"name: {name}\ntitle: {name.title()}\n{body}", encoding="utf-8")
+    return path
+
+
+def test_the_command_is_deployment_and_project_is_gone() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "deployment" in result.stdout
+    assert "project" not in result.stdout
+    assert runner.invoke(app, ["project", "list"]).exit_code != 0
+
+
+def test_deployment_list_names_what_it_finds(tmp_path: Path) -> None:
+    _deployment(tmp_path, "research")
+    result = runner.invoke(app, ["deployment", "list"])
+    assert result.exit_code == 0
+    assert "research" in result.stdout and "latent" in result.stdout
+
+
+def test_deployment_use_records_the_choice(tmp_path: Path) -> None:
+    _deployment(tmp_path, "research")
+    result = runner.invoke(app, ["deployment", "use", "research"])
+    assert result.exit_code == 0, result.output
+    assert config_module.load().deployment == "research"
+
+    result = runner.invoke(app, ["deployment", "use", "none"])
+    assert result.exit_code == 0
+    assert config_module.load().deployment is None
+
+
+def test_deployment_use_refuses_a_name_it_cannot_find() -> None:
+    result = runner.invoke(app, ["deployment", "use", "nowhere"])
+    assert result.exit_code == 1
+    assert "no deployment 'nowhere'" in result.output
+
+
+def test_deployment_show_names_the_root(tmp_path: Path) -> None:
+    _deployment(tmp_path, "research", "root: ./products\n")
+    runner.invoke(app, ["deployment", "use", "research"])
+    result = runner.invoke(app, ["deployment", "show"])
+    assert result.exit_code == 0, result.output
+    assert "Research" in result.stdout
+    flat = "".join(result.stdout.split())
+    assert "".join(str((tmp_path / "projects" / "products").resolve()).split()) in flat
+
+
+def test_deployment_add_searches_a_directory(tmp_path: Path) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "field.yaml").write_text("name: field\n", encoding="utf-8")
+    result = runner.invoke(app, ["deployment", "add", str(elsewhere)])
+    assert result.exit_code == 0, result.output
+    assert str(elsewhere.resolve()) in config_module.load().deployment_paths
+    assert "field" in result.stdout
+
+
+def test_deployment_validate_passes_a_good_file_and_fails_a_bad_one(
+    tmp_path: Path,
+) -> None:
+    _deployment(tmp_path, "good")
+    _deployment(tmp_path, "bad", "serv: {}\n")
+    assert runner.invoke(app, ["deployment", "validate", "good"]).exit_code == 0
+    result = runner.invoke(app, ["deployment", "validate", "bad"])
+    assert result.exit_code == 1
+    assert "serv" in result.output
+
+
+def test_deployment_validate_with_nothing_active_says_so() -> None:
+    result = runner.invoke(app, ["deployment", "validate"])
+    assert result.exit_code == 1
+    assert "no deployment to validate" in result.output
+
+
+def test_deployment_migrate_writes_a_deployment_and_activates_it(
+    isolated_home: Path,
+) -> None:
+    path = config_module.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "sources:\n  - {id: notes, kind: files, target: ~/notes}\n", encoding="utf-8"
+    )
+    result = runner.invoke(app, ["deployment", "migrate", "--to", "mine"])
+    assert result.exit_code == 0, result.output
+    assert config_module.load().deployment == "mine"
+    assert (config_module.home() / "projects" / "mine.yaml").is_file()

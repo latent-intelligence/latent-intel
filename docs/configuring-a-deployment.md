@@ -8,8 +8,8 @@ Standing up the next deployment is another directory like this one. No code chan
 release.
 
 ```
-~/deployments/research/          anywhere on disk; `project add` copies nothing
-├── research.yaml                the project — sources, branding, defaults
+~/deployments/research/          anywhere on disk; `deployment add` copies nothing
+├── research.yaml                the declaration — sources, branding, defaults
 ├── logo.txt                     wordmark, or inline in the YAML
 ├── commands/                    one .md per saved command  →  /brief, /recent
 │   ├── brief.md
@@ -29,7 +29,22 @@ the same checkout works on any machine and in any cwd. Remote locations go throu
 `vars:`, which an environment variable of the same name overrides — a deployment points at
 its own bucket without editing the committed file.
 
-Credentials are the one thing that does not live in the project file. Where they do live,
+**Products go beneath `root:`.** It is optional and defaults to the deployment's
+directory. A relative `root:` resolves against `research.yaml`, like every other path; a
+remote one (`s3://…`) is kept as a URI, so the same deployment writes to a laptop or a
+bucket by changing this one line. Two deployment files in one directory share that
+default, so give each its own directory or its own `root:`. A `root:` that is empty, not
+a string, or names a scheme fsspec does not know is reported, never read as the default.
+`intel deployment show` prints it. Nothing writes beneath it yet.
+
+```yaml
+# ~/deployments/research/research.yaml
+root: ${PRODUCTS}/research        # or ./products, or s3://example-bucket/research
+vars:
+  PRODUCTS: ./out                 # an exported PRODUCTS wins
+```
+
+Credentials are the one thing that does not live in the deployment file. Where they do live,
 and why only those two places, is in
 [getting-started](getting-started.md#credentials).
 
@@ -38,7 +53,7 @@ and why only those two places, is in
 ## Branding
 
 A tool installed at your organisation should say *your* name. The wordmark, tagline,
-prompt and palette are all values a project supplies — no code, no plugin, no fork.
+prompt and palette are all values a deployment supplies — no code, no plugin, no fork.
 
 ```yaml
 # ~/deployments/research/research.yaml
@@ -53,7 +68,7 @@ branding:
 ```
 
 ```
-$ intel project use research
+$ intel deployment use research
 $ intel
 
      ██████  ███████ ███████ ███████  █████  ██████   ██████ ██   ██
@@ -94,14 +109,14 @@ everywhere it means the same thing and nowhere it does not:
 An unrecognized token is **reported, not ignored** — a misspelled `acccent` tells you so
 on stderr instead of silently rendering the default.
 
-**Every field is optional.** A project that declares no `branding:` still runs, with the
+**Every field is optional.** A deployment that declares no `branding:` still runs, with the
 Latent defaults.
 
 ---
 
 ## Saved commands
 
-Same idea: one markdown file per command, in the directory the project names.
+Same idea: one markdown file per command, in the directory the deployment names.
 
 ```markdown
 ---
@@ -145,7 +160,7 @@ agent:
 place of our posture line — *"cite what you use as `source:key`, say when the sources do
 not answer"* — and nothing else: the list of attached sources is never replaced, because
 the agent cannot use its tools without it. An unrecognized mode is reported by
-`intel project validate` and read as `append`.
+`intel deployment validate` and read as `append`.
 
 A skill is either a flat `name.md` or a folder `name/SKILL.md` — the layout Claude Code
 and the Agent SDK read, so one skills folder serves both. Only `SKILL.md` is read from a
@@ -165,7 +180,7 @@ appended. `claude-cli` cannot reach `load_skill`, so it is given the bodies inst
 
 In the shell, **`/name [question]` runs a skill by hand**: its body stays in the prompt
 for the rest of the session, with `$ARGUMENTS` replaced by the text after the name. A
-built-in beats a skill and a skill beats a project command; either clash is reported.
+built-in beats a skill and a skill beats a deployment command; either clash is reported.
 
 | Frontmatter | The agent may load it | `/name` runs it |
 |---|---|---|
@@ -181,7 +196,7 @@ Code's skill keys is prose, not frontmatter.
 
 A missing persona file, a skill whose frontmatter will not parse, a folder with no
 `SKILL.md`, and a second skill with a name already taken are each **reported and
-skipped** — one bad file does not cost a deployment its other four. `intel project
+skipped** — one bad file does not cost a deployment its other four. `intel deployment
 validate` lists them.
 
 ---
@@ -258,7 +273,7 @@ or wildcard; they are compared lowercase, without a trailing dot. `max_uses` cap
 per web tool per question. A user's own `web:` in their config wins over this, and
 `/scope` or `intel ask --web` changes it for one session without writing anywhere — a
 mode alone keeps this list and `max_uses`, and `--any` drops them. A session's `/scope`
-is dropped when it switches to another project, whose own `web:` then applies. A value
+is dropped when it switches to another deployment, whose own `web:` then applies. A value
 that does not parse turns the web off and is reported by `intel doctor`, rather than
 falling back to something wider.
 
@@ -278,11 +293,11 @@ sources said. Ship `browse` with an allow-list, or default to `search`.
 ## Checking it
 
 ```bash
-intel project validate research   # what is wrong with it, without switching
-intel project show                # every resolved value, and which layer set it
+intel deployment validate research   # what is wrong with it, without switching
+intel deployment show                # every resolved value, and which layer set it
 ```
 
-**Our own branding takes the client path.** The engine's identity is a project file like
-any other — `src/latent_intel/data/projects/latent.yaml` — so the path you use is the one
+**Our own branding takes the client path.** The engine's identity is a deployment file
+like any other — `src/latent_intel/data/projects/latent.yaml` — so the path you use is the one
 we use, and it cannot rot unnoticed. Copy that file to start: every field is shown in it,
 commented, in the order the loader reads them.

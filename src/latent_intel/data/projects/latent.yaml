@@ -17,12 +17,17 @@ description: >
 #
 # registry: ./knowledge-stores.yaml
 
-# Location variables, substituted into `registry:` and each source `target:`.
+# Location variables, substituted into `registry:`, `root:` and each source `target:`.
 # An environment variable of the same name WINS, so a deployment overrides without
 # editing this file. Locations only — credentials never appear here.
 #
 # vars:
 #   MIRROR: s3://example-bucket/li
+
+# Where this deployment's products go. Defaults to this file's directory; a relative
+# path resolves against it, and a URI such as s3://… is kept as written.
+#
+# root: ./products
 
 # Sources. Two ways to name one, and the difference matters:
 #

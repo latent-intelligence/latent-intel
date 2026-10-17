@@ -94,7 +94,9 @@ SLASH: dict[str, Spec] = {
         "tee every event to a file, headed by what produced it",
     ),
     "replay": Spec(1, 3, "/replay <file> [--since N]", "render a recording"),
-    "project": Spec(0, 1, "/project [name]", "which deployment is active", "agent"),
+    "deployment": Spec(
+        0, 1, "/deployment [name]", "which deployment is active", "agent"
+    ),
     "runtime": Spec(0, 1, "/runtime [name]", "which backend answers `ask`", "agent"),
     "model": Spec(0, 1, "/model [name]", "which model that backend uses", "agent"),
     "host": Spec(0, 1, "/host [name]", "which host the runtime talks to", "agent"),
@@ -189,7 +191,7 @@ def _slash(text: str, procedures: dict[str, object] | None = None) -> Parsed:
             | "model"
             | "host"
             | "hosts"
-            | ("project")
+            | "deployment"
         ):
             return Local(name, args[0] if args else "")
         case "sources":

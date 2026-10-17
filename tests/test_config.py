@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from latent_intel import config
 
@@ -53,3 +54,44 @@ def test_saving_preserves_a_key_this_build_does_not_know(
 
     config.save(config.load())
     assert "keep me" in path.read_text(encoding="utf-8")
+
+
+def test_a_config_written_before_the_rename_still_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`project:` and `project_paths:` are read, and the next save writes the new keys.
+
+    Dropping the old keys would leave someone with no active deployment after an
+    upgrade, and nothing on screen to say why.
+    """
+    monkeypatch.setenv("LATENT_INTEL_HOME", str(tmp_path))
+    path = config.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "project: research\nproject_paths: [/srv/deployments]\n", encoding="utf-8"
+    )
+
+    loaded = config.load()
+    assert loaded.deployment == "research"
+    assert loaded.deployment_paths == ["/srv/deployments"]
+
+    config.save(loaded)
+    written = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert written["deployment"] == "research"
+    assert written["deployment_paths"] == ["/srv/deployments"]
+    assert "project" not in written and "project_paths" not in written
+
+
+def test_the_new_key_wins_when_a_config_carries_both(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LATENT_INTEL_HOME", str(tmp_path))
+    path = config.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "deployment: new\nproject: old\ndeployment_paths: [/a]\nproject_paths: [/b]\n",
+        encoding="utf-8",
+    )
+    loaded = config.load()
+    assert loaded.deployment == "new"
+    assert loaded.deployment_paths == ["/a"]

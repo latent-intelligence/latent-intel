@@ -49,9 +49,9 @@ intel search "context collapse"
 intel                                    # the interactive shell
 ```
 
-### Option B - use a project 
+### Option B - use a deployment
 
-A **project** is one YAML file owned by the deployment rather than the engine, carrying
+A **deployment** is one YAML file owned by its author rather than the engine, carrying
 several sources at once plus branding and saved commands. This is the shape a real
 engagement takes, and standing up the next one is another YAML file — no code change, no
 release.
@@ -72,24 +72,25 @@ sources:
 ```
 
 ```bash
-intel project add ~/deployments/research   # finds it in place; nothing is copied
-intel project use research
-intel                                      # branded shell, both sources attached
+intel deployment add ~/deployments/research   # finds it in place; nothing is copied
+intel deployment use research
+intel                                         # branded shell, both sources attached
 ```
 
-With a project active, `intel connect` still works — it records the source in *your*
-overlay on top of the project, never in the project file. A shared project can be
-committed to a client repo while each person adds their own scratch sources.
+With a deployment active, `intel connect` still works — it records the source in
+*your own* config on top of the deployment, never in the deployment file. A shared
+deployment can be committed to a client repo while each person adds their own scratch
+sources.
 
 ## Configure a deployment
 
-A project file can grow into a **deployment directory** — one directory, committed to
+A deployment file can grow into a **deployment directory** — one directory, committed to
 whatever repo you keep it in. The engine reads it and never writes to it, so a checked-out
 deployment repo stays clean on first use.
 
 ```
-~/deployments/research/          anywhere on disk; `project add` copies nothing
-├── research.yaml                the project — sources, branding, defaults
+~/deployments/research/          anywhere on disk; `deployment add` copies nothing
+├── research.yaml                the declaration — sources, branding, defaults
 ├── logo.txt                     wordmark, or inline in the YAML
 ├── commands/                    one .md per saved command  →  /brief, /recent
 │   ├── brief.md
@@ -113,10 +114,10 @@ agent knows and how it behaves, in markdown, per deployment. They follow Claude 
 file conventions, so one folder serves this engine, Claude Code and the Agent SDK.
 
 **Add custom branding .** The wordmark, tagline, prompt and palette all come from
-the project:
+the deployment:
 
 ```
-$ intel project use research
+$ intel deployment use research
 $ intel
 
      ██████  ███████ ███████ ███████  █████  ██████   ██████ ██   ██
@@ -172,7 +173,7 @@ AZURE_OPENAI_ENDPOINT, OPENAI_API_VERSION for host 'azure-openai'
 ```
 
 Names of variables, never values — the whole block is safe to paste. Credentials come
-from the environment or a `.env` beside the project, never from a config file. Choose
+from the environment or a `.env` beside the deployment, never from a config file. Choose
 with `/runtime`, `/host` and `/model` in the shell, or `runtime:` in config;
 `intel doctor` then diagnoses the one you chose.
 
@@ -183,7 +184,7 @@ Walked through end to end in
 
 | | |
 |---|---|
-| [getting-started.md](docs/getting-started.md) | install, credentials, a first source, a first project |
+| [getting-started.md](docs/getting-started.md) | install, credentials, a first source, a first deployment |
 | [user-guide.md](docs/user-guide.md) | every command, `--json` scripting, MCP servers, choosing a runtime, what to do when something is wrong |
 | [configuring-a-deployment.md](docs/configuring-a-deployment.md) | the deployment directory, branding, saved commands |
 | [demos/](docs/demos/) | scripted walkthroughs with captured output |

@@ -25,7 +25,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -39,7 +39,7 @@ from .models import Skill
 #: as `append`: a misspelled mode should not cost a deployment its voice.
 PERSONA_MODES = ("append", "replace")
 
-#: Where `intel project add` records extra search locations, and what a deployment sets.
+#: Extra search locations a host sets; `intel deployment add` records them in config.
 ENV_PROJECTS = "LATENT_INTEL_PROJECTS"
 #: Overrides the active project for one invocation. How two terminals run two projects.
 ENV_ACTIVE = "LATENT_INTEL_PROJECT"
@@ -66,6 +66,7 @@ TOP_LEVEL_KEYS = frozenset(
         "skills",
         "agents",
         "defaults",
+        "root",
     }
 )
 
@@ -155,6 +156,34 @@ def _option(key: str, value: Any, base: Path, variables: dict[str, str]) -> Any:
     if key in LOCATION_OPTIONS:
         return _resolve(value, base, variables)
     return _substituted(value, variables)
+
+
+def _root(
+    value: Any, base: Path, variables: dict[str, str], problems: list[str]
+) -> Path | None:
+    """A declared `root:`, resolved — or `None` and a problem, never the default.
+
+    Falling back to the deployment's directory would put products somewhere the author
+    did not ask for. A URI becomes a `UPath`, imported only then, so a local root costs
+    no fsspec on start-up; the connectors follow the same rule.
+    """
+    if not isinstance(value, str) or not value.strip():
+        problems.append(f"root: {value!r} is not a path or URI")
+        return None
+    try:
+        resolved = _resolve(value, base, variables)
+    except UnsetVariable as exc:
+        problems.append(f"root: {exc}")
+        return None
+    if "://" not in resolved:
+        return Path(resolved)
+    from upath import UPath
+
+    try:
+        return cast(Path, UPath(resolved))
+    except ValueError as exc:  # an unknown or mis-cased scheme
+        problems.append(f"root: {exc}")
+        return None
 
 
 def _persona(
@@ -390,6 +419,11 @@ class Project:
     #: Delegates, from the `agents:` directory — see `subagents.py`. Read here; run only
     #: by a runtime that declares `agent.base.Delegating`.
     agents: list[subagents.Subagent] = field(default_factory=list)
+    #: Where the deployment's products go: `root:`, else the file's directory. A local
+    #: path or a remote URI (`s3://…`, a `UPath`). `None` only when a declared `root:`
+    #: could not be resolved — a problem says why, and nothing may fall back to writing
+    #: elsewhere.
+    root: Path | None = None
     #: Validation complaints. Non-fatal by design: a project with one bad source should
     #: still attach the other four, and `doctor` is where you go to find out why.
     problems: list[str] = field(default_factory=list)
@@ -407,7 +441,7 @@ def load(path: Path | str) -> Project:
     except (yaml.YAMLError, OSError) as exc:
         raise ProjectError(f"{path}: {exc}") from exc
     if not isinstance(raw, dict):
-        raise ProjectError(f"{path}: a project must be a mapping")
+        raise ProjectError(f"{path}: a deployment must be a mapping")
 
     base = path.parent
     variables = {str(k): str(v) for k, v in (raw.get("vars") or {}).items()}
@@ -420,7 +454,7 @@ def load(path: Path | str) -> Project:
 
     name = str(raw.get("name") or path.stem)
     if name in RESERVED:
-        problems.append(f"'{name}' is reserved — rename the project")
+        problems.append(f"'{name}' is reserved — rename the deployment")
 
     sources: list[SourceSpec] = []
     for row in raw.get("sources") or []:
@@ -480,10 +514,12 @@ def load(path: Path | str) -> Project:
     # in Claude Code, and saying so is the difference between a shadow and a mystery.
     commands, _ = procedures.discover(commands_dir)
     problems += [
-        f"skills: /{s.name} is also a project command; the skill wins"
+        f"skills: /{s.name} is also a deployment command; the skill wins"
         for s in skills
         if s.user_invocable and s.name in commands
     ]
+
+    root = _root(raw["root"], base, variables, problems) if "root" in raw else base
 
     registry: str | None = None
     if registry_value := raw.get("registry"):
@@ -509,6 +545,7 @@ def load(path: Path | str) -> Project:
         persona_mode=persona_mode,
         skills=skills,
         defaults=dict(raw.get("defaults") or {}),
+        root=root,
         problems=problems,
     )
 

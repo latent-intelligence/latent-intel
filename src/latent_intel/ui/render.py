@@ -82,7 +82,7 @@ def _context(console: Console, event: ev.RunContext) -> None:
     setup = " · ".join(p for p in (event.runtime, event.host, event.model) if p)
     parts = [f"[source]{escape(setup or 'no runtime')}[/]"]
     if event.project:
-        parts.append(f"[dim]project[/] [source]{escape(event.project)}[/]")
+        parts.append(f"[dim]deployment[/] [source]{escape(event.project)}[/]")
     if event.context.hash:
         parts.append(f"[dim]context[/] {escape(event.context.hash[:8])}")
     # Only when on: `off` is what every header without this part means, and naming it
