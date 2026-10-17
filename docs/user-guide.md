@@ -111,10 +111,10 @@ Leave it out and every other tool still works — only that escalation reports i
 nothing to read. A source's tools are discovered when it connects; `/tools` in the
 shell lists them.
 
-`--deployment` takes the deployment's wiki and its context from latent-wiki's own
-declaration. Serving a bare store instead, `lw serve --store <wiki> --context <context>`
-says the same two things by hand. A registered wiki records one of these as its `access:`
-line. The server names pages `<store id>:<key>` and knows nothing about this client; the
+`--deployment` takes the deployment's own folder, the one holding its `<name>.yaml`, as a
+local path or any fsspec URI such as `s3://`; the server reads the wiki and its context
+from that declaration. A registered wiki records this command as its `access:` line. The
+server names pages `<store id>:<key>` and knows nothing about this client; the
 `design:` in a citation is swapped in here for the store id, from the id you attached the
 source under, so rename a source freely. A relative path resolves against the directory the server starts
 in;

@@ -128,7 +128,7 @@ class McpConnector:
         if options:
             # Nothing else is read here, and an option that configures nothing would
             # leave a source believing it was configured (a wiki's context, say, which
-            # is the server's own --deployment or --context).
+            # comes from the server's own --deployment).
             raise ConnectError(
                 f"{source_id}: an MCP source takes env and cwd; "
                 f"{', '.join(sorted(options))} would configure nothing"

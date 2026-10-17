@@ -1,14 +1,15 @@
 """A wiki through its own adapter: `lw serve`, reached like any other MCP server.
 
 latent-intel reads no wiki format itself. This is the one test against the real server,
-over the copied format fixtures, and it is skipped where latent-wiki is not installed —
-which is every clone that does not have it beside it.
+over a deployment built around the copied format fixtures, and it is skipped where
+latent-wiki is not installed — which is every clone that does not have it beside it.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -35,17 +36,29 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def lw_serve() -> str:
+@pytest.fixture
+def deployment(tmp_path: Path) -> Path:
+    """A deployment around the format fixtures: declaration, config, wiki, context."""
+    root = tmp_path / "heronsgate"
+    shutil.copytree(FORMATS / "wiki-store", root / "wiki")
+    shutil.copytree(FORMATS / "context-store", root / "context")
+    shutil.copy(root / "wiki" / "wiki.yaml", root / "wiki.yaml")
+    (root / "heronsgate.yaml").write_text(
+        "schema_version: 1\nwiki: {config: wiki.yaml}\n"
+    )
+    return root
+
+
+def lw_serve(deployment: Path) -> str:
     """The server itself, not a wrapper: the interpreter running these tests."""
     argv = [sys.executable, "-m", "latent_wiki.cli.main", "serve"]
-    argv += ["--store", str(FORMATS / "wiki-store")]
-    argv += ["--context", str(FORMATS / "context-store")]
+    argv += ["--deployment", str(deployment)]
     return shlex.join(argv)
 
 
-async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve() -> None:
+async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve(deployment: Path) -> None:
     connector = await connectors.open_connector(
-        connectors.build("mcp", "heron", lw_serve())
+        connectors.build("mcp", "heron", lw_serve(deployment))
     )
     try:
         tools = {t.name: t for t in connector.tools()}
@@ -72,12 +85,14 @@ async def test_a_wiki_is_an_mcp_source_pointing_at_lw_serve() -> None:
         await connector.aclose()
 
 
-async def test_a_wiki_s_refs_are_labelled_here_and_never_by_the_server() -> None:
+async def test_a_wiki_s_refs_are_labelled_here_and_never_by_the_server(
+    deployment: Path,
+) -> None:
     """Agnostic both ways: the server's text names no client, and the recorded refs
     carry the label this session attached it under."""
     runtime = CallingRuntime("heron", "wiki_search", {"query": "limpets"})
     session = Session(runtime=runtime)
-    await session.connect(lw_serve(), kind="mcp", source_id="heron")
+    await session.connect(lw_serve(deployment), kind="mcp", source_id="heron")
     result = await result_of(session)
     assert "heron:" not in result.output
     assert result.refs == ["heron:count-limpets"]

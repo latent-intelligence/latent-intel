@@ -11,7 +11,8 @@ would tie it to the machine that authored it. Point at a registry with
 `KNOWLEDGE_REGISTRY`, or let a project carry its own `registry:`.
 
 There is deliberately **no default store**. Searching the wrong store is worse than
-failing to start — the same reason `lw serve` will not start without `--store`.
+failing to start — the same reason `lw serve` will not start without
+`--deployment <folder>`.
 """
 
 from __future__ import annotations
