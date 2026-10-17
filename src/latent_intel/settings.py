@@ -18,7 +18,6 @@ machine whose project file is malformed — that is the machine where you need i
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from . import config as config_module
@@ -134,17 +133,15 @@ def load(name: str | None = None) -> Settings:
     for source in declared:
         origin.setdefault(f"source:{source.id}", "deployment")
 
-    # A pre-projects `sources:` block keeps working until `deployment migrate` runs, so
-    # an unmigrated install behaves exactly as it did.
-    if config.legacy_sources:
-        known = {s.id for s in sources}
-        for source in config.legacy_sources:
-            if source.id not in known:
-                sources.append(source)
-                origin[f"source:{source.id}"] = "legacy"
+    # Named, never attached and never dropped: `save` keeps the block, so moving it
+    # into a deployment by hand loses nothing.
+    if (old := config.extra.get("sources")) is not None:
+        rows = old if isinstance(old, list) else []
+        ids = [str(row.get("id")) for row in rows if isinstance(row, dict)]
         problems.append(
-            "sources: at the top of config.yaml is legacy — "
-            "run `intel deployment migrate`"
+            "sources: at the top of config.yaml is no longer read"
+            + (f" ({', '.join(ids)})" if ids else "")
+            + " — move them into a deployment's sources:"
         )
     settings.sources = sources
 
@@ -214,8 +211,3 @@ def load(name: str | None = None) -> Settings:
     if name is None:
         _CACHE[key] = settings
     return settings
-
-
-def project_home() -> Path:
-    """Where `intel deployment migrate` writes."""
-    return config_module.home() / "projects"

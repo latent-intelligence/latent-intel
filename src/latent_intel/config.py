@@ -93,14 +93,6 @@ class Config:
     overlays: dict[str, Overlay] = field(default_factory=dict)
     #: Theme token overrides, merged over the project's and the engine's.
     theme: dict[str, str] = field(default_factory=dict)
-    #: A pre-projects `sources:` block, kept verbatim until `deployment migrate` runs.
-    #:
-    #: Neither obvious alternative is safe. Dropping it from the known set sweeps it
-    #: into `extra`, which `save` round-trips while *nothing attaches* — the file still
-    #: looks right. Keeping it known while no longer populating it is worse: `save`
-    #: rebuilds the payload from scratch, so the block is deleted on the next keystroke
-    #: that writes config. Silent no-op, or silent loss. Hence: verbatim, until migrate.
-    legacy_sources: list[SourceSpec] = field(default_factory=list)
     #: Which agent runtime to use. None means none configured, which `ask` reports.
     runtime: str | None = None
     #: Per-runtime settings, keyed by runtime name. Nested rather than flat because a
@@ -238,8 +230,10 @@ def load() -> Config:
             detached=[str(d) for d in (body.get("detached") or [])],
         )
 
+    # A top-level `sources:` block from before deployments is not known: it lands in
+    # `extra`, so `save` keeps it verbatim, and settings reports it by name rather than
+    # attaching it. Sources belong to a deployment.
     known = {
-        "sources",
         "runtime",
         "runtimes",
         "approval",
@@ -266,7 +260,6 @@ def load() -> Config:
         ],
         overlays=overlays,
         theme={str(k): str(v) for k, v in (data.get("theme") or {}).items()},
-        legacy_sources=rows(data.get("sources")),
         runtime=data.get("runtime") or None,
         runtimes=runtimes,
         approval=str(data.get("approval") or "ask"),
@@ -296,10 +289,6 @@ def save(config: Config) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Unrecognised keys first, so anything this build knows about still wins.
     payload: dict[str, Any] = dict(config.extra)
-    # Emitted verbatim until `deployment migrate` runs. Writing it back is what stops a
-    # keystroke deleting a block this build no longer populates.
-    if config.legacy_sources:
-        payload["sources"] = [_row(source) for source in config.legacy_sources]
     if config.deployment:
         payload["deployment"] = config.deployment
     if config.deployment_paths:

@@ -95,3 +95,32 @@ def test_the_new_key_wins_when_a_config_carries_both(
     loaded = config.load()
     assert loaded.deployment == "new"
     assert loaded.deployment_paths == ["/a"]
+
+
+def test_a_top_level_sources_block_is_not_attached_but_named_and_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sources belong to a deployment. A block from before deployments attaches nothing,
+    says so by name, and survives a save, so moving it by hand loses nothing."""
+    from latent_intel import settings
+
+    monkeypatch.setenv("LATENT_INTEL_HOME", str(tmp_path))
+    path = config.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "sources:\n  - {id: notes, kind: files, target: ~/notes}\n", encoding="utf-8"
+    )
+    settings.invalidate()
+
+    resolved = settings.load()
+    assert [s.id for s in resolved.sources] == []
+    assert any(
+        "sources:" in p and "notes" in p and "deployment" in p
+        for p in resolved.problems
+    )
+
+    loaded = config.load()
+    loaded.runtime = "custom"
+    config.save(loaded)
+    written = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert written["sources"] == [{"id": "notes", "kind": "files", "target": "~/notes"}]
