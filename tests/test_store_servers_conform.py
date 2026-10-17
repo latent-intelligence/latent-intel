@@ -3,7 +3,7 @@ rules for an MCP adapter, so the two cannot drift apart.
 
 The rules: a server starts from a deployment's folder and from nothing less; its MCP
 name is the store's own id, and every key it prints is `<that name>:<key>`; no tool
-writes; a search is bounded and says what it cut; every resource it lists reads back.
+writes; an answer that is cut says so; every resource it lists reads back.
 Each check runs over real stdio against the deployment that server's own over-MCP test
 builds, and is skipped where that server's package is not installed.
 """
@@ -50,25 +50,31 @@ class Store:
     store_id: str
     serve: Callable[[Path], str]
     lists_keys: Call  # an answer naming every listed resource
-    past_bound: Call | None  # a search the contract refuses for its limit
-    cut_short: tuple[str, dict[str, Any], str]  # a capped call, and what it says
+    cut_short: tuple[tuple[str, dict[str, Any], str], ...]  # cut calls, what each says
 
+
+TRUNCATED = '"truncated": true'
 
 WIKI = Store(
     fixture="wiki_deployment",
     store_id="heronsgate",
     serve=latent_wiki_serve,
     lists_keys=("wiki_index", {}),
-    past_bound=None,
-    cut_short=("wiki_search", {"query": "pool", "limit": 1}, "cut: first 1;"),
+    cut_short=(
+        ("wiki_search", {"query": "pool", "limit": 1}, "cut: first 1;"),
+        ("wiki_search", {"query": "pool", "limit": 500}, "limit lowered to 50"),
+    ),
 )
 RECORDS = Store(
     fixture="records_deployment",
     store_id="brindlewick-hives",
     serve=records_serve,
     lists_keys=("contains", {"phrase": "the"}),
-    past_bound=("search", {"query": "frame", "space": "hivewright", "limit": 500}),
-    cut_short=("contains", {"phrase": "the"}, '"truncated": '),
+    cut_short=(
+        ("search", {"query": "frame", "space": "hivewright", "limit": 1}, TRUNCATED),
+        # Too few matches here to pass the 50 ids it lists; it still carries the signal.
+        ("contains", {"phrase": "the"}, '"truncated": '),
+    ),
 )
 
 
@@ -162,22 +168,11 @@ async def test_no_tool_writes(store: Store, folder: Path) -> None:
         assert not {w.lower().strip(".,") for w in first} & WRITES, tool.name
 
 
-async def test_a_search_past_its_bound_is_refused(store: Store, folder: Path) -> None:
-    if store.past_bound is None:
-        pytest.skip("its contract caps the limit without saying it refuses one")
+async def test_an_answer_that_is_cut_says_so(store: Store, folder: Path) -> None:
     async with connected(store, folder) as client:
-        result = await client.call_tool(*store.past_bound)
-    said = text_of(result).strip()
-    assert result.is_error
-    assert len(said.splitlines()) == 1, said
-    assert "limit" in said
-
-
-async def test_a_capped_answer_says_what_it_cut(store: Store, folder: Path) -> None:
-    tool, arguments, cut = store.cut_short
-    async with connected(store, folder) as client:
-        said = text_of(await client.call_tool(tool, arguments))
-    assert cut in said
+        for tool, arguments, cut in store.cut_short:
+            said = text_of(await client.call_tool(tool, arguments))
+            assert cut in said, tool
 
 
 async def test_every_listed_resource_reads_back(store: Store, folder: Path) -> None:
