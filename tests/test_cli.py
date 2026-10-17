@@ -1312,6 +1312,45 @@ def test_a_deployment_chosen_by_the_environment_keys_the_overlay_by_that_name(
     assert config_module.load().find("c", "team") is None
 
 
+def test_deployment_new_writes_one_that_add_and_use_take(tmp_path: Path) -> None:
+    where = tmp_path / "work"
+    made = runner.invoke(app, ["deployment", "new", "field", str(where)])
+    assert made.exit_code == 0, made.output
+    assert (where / "field" / "field.yaml").is_file()
+    assert "intel deployment add" in made.stdout
+
+    assert (
+        runner.invoke(app, ["deployment", "add", str(where / "field")]).exit_code == 0
+    )
+    assert runner.invoke(app, ["deployment", "use", "field"]).exit_code == 0
+    assert runner.invoke(app, ["deployment", "validate"]).exit_code == 0
+
+
+def test_deployment_new_refuses_a_name_already_found(tmp_path: Path) -> None:
+    _deployment(tmp_path, "research")
+    result = runner.invoke(app, ["deployment", "new", "research", str(tmp_path / "w")])
+    assert result.exit_code == 1
+    assert "already" in result.output
+    assert not (tmp_path / "w").exists()
+
+
+def test_deployment_new_refuses_a_bad_name_and_writes_nothing(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["deployment", "new", "Bad Name", str(tmp_path)])
+    assert result.exit_code == 1
+    assert not (tmp_path / "Bad Name").exists()
+
+
+def test_deployment_new_into_a_file_says_so_without_a_traceback(
+    tmp_path: Path,
+) -> None:
+    blocker = tmp_path / "a-file"
+    blocker.write_text("", encoding="utf-8")
+    result = runner.invoke(app, ["deployment", "new", "field", str(blocker)])
+    assert result.exit_code == 1
+    assert "✗" in result.output
+    assert isinstance(result.exception, SystemExit)
+
+
 def test_there_is_no_deployment_migrate() -> None:
     result = runner.invoke(app, ["deployment", "migrate"])
     assert result.exit_code != 0

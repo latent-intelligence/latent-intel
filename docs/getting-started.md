@@ -161,11 +161,16 @@ your last search, and Ctrl-D leaves.
 ## A deployment — several sources, plus branding
 
 A deployment is one YAML file, and the directory around it: its sources, its branding,
-its saved commands. The engine is installed once and reads deployments; it never writes
-them.
+its saved commands. The engine is installed once and reads deployments; it never edits
+them. `intel deployment new` writes a new one, from the worked example, and nothing else:
+
+```bash
+intel deployment new research ~/deployments   # writes ~/deployments/research/research.yaml
+```
 
 You do not need to have attached anything above first — a deployment declares its own
-sources, and switching to one attaches all of them at once.
+sources, and switching to one attaches all of them at once. Fill in what the file shows
+commented, for instance:
 
 ```yaml
 # ~/deployments/research/research.yaml
@@ -185,6 +190,8 @@ sources:
     target: ~/knowledge/raw
 ```
 
+Then make it the active one:
+
 ```bash
 intel deployment add ~/deployments/research   # finds it in place; nothing is copied
 intel deployment use research
@@ -202,8 +209,9 @@ Three things worth knowing, and they are the ones that bite otherwise:
 - **`intel connect` never edits the deployment file.** It records into your own overlay
   for the active deployment, so a checked-out deployment repo stays clean.
 
-Copy `src/latent_intel/data/projects/latent.yaml` to start — it is the worked example,
-with every field commented in the order the loader reads them.
+The worked example `new` starts from is `src/latent_intel/data/projects/latent.yaml`,
+with every field commented in the order the loader reads them. `new` refuses a folder that
+exists and a name already in use.
 
 Verify before trusting it:
 

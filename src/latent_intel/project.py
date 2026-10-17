@@ -21,6 +21,7 @@ so anything here must be safe for a frontend to read directly.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -548,6 +549,64 @@ def load(path: Path | str) -> Project:
         root=root,
         problems=problems,
     )
+
+
+#: A name `create` writes: lowercase, digits and hyphens, so it is the same on every
+#: filesystem and needs no quoting where it is typed.
+NEW_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+#: The worked example a new deployment starts from, so there is one copy of it.
+EXAMPLE = Path(__file__).parent / "data" / "projects" / "latent.yaml"
+
+_DESCRIPTION = re.compile(r"^description: >\n(?:  .*\n)+", re.MULTILINE)
+
+_HEADER = """\
+# {name} — a latent-intel deployment, written by `intel deployment new`.
+#
+# Every field a deployment may set is shown, commented, in the order the loader reads
+# it. Relative paths resolve against this file's directory, never the working one.
+
+"""
+
+
+def create(directory: Path, name: str) -> Path:
+    """Write `<directory>/<name>/<name>.yaml` from the worked example, named `name`.
+
+    The folder, the file and `name:` agree, so the deployment is chosen by the name it
+    declares. Never writes over anything: an existing folder is refused.
+    """
+    if not NEW_NAME.fullmatch(name) or name in RESERVED:
+        raise ProjectError(
+            f"'{name}' is not a deployment name — lowercase letters, digits and "
+            "hyphens, not 'none' or 'default'"
+        )
+    folder = directory.expanduser() / name
+    if folder.exists():
+        raise ProjectError(f"{folder} already exists")
+
+    example = EXAMPLE.read_text(encoding="utf-8")
+    body = example[example.index("schema_version:") :]
+    # Quoted: YAML reads a bare `0123`, `true`, `null` or `2026-10-17` as no string.
+    title = name.replace("-", " ").title()
+    for old, new in (
+        ("name: latent\n", f"name: {json.dumps(name)}\n"),
+        ("title: Latent\n", f"title: {json.dumps(title)}\n"),
+        ("  name: LATENT\n", f"  name: {json.dumps(name.upper())}\n"),
+        ('"latent › "', f'"{name} › "'),
+    ):
+        if body.count(old) != 1:
+            raise ProjectError(f"the worked example no longer holds {old.strip()!r}")
+        body = body.replace(old, new)
+    body, count = _DESCRIPTION.subn(
+        "description: >\n  What this deployment is for.\n", body, count=1
+    )
+    if count != 1:
+        raise ProjectError("the worked example no longer holds its description")
+
+    folder.mkdir(parents=True)
+    path = folder / f"{name}.yaml"
+    path.write_text(_HEADER.format(name=name) + body, encoding="utf-8")
+    return path
 
 
 def search_paths(

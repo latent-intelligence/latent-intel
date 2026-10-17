@@ -690,3 +690,62 @@ def test_loading_a_deployment_does_not_import_fsspec() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert out.stdout.split() == ["False", "False"]
+
+
+# -- intel deployment new -------------------------------------------------------
+
+
+def test_a_new_deployment_is_the_worked_example_under_its_own_name(
+    tmp_path: Path,
+) -> None:
+    path = project.create(tmp_path, "field-notes")
+    assert path == tmp_path / "field-notes" / "field-notes.yaml"
+    loaded = project.load(path)
+    assert loaded.name == "field-notes"
+    assert loaded.title == "Field Notes"
+    assert loaded.branding["name"] == "FIELD-NOTES"
+    assert loaded.problems == []
+    text = path.read_text(encoding="utf-8")
+    assert "# sources:" in text and "the project that ships with the engine" not in text
+
+
+def test_every_commented_key_in_a_new_deployment_is_one_the_loader_accepts(
+    tmp_path: Path,
+) -> None:
+    """Uncommenting a top-level key the example shows must never be an unknown key."""
+    text = project.create(tmp_path, "research").read_text(encoding="utf-8")
+    shown = {
+        line[2:].split(":", 1)[0]
+        for line in text.splitlines()
+        if line.startswith("# ")
+        and line[2:3].isalpha()
+        and ":" in line
+        and " " not in line[2:].split(":", 1)[0]
+    }
+    assert shown, "no commented keys found"
+    assert shown <= project.TOP_LEVEL_KEYS, shown - project.TOP_LEVEL_KEYS
+
+
+@pytest.mark.parametrize("name", ["0123", "true", "no", "null", "2026-10-17", "1e3"])
+def test_a_new_deployment_is_named_as_typed_whatever_yaml_would_read(
+    tmp_path: Path, name: str
+) -> None:
+    loaded = project.load(project.create(tmp_path, name))
+    assert loaded.name == name
+    assert isinstance(loaded.title, str) and loaded.branding["name"] == name.upper()
+
+
+@pytest.mark.parametrize("name", ["Research", "re search", "../up", "-x", "", "none"])
+def test_a_new_deployment_refuses_a_name_it_could_not_be_chosen_by(
+    tmp_path: Path, name: str
+) -> None:
+    with pytest.raises(project.ProjectError):
+        project.create(tmp_path, name)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_new_deployment_never_writes_over_a_directory(tmp_path: Path) -> None:
+    (tmp_path / "research").mkdir()
+    with pytest.raises(project.ProjectError, match="already exists"):
+        project.create(tmp_path, "research")
+    assert list((tmp_path / "research").iterdir()) == []

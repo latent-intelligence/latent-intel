@@ -78,7 +78,9 @@ vocabulary free to change without touching a single connector.
   The test is mechanical: **if it can be expressed as `list[Command]` over installed
   capabilities it is a composition and belongs in a deployment; if it needs a new
   `Connector` or `Runtime` it is a capability and belongs in an entry point.**
-- **A deployment is read, never written.** The engine writes only the user's own config.
+- **A deployment is read, never written.** The engine writes only the user's own config,
+  and `intel deployment new`, which writes a deployment that does not exist yet and
+  refuses any that does.
   `connect` records into that user's overlay for the active deployment; `disconnect` on a
   deployment-declared source records a detachment. A tool that edited the deployment
   file would make a checked-out deployment repo dirty on first use.
