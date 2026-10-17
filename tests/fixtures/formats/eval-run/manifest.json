@@ -1,0 +1,71 @@
+{
+  "format": "latent-intel.eval-run",
+  "format_version": 1,
+  "run_id": "20260821T120000Z-5a3c1e",
+  "latent_intel_version": "0.1.0",
+  "deployment": "research",
+  "started": "2026-08-21T12:00:00.120000+00:00",
+  "finished": null,
+  "cases": {
+    "name": "cases.yaml",
+    "sha256": "79bee3177e7fd867f3f062da3ad00673ae25b6d48af631fd65f9a90967213dbc",
+    "count": 3
+  },
+  "repeat": 1,
+  "variants": [
+    {
+      "id": "haiku",
+      "deployment": "research",
+      "runtime": "anthropic-sdk"
+    },
+    {
+      "id": "sonnet",
+      "deployment": "research",
+      "runtime": "claude-agent-sdk"
+    }
+  ],
+  "recordings": [
+    {
+      "path": "haiku/q1.1.jsonl",
+      "case_id": "q1",
+      "variant_id": "haiku",
+      "epoch": 1,
+      "status": "ok"
+    },
+    {
+      "path": "sonnet/q1.1.jsonl",
+      "case_id": "q1",
+      "variant_id": "sonnet",
+      "epoch": 1,
+      "status": "ok"
+    },
+    {
+      "path": "haiku/q2.1.jsonl",
+      "case_id": "q2",
+      "variant_id": "haiku",
+      "epoch": 1,
+      "status": "failed"
+    },
+    {
+      "path": "sonnet/q2.1.jsonl",
+      "case_id": "q2",
+      "variant_id": "sonnet",
+      "epoch": 1,
+      "status": "ok"
+    },
+    {
+      "path": "haiku/q3.1.jsonl",
+      "case_id": "q3",
+      "variant_id": "haiku",
+      "epoch": 1,
+      "status": "pending"
+    },
+    {
+      "path": "sonnet/q3.1.jsonl",
+      "case_id": "q3",
+      "variant_id": "sonnet",
+      "epoch": 1,
+      "status": "pending"
+    }
+  ]
+}

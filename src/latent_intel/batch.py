@@ -33,10 +33,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final, Literal
 from uuid import uuid4
 
 import yaml
+from pydantic import BaseModel, Field
 
 from . import __version__
 from . import config as config_module
@@ -50,8 +51,8 @@ from .session import Session
 
 log = logging.getLogger(__name__)
 
-MANIFEST_FORMAT = "latent-intel.eval-run"
-MANIFEST_VERSION = 1
+MANIFEST_FORMAT: Final = "latent-intel.eval-run"
+MANIFEST_VERSION: Final = 1
 
 MANIFEST_NAME = "manifest.json"
 
@@ -75,6 +76,66 @@ FREE_HOSTS = frozenset({"local"})
 
 #: Where the package is installed; a root beneath it would write into the source tree.
 PACKAGE = Path(__file__).resolve().parent
+
+
+class ManifestCases(BaseModel):
+    #: The case file's name, never its path.
+    name: str
+    sha256: str = Field(pattern="^[0-9a-f]{64}$")
+    count: int = Field(ge=1)
+
+
+class ManifestVariant(BaseModel):
+    id: str
+    #: The deployment's name, never its path.
+    deployment: str
+    runtime: str
+
+
+class ManifestRecording(BaseModel):
+    #: Relative to the manifest. A `pending` entry may have no file yet.
+    path: str
+    case_id: str
+    variant_id: str
+    epoch: int = Field(ge=1)
+    status: Literal["pending", "ok", "failed"]
+
+
+class Manifest(BaseModel):
+    """`manifest.json`, `latent-intel.eval-run` v1. Spec: `docs/formats/eval-run.md`;
+    the schema at `schemas/eval-run.v1.json` is generated from this model."""
+
+    #: Required, without defaults, so the schema requires them: a reader refuses a
+    #: manifest that does not say which version it is.
+    format: Literal["latent-intel.eval-run"]
+    format_version: Literal[1]
+    run_id: str
+    latent_intel_version: str
+    #: The starting deployment's name, whose root holds the run.
+    deployment: str
+    #: ISO 8601, UTC. `finished` is null until the last run ends.
+    started: str
+    finished: str | None
+    cases: ManifestCases
+    repeat: int = Field(ge=1)
+    variants: list[ManifestVariant]
+    recordings: list[ManifestRecording]
+
+
+def manifest_schema() -> dict[str, Any]:
+    """The JSON Schema a manifest satisfies, as committed at `schemas/eval-run.v1.json`.
+    A reader ignores a field it does not know, so the schema allows them."""
+    return {
+        **Manifest.model_json_schema(mode="serialization"),
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": f"{MANIFEST_FORMAT}.v{MANIFEST_VERSION}",
+        "title": f"{MANIFEST_FORMAT} v{MANIFEST_VERSION}, manifest.json",
+        "description": (
+            "The manifest of one batch eval run: what ran, and each recording's "
+            "status. A reader refuses a missing or unknown format_version. "
+            "Spec: docs/formats/eval-run.md."
+        ),
+    }
 
 
 class BatchError(Exception):
@@ -143,35 +204,35 @@ class Plan:
         """Names only, never a path: variant options are left out, because a `cwd` or
         a binary path is a location, and each recording's header already names the
         model and host that answered."""
-        return {
-            "format": MANIFEST_FORMAT,
-            "format_version": MANIFEST_VERSION,
-            "run_id": self.run_id,
-            "latent_intel_version": __version__,
-            "deployment": self.deployment,
-            "started": started,
-            "finished": finished,
-            "cases": {
-                "name": self.cases_name,
-                "sha256": self.cases_sha256,
-                "count": len(self.cases),
-            },
-            "repeat": self.repeat,
-            "variants": [
-                {"id": v.id, "deployment": v.deployment_name, "runtime": v.runtime}
+        return Manifest(
+            format=MANIFEST_FORMAT,
+            format_version=MANIFEST_VERSION,
+            run_id=self.run_id,
+            latent_intel_version=__version__,
+            deployment=self.deployment,
+            started=started,
+            finished=finished,
+            cases=ManifestCases(
+                name=self.cases_name, sha256=self.cases_sha256, count=len(self.cases)
+            ),
+            repeat=self.repeat,
+            variants=[
+                ManifestVariant(
+                    id=v.id, deployment=v.deployment_name, runtime=v.runtime
+                )
                 for v in self.variants
             ],
-            "recordings": [
-                {
-                    "path": r.path,
-                    "case_id": r.case_id,
-                    "variant_id": r.variant_id,
-                    "epoch": r.epoch,
-                    "status": r.status,
-                }
+            recordings=[
+                ManifestRecording(
+                    path=r.path,
+                    case_id=r.case_id,
+                    variant_id=r.variant_id,
+                    epoch=r.epoch,
+                    status=r.status,  # type: ignore[arg-type]
+                )
                 for r in self.recordings
             ],
-        }
+        ).model_dump(mode="json")
 
 
 def new_run_id() -> str:

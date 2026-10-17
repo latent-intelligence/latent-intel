@@ -621,3 +621,89 @@ async def test_a_runtime_that_cannot_run_here_plans_but_does_not_execute(
     with pytest.raises(batch.BatchError, match="FAKE_KEY"):
         await batch.execute(planned)
     assert not setup["root"].exists()
+
+
+# -- the published format -------------------------------------------------------
+
+MANIFEST_SCHEMA = Path(__file__).parents[1] / "schemas" / "eval-run.v1.json"
+SAMPLE = Path(__file__).parent / "fixtures" / "formats" / "eval-run"
+
+
+def test_the_committed_manifest_schema_is_the_one_the_model_produces() -> None:
+    """Regenerate with `just schemas` when the manifest changes."""
+    assert json.loads(MANIFEST_SCHEMA.read_text()) == batch.manifest_schema()
+
+
+async def test_every_manifest_a_run_writes_is_valid_against_the_schema(
+    setup: dict[str, Any],
+) -> None:
+    validator = jsonschema.Draft202012Validator(json.loads(MANIFEST_SCHEMA.read_text()))
+    seen: list[dict[str, Any]] = []
+    planned = _plan(setup)
+    directory = setup["root"] / "runs" / planned.run_id
+    manifest = await batch.execute(
+        planned,
+        progress=lambda _: seen.append(
+            json.loads((directory / "manifest.json").read_text())
+        ),
+    )
+    for written in [*seen, manifest]:
+        validator.validate(written)
+
+
+def test_the_schema_refuses_a_manifest_with_no_version() -> None:
+    validator = jsonschema.Draft202012Validator(json.loads(MANIFEST_SCHEMA.read_text()))
+    manifest = json.loads((SAMPLE / "manifest.json").read_text())
+    del manifest["format_version"]
+    assert not validator.is_valid(manifest)
+
+
+def test_the_published_sample_is_what_the_code_writes(tmp_path: Path) -> None:
+    """Regenerate with `uv run python tests/fixtures/build_streams.py`. A sample a
+    consumer copies must be one this build would write."""
+    from tests.fixtures import eval_run_sample
+
+    written = eval_run_sample.pinned(eval_run_sample.run(tmp_path / "work"))
+    committed = {
+        str(p.relative_to(SAMPLE)): p.read_text(encoding="utf-8")
+        for p in SAMPLE.rglob("*")
+        if p.is_file()
+    }
+    assert written == committed
+
+
+def test_the_published_sample_shows_every_case_a_reader_handles() -> None:
+    manifest = json.loads((SAMPLE / "manifest.json").read_text())
+    jsonschema.validate(manifest, json.loads(MANIFEST_SCHEMA.read_text()))
+    recording = jsonschema.Draft202012Validator(SCHEMA)
+    statuses = {e["status"] for e in manifest["recordings"]}
+    assert statuses == {"ok", "failed", "pending"}
+    assert manifest["finished"] is None  # interrupted, so it never finished
+
+    answers: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in manifest["recordings"]:
+        path = SAMPLE / entry["path"]
+        if entry["status"] == "pending":
+            assert not path.exists()
+            continue
+        lines = _lines(path)  # type: ignore[arg-type]
+        for line in lines:
+            recording.validate(line)
+        assert lines[0]["type"] == "run_context"
+        assert (lines[0]["case_id"], lines[0]["variant_id"]) == (
+            entry["case_id"],
+            entry["variant_id"],
+        )
+        if entry["status"] == "ok":
+            answers[entry["case_id"], entry["variant_id"]] = lines[-1]
+            assert {"tool_result", "retrieval_result"} <= {e["type"] for e in lines}
+        else:
+            assert lines[-1]["type"] == "agent_failed"
+
+    stopped = [a for a in answers.values() if a["stopped"]]
+    assert [a["stopped"] for a in stopped] == ["tool_rounds"]
+    assert {a["cost_usd"] is None for a in answers.values()} == {True, False}
+    finished = answers["q1", "haiku"]
+    retrieved = {"notes:tides"}
+    assert set(finished["citations"]) & retrieved
+    assert set(finished["citations"]) - retrieved

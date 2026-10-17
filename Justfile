@@ -44,6 +44,7 @@ contracts:
 # Regenerate the recording format's JSON Schema from the event models.
 schemas:
     uv run python -c 'import json, pathlib; from latent_intel.events import recording_schema as s; pathlib.Path("schemas/recording.v1.json").write_text(json.dumps(s(), indent=2) + "\n")'
+    uv run python -c 'import json, pathlib; from latent_intel.batch import manifest_schema as s; pathlib.Path("schemas/eval-run.v1.json").write_text(json.dumps(s(), indent=2) + "\n")'
 
 # -- running ----------------------------------------------------------------
 

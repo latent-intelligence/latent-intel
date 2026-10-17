@@ -21,6 +21,7 @@ from typing import Any
 from uuid import UUID, uuid5
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from latent_intel import events as ev  # noqa: E402
 from latent_intel.models import (  # noqa: E402
@@ -474,6 +475,10 @@ def main() -> None:
         recorder = build()
         path = recorder.write()
         print(f"{path.name:<22} {len(recorder.events):>2} events")
+    from tests.fixtures import eval_run_sample
+
+    for path in eval_run_sample.write():
+        print(f"eval-run/{path.relative_to(eval_run_sample.SAMPLE)}")
 
 
 if __name__ == "__main__":
