@@ -8,9 +8,9 @@ reachable together with a deployment's persona, skills and commands. It is a cli
 every store and the server of none: a store is reached through its own MCP adapter
 (`latent-wiki serve`, `latent-records serve`) as a `kind: mcp` source, like any other server.
 
-Three frontends are planned. Two exist: a scriptable Typer/Rich CLI and a keyboard-first
-`prompt_toolkit` shell. A web workbench comes later, and the whole design exists so that
-it is an addition rather than a third implementation of the product.
+Two frontends: a scriptable Typer/Rich CLI and a keyboard-first `prompt_toolkit` shell. Both
+sit on one session and one event stream, so a frontend is an addition, never a second
+implementation of the product.
 
 How to use it: [`docs/getting-started.md`](docs/getting-started.md), then
 [`docs/user-guide.md`](docs/user-guide.md).
@@ -23,7 +23,7 @@ Four. Each is cheap to hold now and expensive to retrofit.
 1. **Events are transport-grade.** Every event is a Pydantic model with a common envelope
    (`schema_version`, `event_id`, `session_id`, `operation_id`, `parent_id`, `sequence`,
    `ts`) and JSON-serializable fields. Not "usually serializable" — one field that only
-   works in-process is discovered when the web client is written, which is too late.
+   works in-process breaks the recordings and `--json` output that other programs read.
 2. **A frontend imports `session`, `commands`, `events`, `models`, `ui` — and nothing
    else.** Enforced by `lint-imports` in `just check`, because the violation that breaks
    it passes every other test in the suite. Reaching a connector *through* `Session` is
@@ -99,8 +99,7 @@ vocabulary free to change without touching a single connector.
 - **Failures inside `run()` are events.** A frontend iterating a stream over a transport
   has nowhere to catch an exception. Typed methods raise; `run` emits `AgentFailed`.
 - **Colours are semantic tokens** from `ui/theme.py` — `[accent]`, `[dim]`, `[source]`,
-  never `[green]`. Retheming is one file, and the web client needs the same token names
-  in CSS.
+  never `[green]`. Retheming is one file.
 - **Credentials never touch the config file.** Runtimes read the environment.
   `LATENT_INTEL_HOME` overrides both config and data directories, for tests and for
   multi-tenant hosts.
@@ -140,5 +139,5 @@ vocabulary free to change without touching a single connector.
 4. No module in `src/` reads a store's format (`manifest.json`, `wiki.yaml`,
    `context-store.yaml`), and the suite passes with no store package importable; a store
    is reached through its own server, and a test against one skips without it.
-5. `intel search --json | parse_event` yields no `UnknownEvent` — the guarantee the web
-   client will depend on, checked against live output rather than fixtures alone.
+5. `intel search --json | parse_event` yields no `UnknownEvent` — the guarantee scripts and
+   recordings depend on, checked against live output rather than fixtures alone.
