@@ -63,6 +63,9 @@ class Settings:
     #: The name the user's overlay for this deployment is kept under — the name it is
     #: found and chosen by, which is its file's — so a writer keys it as this reads it.
     overlay_key: str = "default"
+    #: The name the active deployment was chosen by — its file's, which its `name:`
+    #: need not match — even when that file is missing or broken. None with none.
+    chosen: str | None = None
     #: key -> "engine" | "deployment" | "user", for `deployment show`.
     origin: dict[str, str] = field(default_factory=dict)
     #: Non-fatal complaints: a bad project file, a shadowed name, a legacy block.
@@ -142,6 +145,7 @@ def load(name: str | None = None, *, path: Path | None = None) -> Settings:
     settings = Settings(project=loaded, problems=problems, origin=origin)
 
     # -- sources: project, plus user additions, minus user detachments ---------
+    settings.chosen = chosen
     settings.overlay_key = chosen or "default"
     overlay = config.overlays.get(settings.overlay_key, config_module.Overlay())
     declared = loaded.sources if loaded else []

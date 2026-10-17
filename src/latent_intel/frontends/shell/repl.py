@@ -45,6 +45,7 @@ from ...ui import render as render_module
 from .._shared import (
     active_brand,
     console,
+    forget,
     print_hosts,
     record,
     recording_path,
@@ -325,7 +326,7 @@ async def _dispatch(
             elif isinstance(event, ev.SourceConnected) and isinstance(command, Connect):
                 _persist(event.descriptor, command)
             elif isinstance(event, ev.SourceDisconnected):
-                _forget(event.source_id)
+                forget(event.source_id)
             render_module.render(console, event)
             tee(event)
             if recording.path is not None:
@@ -343,12 +344,6 @@ def _persist(descriptor: Descriptor, command: Connect) -> None:
         by_name=command.kind is None,
         options=command.options,
     )
-
-
-def _forget(source_id: str) -> None:
-    cfg = config_module.load()
-    if cfg.remove(source_id):
-        config_module.save(cfg)
 
 
 def _local(
@@ -410,7 +405,7 @@ def _deployment(session: Session, name: str) -> None:
     resolved = settings_module.load()
     if not name:
         console.print(
-            f"[dim]deployment[/] [source]{resolved.project_name or 'none'}[/]"
+            f"[dim]deployment[/] [source]{resolved.chosen or 'none'}[/]"
         )
         return
 

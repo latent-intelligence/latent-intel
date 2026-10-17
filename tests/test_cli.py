@@ -1245,6 +1245,73 @@ def test_deployment_validate_with_nothing_active_says_so() -> None:
     assert "no deployment to validate" in result.output
 
 
+def _renamed(tmp_path: Path) -> Path:
+    """A deployment chosen as `team` whose `name:` says `research`."""
+    path = _deployment(tmp_path, "research")
+    renamed = path.with_name("team.yaml")
+    path.rename(renamed)
+    assert runner.invoke(app, ["deployment", "use", "team"]).exit_code == 0
+    return renamed
+
+
+def test_a_source_connected_to_a_renamed_deployment_attaches_and_disconnects(
+    tmp_path: Path,
+) -> None:
+    """The overlay is kept under the name a deployment is chosen by, not its `name:`."""
+    _renamed(tmp_path)
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+
+    connected = runner.invoke(
+        app, ["connect", str(corpus), "--kind", "files", "--as", "c"]
+    )
+    assert connected.exit_code == 0, connected.output
+    assert config_module.load().find("c", "team") is not None
+    found = runner.invoke(app, ["search", "retrieval"])
+    assert "c:note.md" in found.stdout
+
+    gone = runner.invoke(app, ["disconnect", "c"])
+    assert gone.exit_code == 0, gone.output
+    assert config_module.load().find("c", "team") is None
+
+
+def test_list_and_validate_know_a_renamed_deployment_is_active(
+    tmp_path: Path,
+) -> None:
+    _renamed(tmp_path)
+    listed = runner.invoke(app, ["deployment", "list"])
+    assert any("✓" in line and "team" in line for line in listed.stdout.splitlines())
+    validated = runner.invoke(app, ["deployment", "validate"])
+    assert validated.exit_code == 0, validated.output
+
+
+def test_validate_with_no_argument_reports_a_broken_active_deployment(
+    tmp_path: Path,
+) -> None:
+    _renamed(tmp_path).write_text("name: [unclosed\n", encoding="utf-8")
+    result = runner.invoke(app, ["deployment", "validate"])
+    assert result.exit_code == 1
+    assert "no deployment to validate" not in result.output
+    assert "team.yaml" in "".join(result.output.split())
+
+
+def test_a_deployment_chosen_by_the_environment_keys_the_overlay_by_that_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from latent_intel.frontends import _shared
+
+    _deployment(tmp_path, "research").rename(tmp_path / "projects" / "team.yaml")
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "team")
+    cfg = config_module.load()
+    cfg.add(
+        config_module.SourceSpec(id="c", kind="files", target=str(tmp_path)), "team"
+    )
+    config_module.save(cfg)
+    assert _shared.forget("c")
+    assert config_module.load().find("c", "team") is None
+
+
 def test_there_is_no_deployment_migrate() -> None:
     result = runner.invoke(app, ["deployment", "migrate"])
     assert result.exit_code != 0
