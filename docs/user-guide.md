@@ -755,15 +755,21 @@ one runs the loop on Anthropic's infrastructure while tools stay ours.
   - **Create the agent first:** `intel managed sync --dry-run` prints the agent it would
     create from the active deployment and what is attached, and spends nothing.
     `intel managed sync` creates it, or updates it to a new version, plus one cloud
-    environment. The ids are kept in your own config for the deployment, never in the
-    deployment's file. It refuses when a source did not attach.
+    environment, which may reach only the scope's `allowed_domains`: the service
+    refuses a web tool's domain list outside it. The ids are kept in your own config
+    for the deployment, never in the deployment's file. It refuses when a source did
+    not attach.
   - **A stale agent is refused.** Attach a source, change the persona or skills, or the
     web scope or approval, and the next turn fails with `managed_stale` until you sync
     again. `agent_version:` under the runtime pins an older version, which then runs as
-    it is; an eval variant can be a version.
+    it is, within the hosts the environment allows now: a pin whose domain list
+    differs from the latest sync's is refused by the service. An eval variant can be
+    a version.
   - **Tools stay ours:** each tool is a custom tool whose calls come back over the
     session's own event stream, so no source needs a public endpoint. Of Anthropic's
-    toolset only the web tools the scope names are on; no bash, no files.
+    toolset only the web tools the scope names are on; no bash, no files. The service
+    reports no citations of the pages an answer rests on: the pages are the web tools'
+    refs, and `citations` holds only the `source:key` refs the answer quotes.
   - **First-party only:** the one host is `anthropic`, with `ANTHROPIC_API_KEY`. It needs
     the asyncio event loop, as MCP sources do. `max_tool_rounds` is refused, because the
     service owns its loop; `max_cost_usd` becomes the session's budget.

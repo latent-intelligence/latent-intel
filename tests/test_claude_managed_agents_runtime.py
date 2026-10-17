@@ -70,7 +70,9 @@ class FakeClient:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.beta = SimpleNamespace(
             agents=SimpleNamespace(create=self._create, update=self._update),
-            environments=SimpleNamespace(create=self._environment),
+            environments=SimpleNamespace(
+                create=self._environment, update=self._environment_update
+            ),
         )
 
     def __call__(self) -> FakeClient:
@@ -93,6 +95,10 @@ class FakeClient:
     async def _environment(self, **kwargs: Any) -> Any:
         self.calls.append(("environments.create", kwargs))
         return SimpleNamespace(id="env_1")
+
+    async def _environment_update(self, environment_id: str, **kwargs: Any) -> Any:
+        self.calls.append(("environments.update", {"id": environment_id, **kwargs}))
+        return SimpleNamespace(id=environment_id)
 
 
 def tools() -> list[ToolSpec]:
@@ -287,11 +293,42 @@ async def test_the_first_sync_creates_the_agent_and_its_environment(key: None) -
         "environments.create",
     ]
     assert client.calls[0][1] == definition
+    # The service refuses a web tool's `allowed_domains` outside the environment's
+    # `allowed_hosts`, so the hosts are the scope's allowed domains.
     assert client.calls[1][1]["config"] == {
         "type": "cloud",
-        "networking": {"type": "limited"},
+        "networking": {"type": "limited", "allowed_hosts": ["arxiv.org"]},
     }
     assert synced == {**SYNCED, "fingerprint": fingerprint(definition)}
+
+
+@pytest.mark.anyio
+async def test_a_new_domain_list_updates_the_environment_with_the_agent(
+    key: None,
+) -> None:
+    client = FakeClient()
+    first = ClaudeManagedAgentsRuntime(client_factory=client)
+    synced = await first.provision(first.definition(tools(), **context()))
+    again = ClaudeManagedAgentsRuntime(client_factory=client, synced=synced)
+    scope = WebScope(mode="search", allowed_domains=["docs.python.org", "arxiv.org"])
+    await again.provision(again.definition(tools(), **context(web=scope)))
+    assert [name for name, _ in client.calls][2:] == [
+        "environments.update",
+        "agents.update",
+    ]
+    assert client.calls[2][1] == {
+        "id": "env_1",
+        "config": {
+            "type": "cloud",
+            "networking": {
+                "type": "limited",
+                "allowed_hosts": ["arxiv.org", "docs.python.org"],
+            },
+        },
+    }
+    off = ClaudeManagedAgentsRuntime(client_factory=client, synced=synced)
+    await off.provision(off.definition(tools(), **context(web=WebScope())))
+    assert client.calls[-2][1]["config"]["networking"]["allowed_hosts"] == []
 
 
 @pytest.mark.anyio
@@ -314,10 +351,34 @@ async def test_a_changed_definition_is_a_new_version_in_the_same_environment(
     )
     definition = runtime.definition(tools(), **context())
     synced = await runtime.provision(definition)
-    assert [name for name, _ in client.calls] == ["agents.update"]
-    assert client.calls[0][1]["agent_id"] == "agent_1"
-    assert client.calls[0][1]["version"] == 1
+    assert [name for name, _ in client.calls] == [
+        "environments.update",
+        "agents.update",
+    ]
+    assert client.calls[1][1]["agent_id"] == "agent_1"
+    assert client.calls[1][1]["version"] == 1
     assert (synced["version"], synced["environment_id"]) == (2, "env_1")
+
+
+@pytest.mark.anyio
+async def test_a_failed_environment_update_leaves_the_agent_where_it_was(
+    key: None,
+) -> None:
+    """The environment moves first: an agent updated ahead of a failed environment
+    update would leave the overlay a version behind, and every later sync refused."""
+    client = FakeClient()
+
+    async def refused(environment_id: str, **kwargs: Any) -> Any:
+        client.calls.append(("environments.update", kwargs))
+        raise RuntimeError("503")
+
+    client.beta.environments.update = refused
+    runtime = ClaudeManagedAgentsRuntime(
+        client_factory=client, synced={**SYNCED, "fingerprint": "old"}
+    )
+    with pytest.raises(RuntimeError):
+        await runtime.provision(runtime.definition(tools(), **context()))
+    assert [name for name, _ in client.calls] == ["environments.update"]
 
 
 @pytest.mark.anyio
