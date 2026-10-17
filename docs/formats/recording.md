@@ -49,7 +49,8 @@ header repeats `format` and `format_version`, so files can be concatenated freel
 | `project` | string or null | the active deployment's name, never its path. The field keeps its name from before the rename |
 | `context` | object | the context engineering in force — see below |
 | `sources` | list of `{id, kind}` | attached sources; never a path or a target |
-| `case_id`, `variant_id`, `epoch` | string, string, integer, or null | set by batch eval runs |
+| `case_id`, `variant_id`, `epoch` | string, string, integer, or null | set by batch eval runs — [`eval-run.md`](eval-run.md) |
+| `metadata` | object or null | the case's own `metadata`, copied untouched by a batch eval run; null otherwise |
 
 `context` holds sha256 hex digests, never the text itself: `persona` (null when none),
 `persona_mode`, `skills` and `agents` as `{name: digest}`, and `hash` over all of them.

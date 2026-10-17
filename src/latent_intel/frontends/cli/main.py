@@ -66,8 +66,10 @@ app = typer.Typer(
 
 
 from . import deployment as deployment_cli  # noqa: E402
+from . import eval as eval_cli  # noqa: E402
 
 app.add_typer(deployment_cli.app)
+app.add_typer(eval_cli.app)
 
 
 @app.callback()

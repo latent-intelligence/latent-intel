@@ -18,6 +18,7 @@ machine whose project file is malformed — that is the machine where you need i
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from . import config as config_module
@@ -90,11 +91,16 @@ def _active(config: config_module.Config) -> str | None:
     return os.environ.get(project_module.ENV_ACTIVE) or config.deployment
 
 
-def load(name: str | None = None) -> Settings:
-    """Resolve the layers. Cached per process; `invalidate()` after any write."""
+def load(name: str | None = None, *, path: Path | None = None) -> Settings:
+    """Resolve the layers. Cached per process; `invalidate()` after any write.
+
+    `path` loads one deployment file directly, as a batch eval run does for each
+    variant, without making it the active one. Its user overlay is the one kept under
+    its name, as it would be had it been chosen with `intel deployment use`.
+    """
     config = config_module.load()
     chosen = name or _active(config)
-    key = f"settings:{chosen}"
+    key = f"path:{path.expanduser().resolve()}" if path else f"settings:{chosen}"
     if name is None and (cached := _CACHE.get(key)) is not None:
         assert isinstance(cached, Settings)
         return cached
@@ -103,7 +109,14 @@ def load(name: str | None = None) -> Settings:
     origin: dict[str, str] = {}
     loaded: project_module.Project | None = None
 
-    if chosen:
+    if path is not None:
+        try:
+            loaded = project_module.load(path)
+            problems += loaded.problems
+        except project_module.ProjectError as exc:
+            problems.append(str(exc))
+        chosen = loaded.name if loaded else path.stem
+    elif chosen:
         found, collisions = project_module.discover(
             config.deployment_paths, config_module.home()
         )

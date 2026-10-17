@@ -485,6 +485,37 @@ skills or sources changed, and writes a new header when they did. `/replay <file
 what `intel replay` prints. Session state, and nothing about it is written to your
 config.
 
+### Batch eval runs
+
+`intel eval run` puts every case through every variant and records each run, for
+`latent-eval` to score:
+
+```bash
+intel eval run cases.yaml variants.yaml --repeat 3 --dry-run   # the matrix; spends nothing
+intel eval run cases.yaml variants.yaml --repeat 3             # asks before paid variants
+intel eval run cases.yaml variants.yaml --yes                  # does not ask
+```
+
+Cases are `latent-eval`'s dataset, YAML or JSON Lines, and each case's question is
+`input.question`. A variant is a deployment, a runtime and its options:
+
+```yaml
+variants:
+  - {id: haiku, runtime: anthropic-sdk, options: {model: claude-haiku-4-5}}
+  - {id: sonnet-plain, deployment: ./plain.yaml, runtime: anthropic-sdk,
+     options: {model: claude-sonnet-4-5}}
+```
+
+Each run is a fresh session on its variant's deployment, with that deployment's sources
+attached. Runs go beneath the active deployment's `root:`, at `runs/<run-id>/`, with a
+`manifest.json` naming every recording. A deployment with no usable root, and the built-in
+`latent` one, are refused before anything runs, and so is a variant whose deployment
+reports a problem. A variant is paid unless its host is `local`. Without a terminal to ask, paid variants need `--yes`. A failed run is marked in the
+manifest and the next one starts. Layout and fields:
+[`formats/eval-run.md`](formats/eval-run.md).
+
+The shell has no batch command. Record by hand there with `/record <file> --purpose eval`.
+
 ---
 
 ## MCP servers

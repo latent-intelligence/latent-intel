@@ -264,8 +264,9 @@ class RunContext(BaseEvent):
     format and has no header.
 
     Names, never locations — sources are ids and kinds, the project is a name, and
-    context engineering is content hashes. `case_id`, `variant_id` and `epoch` are
-    filled by batch eval runs.
+    context engineering is content hashes. `case_id`, `variant_id`, `epoch` and
+    `metadata` are filled by batch eval runs; `metadata` is the case's own, copied
+    untouched.
     """
 
     type: Literal["run_context"] = "run_context"
@@ -290,6 +291,8 @@ class RunContext(BaseEvent):
     case_id: str | None = None
     variant_id: str | None = None
     epoch: int | None = None
+    #: Optional and additive, so `SCHEMA_VERSION` does not move.
+    metadata: dict[str, Any] | None = None
 
 
 # -- tools offered ----------------------------------------------------------

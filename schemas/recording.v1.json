@@ -1187,7 +1187,7 @@
       "type": "object"
     },
     "RunContext": {
-      "description": "What produced the events after it: the header of a recording.\n\nFirst in every recording, and again whenever any of it changes, so each stretch of\na file says which runtime, model, project and context engineering made it. Carries\nthe format name and version itself, so a file split or concatenated stays readable.\nWritten by a recording, not by `Session.run`: the `--json` stream is the wire\nformat and has no header.\n\nNames, never locations \u2014 sources are ids and kinds, the project is a name, and\ncontext engineering is content hashes. `case_id`, `variant_id` and `epoch` are\nfilled by batch eval runs.",
+      "description": "What produced the events after it: the header of a recording.\n\nFirst in every recording, and again whenever any of it changes, so each stretch of\na file says which runtime, model, project and context engineering made it. Carries\nthe format name and version itself, so a file split or concatenated stays readable.\nWritten by a recording, not by `Session.run`: the `--json` stream is the wire\nformat and has no header.\n\nNames, never locations \u2014 sources are ids and kinds, the project is a name, and\ncontext engineering is content hashes. `case_id`, `variant_id`, `epoch` and\n`metadata` are filled by batch eval runs; `metadata` is the case's own, copied\nuntouched.",
       "properties": {
         "type": {
           "const": "run_context",
@@ -1377,6 +1377,19 @@
           ],
           "default": null,
           "title": "Epoch"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metadata"
         }
       },
       "required": [
