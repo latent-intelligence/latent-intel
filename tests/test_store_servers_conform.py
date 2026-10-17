@@ -72,7 +72,7 @@ RECORDS = Store(
     lists_keys=("contains", {"phrase": "the"}),
     cut_short=(
         ("search", {"query": "frame", "space": "hivewright", "limit": 1}, TRUNCATED),
-        # Too few matches here to pass the 50 ids it lists; it still carries the signal.
+        # Never cut here (8 matches, 50 listed): this checks only that the key is there.
         ("contains", {"phrase": "the"}, '"truncated": '),
     ),
 )
