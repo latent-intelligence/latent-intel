@@ -24,7 +24,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from .. import events as ev
-from ..models import Effect, Skill, ToolSpec
+from ..models import Effect, RuntimeUnavailable, Skill, ToolSpec
 from . import hosts
 from . import tools as engine_tools
 from .base import WEB_ID
@@ -49,6 +49,46 @@ DEFAULT_MAX_TOKENS = 16384
 #: How many model round-trips one question may take. A bound rather than a budget: a
 #: model that loops calling the same tool would otherwise spend until someone noticed.
 DEFAULT_MAX_TOOL_ROUNDS = 10
+
+#: The closing request's instruction when the round ceiling is reached, sent with tools
+#: described but none allowed: the answer the rounds were protecting, not an error.
+WRAP_UP = (
+    "The tool budget is spent. Answer now from what you have; say what is missing."
+)
+
+
+def max_rounds(value: Any, runtime: str) -> int | None:
+    """`max_tool_rounds` as a runtime holds it: a count of at least one, or None for no
+    ceiling — `none` in a config file, which YAML reads as text, or `null`.
+
+    A zero is refused rather than read as "none": an SDK that drops it lifts the
+    ceiling, the opposite of what a zero was written to mean.
+    """
+    if value is None or value == "none":
+        return None
+    # A count, or its digits: a 2.5 cut down to 2 would be a ceiling nobody wrote.
+    whole = (isinstance(value, int) and not isinstance(value, bool)) or (
+        isinstance(value, str) and value.strip().isdigit()
+    )
+    rounds = int(value) if whole else 0
+    if rounds < 1:
+        raise RuntimeUnavailable(
+            f"`max_tool_rounds` must be a count of at least 1, or none, for runtime "
+            f"'{runtime}' — not {value!r}"
+        )
+    return rounds
+
+
+def refuse_cost(runtime: str, options: dict[str, Any]) -> None:
+    """Refuse a dollar ceiling, by name, on a runtime that is not told what a turn
+    costs. No price table stands in: a stale one would make the ceiling a guess."""
+    if "max_cost_usd" in options:
+        raise RuntimeUnavailable(
+            f"`max_cost_usd` needs a runtime that reports what a turn costs, such as "
+            f"`claude-agent-sdk`; '{runtime}' does not — its cost is compared after "
+            f"the fact, from token usage"
+        )
+
 
 #: Usage fields worth carrying. `AgentCompleted.usage` is `dict[str, int]`, and
 #: everything else on a usage object is a nested structure pydantic would reject.

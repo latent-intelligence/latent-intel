@@ -30,6 +30,7 @@ def test_fixtures_exist() -> None:
         "failure",
         "retrieval",
         "search",
+        "stopped",
         "tool_call",
     }
 

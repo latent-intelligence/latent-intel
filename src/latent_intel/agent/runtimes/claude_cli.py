@@ -274,6 +274,7 @@ class ClaudeCliRuntime:
         cwd: str | None = None,
         **unknown: Any,
     ) -> None:
+        turn.refuse_cost(self.id, unknown)
         # Rejected, not ignored: a key this runtime never reads is a setting the file
         # says is on and nothing honours, and the most likely one is a misspelling of
         # a key that would have changed how the binary is launched.

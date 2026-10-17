@@ -129,13 +129,17 @@ class ChatAdapter:
         transcript: list[dict[str, Any]],
         definitions: list[dict[str, Any]],
         system: str,
+        final: bool = False,
     ) -> dict[str, Any]:
         """`system` is not read: on this protocol the prompt is already the transcript's
         first message. `tokens_param` is whatever the caller resolved — the row's name
-        or the runtime's override — so the adapter stays row-agnostic."""
+        or the runtime's override — so the adapter stays row-agnostic. A user message
+        may follow tool messages here, so the closing instruction is one of its own."""
         request: dict[str, Any] = {
             "model": model,
-            "messages": transcript,
+            "messages": [*transcript, {"role": "user", "content": turn.WRAP_UP}]
+            if final
+            else transcript,
             "stream": True,
             tokens_param or DEFAULT_TOKENS_PARAM: max_tokens,
         }
@@ -146,6 +150,8 @@ class ChatAdapter:
         # Omitted rather than sent empty: the API rejects an empty tool list.
         if definitions:
             request["tools"] = definitions
+            if final:
+                request["tool_choice"] = "none"
         return request
 
     async def round(

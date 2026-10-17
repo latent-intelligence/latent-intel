@@ -171,6 +171,17 @@ def _completed(console: Console, event: ev.AgentCompleted) -> None:
     if event.citations:
         refs = "  ".join(f"[ref]{escape(c)}[/]" for c in event.citations)
         console.print(f"\n[dim]sources:[/] {refs}")
+    if event.stopped:
+        why = _STOPPED.get(event.stopped, f"stopped: {escape(event.stopped)}")
+        console.print(f"\n[dim]{why} — the answer so far[/]")
+
+
+#: What each ceiling is called after an answer it cut short. One it does not know
+#: still renders, by its own name.
+_STOPPED = {
+    "tool_rounds": "stopped at the round ceiling",
+    "cost": "stopped at the cost ceiling",
+}
 
 
 def _failed(console: Console, event: ev.AgentFailed) -> None:

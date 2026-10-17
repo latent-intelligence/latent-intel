@@ -266,6 +266,7 @@ class MessagesAdapter:
         transcript: list[dict[str, Any]],
         definitions: list[dict[str, Any]],
         system: str,
+        final: bool = False,
     ) -> dict[str, Any]:
         """`tokens_param` and `include_usage` are not read: this protocol has one name
         for the output limit and reports usage unasked, and a runtime that was given
@@ -273,8 +274,10 @@ class MessagesAdapter:
         request: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
-            "messages": transcript,
+            "messages": _closing(transcript) if final else transcript,
         }
+        if final and definitions:
+            request["tool_choice"] = {"type": "none"}
         # Omitted rather than sent empty: the API rejects an empty tool list, and an
         # empty system prompt is a wasted instruction.
         if system:
@@ -389,3 +392,18 @@ __all__ = [
     "usage_counts",
     "web_definitions",
 ]
+
+
+def _closing(transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The transcript with `turn.WRAP_UP` after it, as a copy. Added to the last user
+    message when the transcript ends on one — the tool results — so the roles still
+    alternate; otherwise a user message of its own."""
+    wrap = {"type": "text", "text": turn.WRAP_UP}
+    *head, last = transcript
+    if last.get("role") != "user":
+        return [*transcript, {"role": "user", "content": [wrap]}]
+    content = last["content"]
+    blocks = (
+        [{"type": "text", "text": content}] if isinstance(content, str) else content
+    )
+    return [*head, {**last, "content": [*blocks, wrap]}]

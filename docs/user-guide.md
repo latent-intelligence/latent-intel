@@ -736,8 +736,9 @@ runs the loop we wrote, and three hand the loop to a vendor's SDK while tools st
     continues the one it answered. That needs Claude Code's session files, written
     under `~/.claude/projects/`. Switching runtime, host or model mid-conversation
     starts a fresh session with only the latest question.
-  - **Options of its own:** `max_budget_usd` stops a run by cost, and every completed
-    turn reports its cost — the binary's own estimate. `cwd` and `cli_path` are as for
+  - **Options of its own:** `max_cost_usd` stops a run by cost (see
+    [ceilings](#ceilings)), and every completed turn reports its cost — the binary's own
+    estimate. `cwd` and `cli_path` are as for
     `claude-cli`. Its web tools are turned on by `web:`, not by an option here — see
     [research scope](#research-scope).
   - **Subagents** from the deployment's `agents/` directory run here and nowhere else —
@@ -778,7 +779,7 @@ runtimes:
     host: openrouter         # required — no default; `intel hosts` lists the seven
     model: anthropic/claude-sonnet-5  # required on a chat row; a Messages row has one
     max_tokens: 16384
-    max_tool_rounds: 10      # how many model round-trips one question may take
+    max_tool_rounds: 10      # model round-trips per question, or none — see ceilings
     tokens_param: max_tokens # chat hosts only — refused by name on a Messages row
     # include_usage: false   # chat hosts only — for an Azure API version that rejects it
   anthropic-sdk:             # the two Anthropic hosts; no tokens_param or include_usage
@@ -791,7 +792,7 @@ runtimes:
     host: anthropic
     model: claude-sonnet-5
     max_tool_rounds: 10
-    max_budget_usd: 0.50     # optional — stops a run by cost
+    max_cost_usd: 0.50       # optional — stops a run by cost
 ```
 
 The same block may be written in a deployment file, under `agent:` — which is how a deployment
@@ -807,6 +808,36 @@ agent:
 
 A model name is never validated here — we cannot enumerate them and a hardcoded list goes
 stale. An unknown name fails when you ask, with the runtime's own message.
+
+### Ceilings
+
+Two options bound a turn, set under `runtimes: <name>:` like any other:
+
+| Option | Stops a turn | On |
+|---|---|---|
+| `max_tool_rounds` | after that many model round-trips; 10 by default, `none` for no ceiling | `custom`, `anthropic-sdk`, `openai-agents`, `claude-agent-sdk` |
+| `max_cost_usd` | at that many US dollars | runtimes that report what a turn costs: `claude-agent-sdk`. Refused by name on the others, which are priced after the turn from token usage |
+
+**A ceiling keeps the work done so far.** The turn ends with the answer it has, and a line
+saying why it stopped:
+
+```
+latent › compare every compaction strategy in the wiki
+Three of five covered: tiered, sliding, summary.
+stopped at the round ceiling — the answer so far
+```
+
+Under `custom`, reaching the round ceiling sends one closing request: the tools stay
+described, none may be called, and the model is told to answer from what it has. The other
+runtimes end with the text already streamed and spend nothing more. A ceiling reached
+before any text is still a failure.
+
+This applies to every session that reaches a ceiling, a chat as much as a batch. A stopped
+answer exits 0 from `intel ask` and `intel run`. Under `--json` and in a recording,
+`agent_completed` carries `stopped`: `tool_rounds` or `cost`. `none` runs until the model
+stops, as Claude Code does when someone is there to interrupt it. A research deployment
+should set its own `max_tool_rounds` instead, plus `max_cost_usd` where the runtime
+reports cost.
 
 **What the agent can see.** A runtime that owns its own tool loop reaches your sources as
 MCP servers, so under `claude-cli` an `mcp` source is reached as itself and a `files` or

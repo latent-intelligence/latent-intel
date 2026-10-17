@@ -24,6 +24,7 @@ import openai
 import pytest
 
 from latent_intel import events as ev
+from latent_intel.agent import turn
 from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.agent.hosts import base_url
 from latent_intel.agent.runtimes.custom import (
@@ -709,11 +710,11 @@ async def test_an_empty_earlier_answer_is_never_sent_back(
 
 
 @pytest.mark.anyio
-async def test_a_model_looping_on_tools_is_stopped_by_the_round_bound(
+async def test_the_round_ceiling_ends_with_one_closing_request_and_its_answer(
     credentials: None,
 ) -> None:
-    """A bound, not a budget: a model calling the same tool forever would otherwise
-    spend until someone noticed."""
+    """The chat protocol's closing request: tools still described, `tool_choice`
+    `none`, and the instruction as a user message after the tool results."""
     rounds = [
         Round(
             tool_calls=(("c", "design_wiki_get", ("{}",)),),
@@ -721,16 +722,43 @@ async def test_a_model_looping_on_tools_is_stopped_by_the_round_bound(
         )
         for _ in range(3)
     ]
-    client = FakeClient(*rounds)
-    failed = terminal(
+    client = FakeClient(*rounds, Round(text=("Partly: ", "tides.")))
+    done = terminal(
         await collect(
             runtime(client_factory=client, max_tool_rounds=3),
             tools=[spec("wiki_get")],
             call_tool=_router,
         )
     )
-    assert isinstance(failed, ev.AgentFailed) and failed.kind == "tool_rounds"
-    assert len(client.requests) == 3
+    assert isinstance(done, ev.AgentCompleted)
+    assert (done.text, done.stopped) == ("Partly: tides.", "tool_rounds")
+    assert len(client.requests) == 4
+    closing = client.requests[-1]
+    assert closing["tool_choice"] == "none"
+    assert closing["tools"] == client.requests[0]["tools"]
+    assert closing["messages"][-1] == {"role": "user", "content": turn.WRAP_UP}
+    assert closing["messages"][-2]["role"] == "tool"
+
+
+@pytest.mark.anyio
+async def test_no_round_ceiling_runs_until_the_model_stops(credentials: None) -> None:
+    rounds = [
+        Round(
+            tool_calls=(("c", "design_wiki_get", ("{}",)),),
+            finish_reason="tool_calls",
+        )
+        for _ in range(turn.DEFAULT_MAX_TOOL_ROUNDS + 2)
+    ]
+    client = FakeClient(*rounds, Round(text=("done",)))
+    done = terminal(
+        await collect(
+            runtime(client_factory=client, max_tool_rounds=None),
+            tools=[spec("wiki_get")],
+            call_tool=_router,
+        )
+    )
+    assert isinstance(done, ev.AgentCompleted) and done.stopped is None
+    assert len(client.requests) == turn.DEFAULT_MAX_TOOL_ROUNDS + 3
 
 
 @pytest.mark.anyio

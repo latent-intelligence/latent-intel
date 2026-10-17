@@ -111,10 +111,11 @@ class AnthropicSdkRuntime:
         host: str | None = None,
         approval: str = "ask",
         max_tokens: int = turn.DEFAULT_MAX_TOKENS,
-        max_tool_rounds: int = turn.DEFAULT_MAX_TOOL_ROUNDS,
+        max_tool_rounds: int | str | None = turn.DEFAULT_MAX_TOOL_ROUNDS,
         client_factory: Callable[[], Any] | None = None,
         **unknown: Any,
     ) -> None:
+        turn.refuse_cost(self.id, unknown)
         # Rejected, not ignored, for the reason `custom.py` gives: a key nothing reads
         # is a setting the file says is on and no one honours.
         if unknown:
@@ -126,7 +127,9 @@ class AnthropicSdkRuntime:
         self.host = host or os.environ.get(ENV_HOST) or DEFAULT_HOST
         self.approval = approval
         self.max_tokens = int(max_tokens)
-        self.max_tool_rounds = int(max_tool_rounds)
+        #: None is no ceiling: `max_iterations` is left out, and the runner runs until
+        #: the model stops.
+        self.max_tool_rounds = turn.max_rounds(max_tool_rounds, self.id)
         self.client_factory = client_factory
 
     # -- diagnosis ------------------------------------------------------------
@@ -344,13 +347,14 @@ class AnthropicSdkRuntime:
                 "max_tokens": self.max_tokens,
                 "messages": transcript,
                 "tools": [*definitions, *web],
-                "max_iterations": self.max_tool_rounds,
                 "stream": True,
                 # The largest cost lever this runtime has — see the module docstring.
                 "cache_control": {"type": "ephemeral"},
             }
             if system:
                 request["system"] = system
+            if self.max_tool_rounds is not None:
+                request["max_iterations"] = self.max_tool_rounds
 
             runner = client.beta.messages.tool_runner(**request)
             if not definitions and not web:
@@ -436,8 +440,24 @@ class AnthropicSdkRuntime:
 
         # The runner exits silently when `max_iterations` is reached, so a last message
         # it would otherwise have continued from — a tool request, a paused turn, a
-        # compaction — is the ceiling and not a vocabulary we failed to read.
-        if stop in ("tool_use", "pause_turn", "compaction"):
+        # compaction — is the ceiling and not a vocabulary we failed to read. What
+        # streamed before it is the answer so far: no request is made past the bound.
+        if self.max_tool_rounds is not None and stop in (
+            "tool_use",
+            "pause_turn",
+            "compaction",
+        ):
+            text = "".join(answer)
+            if text.strip():
+                yield emitter.emit(
+                    ev.AgentCompleted,
+                    text=text,
+                    streamed=True,
+                    citations=hosted.citations,
+                    usage=usage.totals(elapsed),
+                    stopped="tool_rounds",
+                )
+                return
             yield emitter.emit(
                 ev.AgentFailed,
                 message=f"stopped after {self.max_tool_rounds} rounds of tool calls",

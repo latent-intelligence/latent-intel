@@ -109,11 +109,14 @@ class Adapter(Protocol):
         transcript: list[dict[str, Any]],
         definitions: list[dict[str, Any]],
         system: str,
+        final: bool = False,
     ) -> dict[str, Any]:
         """One request's kwargs. `tokens_param` is the name the output limit goes out
         under where the protocol has more than one, and `include_usage` whether usage
         is asked for where the protocol has to ask; the protocol that has one name and
-        always reports usage ignores both."""
+        always reports usage ignores both. `final` is the closing request at the round
+        ceiling: `turn.WRAP_UP` after the transcript, tools described but none allowed,
+        so the tool calls already in the transcript stay valid."""
         ...
 
     def round(

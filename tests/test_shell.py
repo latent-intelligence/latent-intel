@@ -709,15 +709,16 @@ def test_a_recording_opens_with_its_header_and_adds_one_on_a_change(
     assert [[s.id for s in h.sources] for h in headers] == [[], ["c"]]
 
 
+@pytest.mark.parametrize("name", ["agent_turn", "stopped"])
 def test_shell_replay_prints_what_intel_replay_prints(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
     from typer.testing import CliRunner
 
     from latent_intel.frontends.cli.main import app
     from latent_intel.frontends.shell import repl
 
-    fixture = Path(__file__).parent / "fixtures" / "streams" / "agent_turn.jsonl"
+    fixture = Path(__file__).parent / "fixtures" / "streams" / f"{name}.jsonl"
     cli = CliRunner().invoke(app, ["replay", str(fixture)])
 
     console = _shell(monkeypatch)
