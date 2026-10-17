@@ -1192,3 +1192,18 @@ def test_only_what_sync_recorded_is_read_from_the_overlay(key: None) -> None:
     config_module.save(config)
     options = settings_module.load().runtime_options("claude-managed-agents")
     assert options == {"synced": SYNCED}
+
+
+@pytest.mark.anyio
+async def test_a_refusal_is_one_failure_with_the_service_s_reason(key: None) -> None:
+    """`refusal` arrived in `anthropic` 1.10, with `stop_details` beside it."""
+    stopped = idle("refusal")
+    stopped.stop_details = SimpleNamespace(
+        type="refusal", category="general_harms", explanation="it asked for harm"
+    )
+    server = Server([[stopped]])
+    failed = terminal(await turn(synced_runtime(server)))
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "refusal"
+    assert failed.message == "the model declined to answer — it asked for harm"
+    assert failed.remedy == "rephrase the question"

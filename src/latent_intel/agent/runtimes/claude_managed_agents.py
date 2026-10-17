@@ -58,6 +58,7 @@ from ...models import (
 )
 from .. import bridge, hosts, turn
 from ..base import WEB_ID, refuse_web
+from ..protocols.messages import STOP_FAILURES
 
 #: The one host Managed Agents is served from.
 HOSTS = {"anthropic": hosts.HOSTS["anthropic"]}
@@ -518,6 +519,7 @@ class ClaudeManagedAgentsRuntime:
                         yield self._ending(
                             stop,
                             emitter,
+                            details=getattr(item, "stop_details", None),
                             text=text,
                             usage=usage.totals(int((time.monotonic() - began) * 1000)),
                             cost=None if total is None else total - spent,
@@ -571,6 +573,7 @@ class ClaudeManagedAgentsRuntime:
         stop: str,
         emitter: ev.Emitter,
         *,
+        details: Any = None,
         text: str,
         usage: dict[str, int],
         cost: float | None,
@@ -592,6 +595,15 @@ class ClaudeManagedAgentsRuntime:
                 "message": f"stopped at the cost ceiling of ${self.max_cost_usd}",
                 "kind": "cost",
                 "remedy": "raise `max_cost_usd` under this runtime, or ask for less",
+            }
+        elif stop == "refusal":
+            # As every runtime words a refusal, with the service's reason where given.
+            message, remedy = STOP_FAILURES["refusal"]
+            why = str(getattr(details, "explanation", "") or "")
+            fields = {
+                "message": f"{message} — {why}" if why else message,
+                "kind": "refusal",
+                "remedy": remedy,
             }
         elif stop == "retries_exhausted":
             fields = {
