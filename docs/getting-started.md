@@ -222,7 +222,9 @@ intel deployment show                # every resolved value, and which layer it 
 LATENT_INTEL_HOME                      overrides both — a throwaway setup for trying things
 ```
 
-Credentials never go in the config file; runtimes read the environment.
+Credentials never go in the config file; runtimes read the environment. Sources belong
+to a deployment: a `sources:` list at the top of `config.yaml`, from before deployments,
+is not read, and `intel deployment show` names what it holds so you can move it.
 
 ---
 

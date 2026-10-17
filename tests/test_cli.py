@@ -1205,15 +1205,7 @@ def test_deployment_validate_with_nothing_active_says_so() -> None:
     assert "no deployment to validate" in result.output
 
 
-def test_deployment_migrate_writes_a_deployment_and_activates_it(
-    isolated_home: Path,
-) -> None:
-    path = config_module.config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "sources:\n  - {id: notes, kind: files, target: ~/notes}\n", encoding="utf-8"
-    )
-    result = runner.invoke(app, ["deployment", "migrate", "--to", "mine"])
-    assert result.exit_code == 0, result.output
-    assert config_module.load().deployment == "mine"
-    assert (config_module.home() / "projects" / "mine.yaml").is_file()
+def test_there_is_no_deployment_migrate() -> None:
+    result = runner.invoke(app, ["deployment", "migrate"])
+    assert result.exit_code != 0
+    assert "No such command" in result.output
