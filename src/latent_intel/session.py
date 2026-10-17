@@ -41,6 +41,7 @@ from . import events as ev
 from . import settings as settings_module
 from .agent import base as agent
 from .agent import tools as engine_tools
+from .agent.turn import ToolNameCollision
 from .commands import (
     Ask,
     Command,
@@ -63,6 +64,7 @@ from .models import (
     Hit,
     HostReport,
     Message,
+    Provisioning,
     Ref,
     RuntimeReport,
     RuntimeUnavailable,
@@ -546,6 +548,35 @@ class Session:
         # under `runtimes:<kind>:` would otherwise override the resolved one from the
         # layer beneath it. `settings.load()` reports that key rather than honouring it.
         return {**resolved.runtime_options(kind), "approval": resolved.approval}
+
+    async def provision(self, kind: str, *, dry_run: bool = False) -> Provisioning:
+        """Build the agent a runtime would create from this deployment and what is
+        attached, and create it unless `dry_run` — `intel managed sync`.
+
+        The definition is built from what a turn is given, so a turn can tell when
+        what is attached has moved on from what was created. A dry run makes no
+        request; a real one spends the key, and runs only when someone asks.
+        """
+        resolved = self._settings()
+        runtime = agent.build(kind, **self._runtime_options(kind, resolved))
+        if not isinstance(runtime, agent.Provisioned):
+            raise SessionError(
+                f"runtime '{kind}' creates nothing ahead of a turn — nothing to sync"
+            )
+        try:
+            definition = runtime.definition(
+                self.tools(),
+                sources=self.sources(),
+                persona=resolved.persona,
+                persona_mode=resolved.persona_mode,
+                skills=resolved.skills,
+                web=self.web,
+                name=resolved.project_name,
+            )
+        except ToolNameCollision as exc:
+            raise SessionError(str(exc)) from exc
+        synced = None if dry_run else await runtime.provision(definition)
+        return Provisioning(runtime=kind, definition=definition, synced=synced)
 
     def subagent_problems(self) -> list[str]:
         """Tools a project's subagents name that the configured runtime would not give

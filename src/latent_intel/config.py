@@ -78,6 +78,10 @@ class Overlay:
 
     sources: list[SourceSpec] = field(default_factory=list)
     detached: list[str] = field(default_factory=list)
+    #: What this install created for this deployment, keyed by runtime: today the
+    #: agent `intel managed sync` made, under `synced` — its ids, version and
+    #: fingerprint. Only `synced` is read; this is not a place to configure a runtime.
+    runtimes: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -228,6 +232,11 @@ def load() -> Config:
         overlays[str(name)] = Overlay(
             sources=rows(body.get("sources")),
             detached=[str(d) for d in (body.get("detached") or [])],
+            runtimes={
+                str(kind): dict(options)
+                for kind, options in (body.get("runtimes") or {}).items()
+                if isinstance(options, dict)
+            },
         )
 
     # A top-level `sources:` block from before deployments is not known: it lands in
@@ -305,13 +314,14 @@ def save(config: Config) -> Path:
     live = {
         name: overlay
         for name, overlay in config.overlays.items()
-        if overlay.sources or overlay.detached
+        if overlay.sources or overlay.detached or overlay.runtimes
     }
     if live:
         payload["overlays"] = {
             name: {
                 **({"sources": [_row(s) for s in o.sources]} if o.sources else {}),
                 **({"detached": o.detached} if o.detached else {}),
+                **({"runtimes": o.runtimes} if o.runtimes else {}),
             }
             for name, o in live.items()
         }

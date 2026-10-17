@@ -34,8 +34,10 @@ dependencies = [
     # reinstall. Plain HTTP clients with wheels for every platform, about 22 MB
     # between them; `anthropic` ships `AnthropicFoundry` beside `Anthropic`, and
     # `openai` reaches every OpenAI-compatible host. Still imported only inside a
-    # turn, so a command that never asks a question never loads them.
-    "anthropic>=0.87",
+    # turn, so a command that never asks a question never loads them. 1.5 is the
+    # first release read with the Managed Agents API — sessions, budgets and the
+    # session tool runner — that `claude-managed-agents` uses.
+    "anthropic>=1.5",
     "openai>=1.60",
 ]
 
@@ -103,6 +105,7 @@ custom = "latent_intel.agent.runtimes.custom:CustomRuntime"
 anthropic-sdk = "latent_intel.agent.runtimes.anthropic_sdk:AnthropicSdkRuntime"
 openai-agents = "latent_intel.agent.runtimes.openai_agents:OpenAIAgentsRuntime"
 claude-agent-sdk = "latent_intel.agent.runtimes.claude_agent_sdk:ClaudeAgentSdkRuntime"
+claude-managed-agents = "latent_intel.agent.runtimes.claude_managed_agents:ClaudeManagedAgentsRuntime"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/latent_intel"]

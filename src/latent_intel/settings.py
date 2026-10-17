@@ -60,6 +60,9 @@ class Settings:
     agents: list[subagents_module.Subagent] = field(default_factory=list)
     theme: dict[str, str] = field(default_factory=dict)
     registry_path: str | None = None
+    #: The name the user's overlay for this deployment is kept under — the name it is
+    #: found and chosen by, which is its file's — so a writer keys it as this reads it.
+    overlay_key: str = "default"
     #: key -> "engine" | "deployment" | "user", for `deployment show`.
     origin: dict[str, str] = field(default_factory=dict)
     #: Non-fatal complaints: a bad project file, a shadowed name, a legacy block.
@@ -115,7 +118,9 @@ def load(name: str | None = None, *, path: Path | None = None) -> Settings:
             problems += loaded.problems
         except project_module.ProjectError as exc:
             problems.append(str(exc))
-        chosen = loaded.name if loaded else path.stem
+        # The name `intel deployment use` would choose it by, which is its file's:
+        # the overlay is kept under that, whatever its `name:` says.
+        chosen = path.stem
     elif chosen:
         found, collisions = project_module.discover(
             config.deployment_paths, config_module.home()
@@ -137,7 +142,8 @@ def load(name: str | None = None, *, path: Path | None = None) -> Settings:
     settings = Settings(project=loaded, problems=problems, origin=origin)
 
     # -- sources: project, plus user additions, minus user detachments ---------
-    overlay = config.overlays.get(chosen or "default", config_module.Overlay())
+    settings.overlay_key = chosen or "default"
+    overlay = config.overlays.get(settings.overlay_key, config_module.Overlay())
     declared = loaded.sources if loaded else []
     sources = [s for s in declared if s.id not in overlay.detached]
     for key_source in overlay.sources:
@@ -197,6 +203,12 @@ def load(name: str | None = None, *, path: Path | None = None) -> Settings:
     }
     for kind, options in config.runtimes.items():
         project_runtimes.setdefault(kind, {}).update(options)
+    # What this install holds for this deployment alone — the agent `intel managed
+    # sync` created — last, since it is the most specific layer there is.
+    # Only what sync records: the overlay is not a second place to configure a runtime.
+    for kind, options in overlay.runtimes.items():
+        if "synced" in options:
+            project_runtimes.setdefault(kind, {})["synced"] = options["synced"]
     settings.runtimes = project_runtimes
     # Approval is resolved across all three layers and belongs to the session, not to
     # one runtime. Named rather than silently dropped: a file that says writes are
