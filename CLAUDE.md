@@ -64,8 +64,8 @@ vocabulary free to change without touching a single connector.
 ## Conventions (package-specific)
 
 - **Two extension points for capability; one for composition.** *Connectors* say where
-  context comes from; *tools* say what an agent can do. Both are Python entry points
-  (`latent_intel.connectors`, `latent_intel.runtimes`), and our own adapters register
+  context comes from, and which tools an agent can call; *runtimes* say which agent loop runs.
+  Both are Python entry points (`latent_intel.connectors`, `latent_intel.runtimes`), and our own adapters register
   through them so the extension path is the one we take ourselves.
 
   A **project** composes what already exists — sources, saved searches, prompt
