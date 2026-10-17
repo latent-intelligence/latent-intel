@@ -9,7 +9,14 @@ records; the manifest says which recordings belong to one run and which never fi
 |---|---|
 | Format | `latent-intel.eval-run` |
 | Version | `1` — `MANIFEST_VERSION` in `src/latent_intel/batch.py` |
-| Schema | none yet; one is written when a reader needs it |
+| Schema | [`schemas/eval-run.v1.json`](../../schemas/eval-run.v1.json), the manifest; each recording is [`recording.v1.json`](../../schemas/recording.v1.json) |
+| Sample | [`tests/fixtures/formats/eval-run/`](../../tests/fixtures/formats/eval-run/): a run interrupted after four of six, written by `batch` itself |
+
+The sample has two variants, one whose runtime reports `cost_usd` and one where it is null.
+Its manifest shows each status: `ok`, `failed`, and `pending` with no file. One `ok` answer
+stopped at the round ceiling, so its `agent_completed` carries `stopped: tool_rounds`. Each
+`ok` recording has a `tool_result` with refs, a `retrieval_result`, and citations, one
+retrieved and one not. Copy it into a reader's tests whole.
 
 ## Layout
 

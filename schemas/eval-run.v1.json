@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "ManifestCases": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "count"
+      ],
+      "title": "ManifestCases",
+      "type": "object"
+    },
+    "ManifestRecording": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "variant_id": {
+          "title": "Variant Id",
+          "type": "string"
+        },
+        "epoch": {
+          "minimum": 1,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "ok",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "case_id",
+        "variant_id",
+        "epoch",
+        "status"
+      ],
+      "title": "ManifestRecording",
+      "type": "object"
+    },
+    "ManifestVariant": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "deployment": {
+          "title": "Deployment",
+          "type": "string"
+        },
+        "runtime": {
+          "title": "Runtime",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "deployment",
+        "runtime"
+      ],
+      "title": "ManifestVariant",
+      "type": "object"
+    }
+  },
+  "description": "The manifest of one batch eval run: what ran, and each recording's status. A reader refuses a missing or unknown format_version. Spec: docs/formats/eval-run.md.",
+  "properties": {
+    "format": {
+      "const": "latent-intel.eval-run",
+      "title": "Format",
+      "type": "string"
+    },
+    "format_version": {
+      "const": 1,
+      "title": "Format Version",
+      "type": "integer"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "latent_intel_version": {
+      "title": "Latent Intel Version",
+      "type": "string"
+    },
+    "deployment": {
+      "title": "Deployment",
+      "type": "string"
+    },
+    "started": {
+      "title": "Started",
+      "type": "string"
+    },
+    "finished": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Finished"
+    },
+    "cases": {
+      "$ref": "#/$defs/ManifestCases"
+    },
+    "repeat": {
+      "minimum": 1,
+      "title": "Repeat",
+      "type": "integer"
+    },
+    "variants": {
+      "items": {
+        "$ref": "#/$defs/ManifestVariant"
+      },
+      "title": "Variants",
+      "type": "array"
+    },
+    "recordings": {
+      "items": {
+        "$ref": "#/$defs/ManifestRecording"
+      },
+      "title": "Recordings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "format",
+    "format_version",
+    "run_id",
+    "latent_intel_version",
+    "deployment",
+    "started",
+    "finished",
+    "cases",
+    "repeat",
+    "variants",
+    "recordings"
+  ],
+  "title": "latent-intel.eval-run v1, manifest.json",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "latent-intel.eval-run.v1"
+}
