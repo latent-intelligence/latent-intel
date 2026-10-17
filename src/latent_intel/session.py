@@ -103,9 +103,8 @@ class Session:
         #: A deployment file this session runs on instead of the active one — one
         #: variant of a batch eval run. None reads the active deployment, as before.
         self._deployment = deployment
-        #: Which registry names resolve against. Injected rather than read from config,
-        #: for the same reason `runtime` is: a Session must be constructible in a test
-        #: without a config on disk.
+        #: Which registry names resolve against, when injected; otherwise this
+        #: session's deployment's `registry:`, read on each lookup — see `_registry`.
         self._registry_path = registry_path
         #: Injected for tests and for a future `--runtime` flag; otherwise resolved from
         #: config on first `ask`.
@@ -149,7 +148,7 @@ class Session:
         would be wrong exactly when it matters.
         """
         if kind is None:
-            kind, target = registry.resolve(spec, self._registry_path, remote=remote)
+            kind, target = registry.resolve(spec, self._registry(), remote=remote)
             source_id = source_id or spec
         else:
             target = registry.expand(spec)
@@ -190,7 +189,7 @@ class Session:
             try:
                 if request.kind is None:
                     kind, target = registry.resolve(
-                        request.spec, self._registry_path, remote=request.remote
+                        request.spec, self._registry(), remote=request.remote
                     )
                     source_id = request.source_id or request.spec
                 else:
@@ -229,6 +228,15 @@ class Session:
         if self.current == source_id:
             self.current = next(iter(self._connectors), None)
 
+    def _registry(self) -> str | None:
+        """The registry names resolve against: one injected, else this session's
+        deployment's `registry:`, else None for `KNOWLEDGE_REGISTRY` and the default.
+
+        Read on each lookup rather than once, so a shell that switches deployment
+        resolves the next name against the new one's registry.
+        """
+        return self._registry_path or self._settings().registry_path
+
     def sources(self) -> list[Descriptor]:
         """Connected sources, in connection order."""
         return [c.describe() for c in self._connectors.values()]
@@ -241,7 +249,7 @@ class Session:
         renderer, so a web client stays an addition rather than a rewrite.
         """
         rows: list[Descriptor] = []
-        for name, entry in sorted(registry.load(self._registry_path).items()):
+        for name, entry in sorted(registry.load(self._registry()).items()):
             rows.append(
                 Descriptor(
                     id=name,

@@ -1771,3 +1771,79 @@ async def test_a_session_given_a_deployment_runs_on_it_not_the_active_one(
 
     [e async for e in session.ask("when is high water?")]
     assert runtime.saw["options"]["persona"] == "You are a tide clerk."
+
+
+def _registries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A machine registry and a deployment's own, each naming `design` differently."""
+    for name in ("machine", "deployed"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "note.md").write_text(name)
+    machine = tmp_path / "registry.yaml"  # what KNOWLEDGE_REGISTRY points at
+    row = "  - {{id: {}, kind: context-store, paths: {{raw: {}}}}}\n"
+    machine.write_text(
+        "stores:\n"
+        + row.format("design", tmp_path / "machine")
+        + row.format("shared", tmp_path / "machine")
+    )
+    projects = tmp_path / "projects"
+    projects.mkdir(exist_ok=True)
+    (projects / "stores.yaml").write_text(
+        "stores:\n" + row.format("design", tmp_path / "deployed")
+    )
+    _project(tmp_path, monkeypatch, "registry: ./stores.yaml\n")
+    return machine
+
+
+async def _attached(session: Session) -> str:
+    """Which directory `design` attached, by the word its one note holds."""
+    found = {
+        word for word in ("machine", "deployed") if (await session.find(word))["design"]
+    }
+    assert len(found) == 1
+    return found.pop()
+
+
+async def test_a_name_resolves_against_the_deployment_s_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deployment's `registry:` overrides KNOWLEDGE_REGISTRY."""
+    _registries(tmp_path, monkeypatch)
+    session = Session()
+    await session.connect("design")
+    assert await _attached(session) == "deployed"
+    assert [d.id for d in session.available()] == ["design"]
+    await session.aclose()
+
+
+async def test_without_a_deployment_registry_the_machine_s_is_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registries(tmp_path, monkeypatch)
+    _project(tmp_path, monkeypatch, "name: deploy\n")
+    session = Session()
+    await session.connect("design")
+    assert await _attached(session) == "machine"
+    await session.aclose()
+
+
+async def test_an_injected_registry_beats_the_deployment_s(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    machine = _registries(tmp_path, monkeypatch)
+    session = Session(registry_path=str(machine))
+    await session.connect("design")
+    assert await _attached(session) == "machine"
+    await session.aclose()
+
+
+async def test_a_session_given_a_deployment_resolves_against_its_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch variant runs on its own deployment, so its names resolve there."""
+    _registries(tmp_path, monkeypatch)
+    _project(tmp_path, monkeypatch, "name: deploy\n")
+    session = Session(deployment=tmp_path / "projects" / "variant.yaml")
+    (tmp_path / "projects" / "variant.yaml").write_text("registry: ./stores.yaml\n")
+    await session.connect("design")
+    assert await _attached(session) == "deployed"
+    await session.aclose()
