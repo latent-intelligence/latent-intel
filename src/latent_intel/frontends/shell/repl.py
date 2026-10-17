@@ -673,7 +673,8 @@ def _runtime_option(session: Session, key: str, name: str) -> None:
     if not name:
         shown = Session.runtime_setting(current, key) or "unset"
         console.print(
-            f"[dim]{key}[/] [source]{escape(shown)}[/] [dim]for {escape(current)}[/]"
+            f"[dim]{key}[/] [source]{escape(shown)}[/] "
+            f"[dim]for {escape(current)}[/]"
         )
         _report_reason(Session.runtime_reason(current))
         return

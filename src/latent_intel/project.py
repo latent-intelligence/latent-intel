@@ -25,10 +25,9 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
-from upath import UPath
 
 from . import procedures, subagents
 from .config import SourceSpec
@@ -157,6 +156,34 @@ def _option(key: str, value: Any, base: Path, variables: dict[str, str]) -> Any:
     if key in LOCATION_OPTIONS:
         return _resolve(value, base, variables)
     return _substituted(value, variables)
+
+
+def _root(
+    value: Any, base: Path, variables: dict[str, str], problems: list[str]
+) -> Path | None:
+    """A declared `root:`, resolved — or `None` and a problem, never the default.
+
+    Falling back to the deployment's directory would put products somewhere the author
+    did not ask for. A URI becomes a `UPath`, imported only then, so a local root costs
+    no fsspec on start-up; the connectors follow the same rule.
+    """
+    if not isinstance(value, str) or not value.strip():
+        problems.append(f"root: {value!r} is not a path or URI")
+        return None
+    try:
+        resolved = _resolve(value, base, variables)
+    except UnsetVariable as exc:
+        problems.append(f"root: {exc}")
+        return None
+    if "://" not in resolved:
+        return Path(resolved)
+    from upath import UPath
+
+    try:
+        return cast(Path, UPath(resolved))
+    except ValueError as exc:  # an unknown or mis-cased scheme
+        problems.append(f"root: {exc}")
+        return None
 
 
 def _persona(
@@ -393,9 +420,10 @@ class Project:
     #: by a runtime that declares `agent.base.Delegating`.
     agents: list[subagents.Subagent] = field(default_factory=list)
     #: Where the deployment's products go: `root:`, else the file's directory. A local
-    #: path or a remote URI (`s3://…`). `None` only when a declared `root:` could not be
-    #: resolved — a problem says why, and nothing may fall back to writing elsewhere.
-    root: UPath | None = None
+    #: path or a remote URI (`s3://…`, a `UPath`). `None` only when a declared `root:`
+    #: could not be resolved — a problem says why, and nothing may fall back to writing
+    #: elsewhere.
+    root: Path | None = None
     #: Validation complaints. Non-fatal by design: a project with one bad source should
     #: still attach the other four, and `doctor` is where you go to find out why.
     problems: list[str] = field(default_factory=list)
@@ -491,13 +519,7 @@ def load(path: Path | str) -> Project:
         if s.user_invocable and s.name in commands
     ]
 
-    root: UPath | None = UPath(base)
-    if root_value := raw.get("root"):
-        try:
-            root = UPath(_resolve(str(root_value), base, variables))
-        except UnsetVariable as exc:
-            problems.append(f"root: {exc}")
-            root = None
+    root = _root(raw["root"], base, variables, problems) if "root" in raw else base
 
     registry: str | None = None
     if registry_value := raw.get("registry"):

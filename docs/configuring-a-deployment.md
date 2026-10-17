@@ -32,8 +32,10 @@ its own bucket without editing the committed file.
 **Products go beneath `root:`.** It is optional and defaults to the deployment's
 directory. A relative `root:` resolves against `research.yaml`, like every other path; a
 remote one (`s3://…`) is kept as a URI, so the same deployment writes to a laptop or a
-bucket by changing this one line. `intel deployment show` prints it. Nothing writes
-beneath it yet.
+bucket by changing this one line. Two deployment files in one directory share that
+default, so give each its own directory or its own `root:`. A `root:` that is empty, not
+a string, or names a scheme fsspec does not know is reported, never read as the default.
+`intel deployment show` prints it. Nothing writes beneath it yet.
 
 ```yaml
 # ~/deployments/research/research.yaml
