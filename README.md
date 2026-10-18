@@ -1,56 +1,79 @@
-# latent-intel
+# Latent-Intel
 
-A client over heterogeneous context. Connect an LLM-wiki, a vector index, a directory of
-markdown and a third-party MCP server, and search across them from one place.
+**Search and ask across all your context, with answers that cite their sources.**
 
-# Getting started 
+Connect as many notes, papers, codebases, wikis and MCP servers as you need, and send
+questions across all of them to the model or agent runtime you choose. It is also a
+workbench for context engineering: write an agent's persona, skills and subagents as
+plain files, then run evals on real questions to compare one version against another.
+Pre-release.
+
+![A tour of the intel shell: attached sources, a search, a page opened, and the tools](https://dievw70zlyn9e.cloudfront.net/ea3bf76edd571e19/shell-tour-v1.gif)
+
+## Installation 
 
 To install the `latent-intel` client, run the following command:
 
-```bash
+```shell
+# install with all runtimes, including: `anthropic-sdk`, `claude-agent-sdk`, and `openai-agents`.
+uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
+
+# install with base runtimes/sdk.
 uv tool install git+https://github.com/latent-intelligence/latent-intel
 ```
 
-That puts `intel` on your PATH and works from any directory. Add `--reinstall` to update,
-or `uv tool install .` from a clone if you are working on the engine itself.
+This puts `intel` on your PATH and works from any directory. Add `--reinstall` to update,
+or `uv tool install .` from a clone if you are working on the engine itself. Six runtimes
+ship; for more information see [choosing a runtime](docs/user-guide.md#choosing-a-runtime).
 
-```bash
-intel doctor                     # what is installed, what is reachable, what is not
-```
+## Tutorial 
 
-`intel ask` — an agent answering over your sources — works from that install through
-`claude-cli`, `custom`, `anthropic-sdk` and `claude-managed-agents`. The two other runtimes
-are extras named after themselves, `openai-agents` and `claude-agent-sdk`, and `all` is
-both:
-
-```bash
-uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
-```
-
-## Attach context 
-
-### Option A - attach a source directly 
-
-Sources are attached one at a time and recorded in your own config. The can be local, remote, or both. 
+You can work in an interactive shell (`intel`) or run single commands (`intel search`,
+`intel ask`) from a script. Either way, context reaches it through connectors: `files` for
+a folder of documents, `code` for a codebase, and `mcp` for any MCP server, local or
+remote. Attach sources together in a deployment, a YAML file you keep, or one at a time
+from the command line.
 
 ```
-intel connect "latent-wiki serve --deployment s3://<bucket>/deployments/design" --kind mcp --as design
-  ✓ mcp     design    …            [tools search fetch]
+# what is installed and configured
+intel doctor
 
-$ intel connect ~/knowledge/raw --kind files --as manuals
-  ✓ files   manuals   170 files    [search fetch]
+# create a deployment, name its sources (see later section), register and use it
+intel deployment new ...
+intel deployment add ~/deployments/latent
+intel deployment use latent
 
+# launch the workbench shell
+intel
 
-intel search "context collapse"
-    [concept] context-collapse                                          0.94
-      Asking a model to rewrite an accumulated context end to end…
-    [source]  zhang2025-agentic-context-engineering                     0.71
-      Argues that adapting a model through its context rather than…
+        ██       █████  ████████ ███████ ███    ██ ████████
+        ██      ██   ██    ██    ██      ████   ██    ██
+        ██      ███████    ██    █████   ██ ██  ██    ██
+        ██      ██   ██    ██    ██      ██  ██ ██    ██
+        ███████ ██   ██    ██    ███████ ██   ████    ██
+                      context, with provenance
 
-intel                                    # the interactive shell
+ ╭──────────────────────────── v0.1.0 ────────────────────────────╮
+ │ search  ·  fetch  ·  tools             2 sources  ·  170 items │
+ ╰────────────────────────────────────────────────────────────────╯
+
+                  /help  /connect  /sources  /exit
+
+# choose where answers come from: once, or whenever you want to change it
+latent › /runtime claude-agent-sdk
+latent › /host foundry-anthropic
+latent › /model claude-sonnet-5-5
+
+# search every attached source; results come back per source
+latent › search context collapse
 ```
 
-### Option B - use a deployment
+### Add context and knowledge sources 
+
+A source is anything you want answers drawn from: a codebase, a wiki an LLM keeps, a
+folder of notes or papers, or any MCP server, on your machine or remote.
+
+#### Use a deployment
 
 A **deployment** is one YAML file owned by its author rather than the engine, carrying
 several sources at once plus branding and saved commands. This is the shape a real
@@ -72,22 +95,49 @@ sources:
     target: ~/knowledge/raw
 ```
 
-```bash
-intel deployment add ~/deployments/research   # finds it in place; nothing is copied
-intel deployment use research
-intel                                         # branded shell, both sources attached
+Any MCP server can be a source. Set `kind: mcp`, and make `target:` the command that
+starts the server, or its URL. The `design` source above is one: `latent-wiki serve` is
+the server of a companion package, as `latent-records serve` is for a records store.
+Neither package is released yet.
+
+#### Use command line 
+
+Sources are attached one at a time and recorded in your own config. They can be local,
+remote, or both.
+
+```shell
+intel connect "latent-wiki serve --deployment s3://<bucket>/deployments/design" --kind mcp --as design
+  ✓ mcp    design   157 items  tools search fetch
+
+intel connect ~/knowledge/raw --kind files --as manuals
+  ✓ files  manuals  170 files  search fetch tools
+
+intel search "context collapse"
+  design  2 hit(s)
+    concept design:context-collapse  12
+      Asking a model to rewrite an accumulated context end to end…
+    source design:zhang2025-agentic-context-engineering  6
+      Argues that adapting a model through its context rather than…
+
+  manuals  1 hit(s)
+    file manuals:context-collapse.md  1
+      Rewriting a long context end to end loses detail at every pass.
 ```
 
-With a deployment active, `intel connect` still works — it records the source in
-*your own* config on top of the deployment, never in the deployment file. A shared
-deployment can be committed to a client repo while each person adds their own scratch
-sources.
+### Context engineering
 
-## Configure a deployment
+A deployment can grow from one YAML file into a **deployment directory**, which also
+shapes how the agent behaves. Three kinds of plain markdown file do that:
 
-A deployment file can grow into a **deployment directory** — one directory, committed to
-whatever repo you keep it in. The engine reads it and never writes to it, so a checked-out
-deployment repo stays clean on first use.
+- **`persona.md`**: the agent's voice and standing instructions, on every turn.
+- **`skills/`**: know-how the agent loads when a question needs it, or that you run by
+  name, such as `/methodology`.
+- **`agents/`**: subagents it can hand work to, under `claude-agent-sdk`.
+
+They follow Claude Code's file conventions, so one folder serves this engine, Claude Code
+and the Agent SDK. **Saved commands** in `commands/` are shortcuts such as `/brief`. Each
+is one markdown file naming a search, a prompt or a sequence of steps, so adding one needs
+no code.
 
 ```
 ~/deployments/research/          anywhere on disk; `deployment add` copies nothing
@@ -106,115 +156,58 @@ deployment repo stays clean on first use.
 └── persona.md                   voice and standing instructions, on every turn
 ```
 
-**Saved commands** are one markdown file each — a frontmatter block naming a `search`,
-`prompt` or `sequence`, and a body. They compose what the engine already does, which is
-why they need no code and no release.
+Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
 
-**Context engineering** is the rest: `persona.md`, `skills/` and `agents/` shape what the
-agent knows and how it behaves, in markdown, per deployment. They follow Claude Code's
-file conventions, so one folder serves this engine, Claude Code and the Agent SDK.
+### Configure compute
 
-**Add custom branding .** The wordmark, tagline, prompt and palette all come from
-the deployment:
+Sources say where context comes from; a **runtime** says where answers come from. Six
+ship, grouped by who runs the agent loop: our own loop (`custom`), a vendor's SDK in this
+process (`anthropic-sdk`, `openai-agents`, `claude-agent-sdk`), a harness already on your
+machine (`claude-cli`, which uses your Claude Code login, so it needs no key), or a
+vendor's service (`claude-managed-agents`). The others reach Anthropic, Azure AI Foundry,
+Azure OpenAI, OpenAI, OpenRouter or a model on your own machine, reading keys from the
+environment or a `.env` file, never from a config file. `intel hosts` shows what each one
+still needs, and [configuring-compute.md](docs/configuring-compute.md) walks through each.
+
+
+### Customize the workbench
+
+**Add custom branding.** The wordmark, tagline, prompt and colours all come from the
+deployment:
 
 ```
 $ intel deployment use research
 $ intel
 
-     ██████  ███████ ███████ ███████  █████  ██████   ██████ ██   ██
-     ██   ██ ██      ██      ██      ██   ██ ██   ██ ██      ██   ██
-     ██████  █████   ███████ █████   ███████ ██████  ██      ███████
-     ██   ██ ██           ██ ██      ██   ██ ██   ██ ██      ██   ██
-     ██   ██ ███████ ███████ ███████ ██   ██ ██   ██  ██████ ██   ██
-                    standing context, with provenance
+    ██████  ███████ ███████ ███████  █████  ██████   ██████ ██   ██
+    ██   ██ ██      ██      ██      ██   ██ ██   ██ ██      ██   ██
+    ██████  █████   ███████ █████   ███████ ██████  ██      ███████
+    ██   ██ ██           ██ ██      ██   ██ ██   ██ ██      ██   ██
+    ██   ██ ███████ ███████ ███████ ██   ██ ██   ██  ██████ ██   ██
+                   standing context, with provenance
 
- ╭──────────────────────────── v0.1.0 ────────────────────────────╮
- │ search  ·  fetch                        2 sources  ·  412 items│
- ╰────────────────────────────────────────────────────────────────╯
+ ╭────────────────────────────── v0.1.0 ──────────────────────────────╮
+ │ search  ·  fetch  ·  tools                 2 sources  ·  170 items │
+ ╰────────────────────────────────────────────────────────────────────╯
 
                     /help  /connect  /sources  /exit
 
 research › search context collapse
 ```
 
-The palette is semantic — you set roles, not a stylesheet, so a colour changes everywhere
-it means the same thing and nowhere it does not. On a narrow terminal the brand degrades
-to its wordmark rather than wrapping.
+Colours are set by role, such as the accent or the border, so one change recolours
+everything that plays that role.
 
 Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
 
-## Configure compute
-
-Sources say where context comes from; a **runtime** says where answers come from. Six
-ship: `claude-cli`, which shells to the `claude` binary; `custom`, which runs our own loop
-against a **host** — an endpoint declared as a row, and the row says which protocol it
-speaks; `anthropic-sdk`, `openai-agents` and `claude-agent-sdk`, which hand the loop
-to the Anthropic SDK's tool runner, the OpenAI Agents SDK and Claude Code's harness over
-the same rows, while tools stay ours; and `claude-managed-agents`, which runs the loop on
-Claude Managed Agents while our tools are answered over the session's event stream.
-Seven hosts ship, including Azure AI Foundry on both its surfaces, classic Azure OpenAI,
-OpenRouter and any OpenAI-compatible server on your own machine.
-
-`intel hosts` says what each one would cost you to set up, before you have chosen:
-
-```
-$ intel hosts
-
-custom ← configured
-  · anthropic          set ANTHROPIC_API_KEY for host 'anthropic'
-  · foundry-anthropic  set ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_FOUNDRY_RESOURCE or
-ANTHROPIC_FOUNDRY_BASE_URL for host 'foundry-anthropic'
-  · openai             set OPENAI_API_KEY for host 'openai'
-  · foundry-openai     set FOUNDRY_API_KEY (or ANTHROPIC_FOUNDRY_API_KEY),
-FOUNDRY_RESOURCE (or ANTHROPIC_FOUNDRY_RESOURCE) or FOUNDRY_BASE_URL for host
-'foundry-openai'
-  ✓ openrouter         ← in use  OPENROUTER_API_KEY
-  · azure-openai       set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN,
-AZURE_OPENAI_ENDPOINT, OPENAI_API_VERSION for host 'azure-openai'
-  · local              set LOCAL_OPENAI_BASE_URL for host 'local'
-```
-
-Names of variables, never values — the whole block is safe to paste. Credentials come
-from the environment or a `.env` beside the deployment, never from a config file. Choose
-with `/runtime`, `/host` and `/model` in the shell, or `runtime:` in config;
-`intel doctor` then diagnoses the one you chose.
-
-Walked through end to end in
-[demos/choosing-a-host.md](docs/demos/choosing-a-host.md).
 
 ## Documentation
 
-| | |
-|---|---|
-| [getting-started.md](docs/getting-started.md) | install, credentials, a first source, a first deployment |
-| [user-guide.md](docs/user-guide.md) | every command, `--json` scripting, MCP servers, choosing a runtime, what to do when something is wrong |
-| [configuring-a-deployment.md](docs/configuring-a-deployment.md) | the deployment directory, branding, saved commands |
-| [demos/](docs/demos/) | scripted walkthroughs with captured output |
-
-
-Two extension points, and deliberately only two. **Connectors** say where context comes
-from; **tools** say what an agent can do. Both are entry points, and our own adapters
-register through the same ones a third party would use — see
-[CLAUDE.md](CLAUDE.md) for where the boundary falls.
+Start with [getting started](docs/getting-started.md), then the
+[user guide](docs/user-guide.md). Both link to the rest.
 
 ## Contributing
 
-```bash
-just install                          # the venv: every runtime, plus test and lint tooling
-just check                            # ruff · mypy --strict · import contracts · pytest
-uv tool install ".[all]" --reinstall  # put your build on PATH
-```
+Setting up and running the checks: [CONTRIBUTING.md](CONTRIBUTING.md).
 
-`just check` is what CI runs, and it passes on a fresh clone with nothing beside it — no
-sibling package is needed to build, test or type-check. It also runs the import
-contracts, so some architectural rules fail the build rather than review; they are stated
-once, in [CLAUDE.md](CLAUDE.md).
-
-A wiki or records store is reached through its own server (`latent-wiki serve`,
-`latent-records serve`), installed with its own package.
-
-## Status
-
-Early, but usable. Both terminal frontends work over the `files`, `code` and `mcp`
-connectors, and `intel ask` runs against every runtime above — three from the base
-install, and `openai-agents` and `claude-agent-sdk` from the extras named after them.
+[MIT License](LICENSE)
