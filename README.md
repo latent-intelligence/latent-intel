@@ -211,3 +211,7 @@ Start with [getting started](docs/getting-started.md), then the
 Setting up and running the checks: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 [MIT License](LICENSE)
+
+## Acknowledgements
+
+Latent-Intel grew out of practical research and analysis needs. Thanks to the team at Watermill Group, whose early requirements and feedback helped shape the project.
