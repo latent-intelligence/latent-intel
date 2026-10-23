@@ -19,6 +19,9 @@ from latent_intel.models import AttachedSource, Fingerprint, Hit, Provenance
 
 STREAMS = Path(__file__).parent / "fixtures" / "streams"
 FIXTURES = sorted(STREAMS.glob("*.jsonl"))
+#: The published samples. The eval-run ones are written by the real `Emitter`, so they
+#: hold its numbering to the same rule as the hand-built streams.
+RECORDINGS = sorted((Path(__file__).parent / "fixtures" / "formats").rglob("*.jsonl"))
 
 
 def test_fixtures_exist() -> None:
@@ -64,7 +67,9 @@ def test_recorded_stream_parses_and_round_trips(path: Path) -> None:
             assert key in payload, f"{path.name}: envelope missing {key}"
 
 
-@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
+@pytest.mark.parametrize(
+    "path", FIXTURES + RECORDINGS, ids=lambda p: str(p.relative_to(STREAMS.parent))
+)
 def test_sequence_is_monotonic_within_an_operation(path: Path) -> None:
     """Ordering has to survive a transport that does not preserve it."""
     events = list(ev.read_stream(path.read_text()))
@@ -145,6 +150,39 @@ def test_emitter_stamps_a_coherent_envelope() -> None:
     assert [first.sequence, started.sequence, result.sequence] == [1, 2, 3]
     assert result.parent_id == started.event_id
     assert first.parent_id is None
+
+
+def test_a_nested_emitter_shares_its_parent_s_count() -> None:
+    """One operation, one count. A child built before its parent emits again — as
+    `dispatch` builds one before awaiting the tool — still numbers after it."""
+    emitter = ev.Emitter(uuid4())
+    started = emitter.emit(ev.ToolStarted, tool="t", source_id="s")
+    child = emitter.nested(started)
+    token = emitter.emit(ev.AssistantToken, text="meanwhile")
+    result = child.emit(ev.ToolResult, tool="t", source_id="s")
+    after = emitter.emit(ev.AssistantToken, text="after")
+
+    sequences = [e.sequence for e in (started, token, result, after)]
+    assert sequences == [1, 2, 3, 4]
+
+
+def test_a_grandchild_shares_the_count_too() -> None:
+    emitter = ev.Emitter(uuid4())
+    outer = emitter.emit(ev.ToolStarted, tool="outer", source_id="s")
+    child = emitter.nested(outer)
+    inner = child.emit(ev.ToolStarted, tool="inner", source_id="s")
+    grandchild = child.nested(inner)
+    events = [
+        outer,
+        inner,
+        grandchild.emit(ev.ToolResult, tool="inner", source_id="s"),
+        child.emit(ev.ToolResult, tool="outer", source_id="s"),
+        emitter.emit(ev.AssistantToken, text="done"),
+    ]
+
+    assert [e.sequence for e in events] == [1, 2, 3, 4, 5]
+    assert events[2].parent_id == inner.event_id
+    assert len({e.operation_id for e in events}) == 1
 
 
 def test_a_completed_turn_s_cost_round_trips_and_is_optional() -> None:
