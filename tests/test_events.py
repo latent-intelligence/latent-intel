@@ -8,6 +8,7 @@ socket — which is why they have to be asserted now rather than discovered late
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,6 +17,7 @@ from pydantic import ValidationError
 
 from latent_intel import events as ev
 from latent_intel.models import AttachedSource, Fingerprint, Hit, Provenance
+from tests.fixtures import build_streams
 
 STREAMS = Path(__file__).parent / "fixtures" / "streams"
 FIXTURES = sorted(STREAMS.glob("*.jsonl"))
@@ -36,6 +38,23 @@ def test_fixtures_exist() -> None:
         "stopped",
         "tool_call",
     }
+
+
+@pytest.mark.parametrize("build", build_streams.BUILDERS, ids=lambda b: b.__name__)
+def test_a_recorded_stream_is_what_its_builder_writes(
+    build: Callable[[], build_streams.Recorder],
+) -> None:
+    """Regenerate with `uv run python tests/fixtures/build_streams.py`. A stream edited
+    by hand is lost the next time anyone regenerates, and a new field the builder now
+    writes never reaches a renderer's tests."""
+    recorder = build()
+    assert recorder.path.read_text(encoding="utf-8") == recorder.text()
+
+
+def test_every_recorded_stream_has_a_builder() -> None:
+    recordings = STREAMS.parent / "formats" / "recording"
+    on_disk = {*STREAMS.glob("*.jsonl"), *recordings.glob("*.jsonl")}
+    assert on_disk == {build().path for build in build_streams.BUILDERS}
 
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
