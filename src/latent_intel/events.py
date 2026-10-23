@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from itertools import count
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
@@ -438,6 +439,11 @@ class Emitter:
     an `operation_id` across two operations, and the bug surfaces as events rendering in
     the wrong order under load — the kind of thing that is very hard to see and trivial
     to prevent.
+
+    One operation has one counter. An emitter and every emitter nested under it, at any
+    depth, draw from it, so `sequence` rises strictly across the whole operation in the
+    order events are emitted. Not thread-safe, and need not be: one operation runs on
+    one event loop.
     """
 
     def __init__(
@@ -449,24 +455,24 @@ class Emitter:
         self.session_id = session_id
         self.operation_id = operation_id or uuid4()
         self.parent_id = parent_id
-        self._sequence = 0
+        self._sequence = count(1)
 
     def emit(self, event_class: type[Any], **fields: Any) -> Any:
         """Build one event, envelope filled in."""
-        self._sequence += 1
         return event_class(
             session_id=self.session_id,
             operation_id=self.operation_id,
             parent_id=self.parent_id,
-            sequence=self._sequence,
+            sequence=next(self._sequence),
             **fields,
         )
 
     def nested(self, parent: BaseEvent) -> Emitter:
         """An emitter for work happening inside `parent` — a tool call within a turn.
 
-        Shares the operation but continues this emitter's sequence, so a flat consumer
-        that ignores nesting still sees one correctly ordered stream.
+        Shares the operation and this emitter's counter, so the child and its parent
+        never repeat a number and a flat consumer that ignores nesting still sees one
+        correctly ordered stream.
         """
         child = Emitter(self.session_id, self.operation_id, parent.event_id)
         child._sequence = self._sequence

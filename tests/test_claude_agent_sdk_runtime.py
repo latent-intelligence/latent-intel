@@ -117,10 +117,12 @@ def terminal(events: list[ev.AgentEvent]) -> ev.AgentEvent:
     """Exactly one terminal event per turn — the invariant every case below shares."""
     ends = [e for e in events if isinstance(e, ev.AgentCompleted | ev.AgentFailed)]
     assert len(ends) == 1, [type(e).__name__ for e in events]
-    # And in `sequence` order: the relay is drained before the runtime stamps anything
-    # of its own, so a stream that runs backwards is a bug, not a race.
-    sequences = [e.sequence for e in events]
-    assert sequences == sorted(sequences), sequences
+    # And in strict `sequence` order within an operation: the relay is drained before
+    # the runtime stamps anything of its own, and a nested emitter shares its parent's
+    # count, so a stream that runs backwards or repeats a number is a bug, not a race.
+    for operation in {e.operation_id for e in events}:
+        sequences = [e.sequence for e in events if e.operation_id == operation]
+        assert sequences == sorted(set(sequences)), sequences
     return ends[0]
 
 

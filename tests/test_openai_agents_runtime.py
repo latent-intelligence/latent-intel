@@ -664,11 +664,9 @@ async def test_tool_events_are_yielded_before_the_next_round_s_tokens(
 ) -> None:
     """The relay's whole contract. The tools ran inside the runner, after our last
     yield; held events that came out late — or out of order against the text that
-    followed them — would render a turn nobody could read.
-
-    Sequence numbers are checked as non-decreasing rather than strictly increasing: a
-    `ToolResult` is stamped by the nested emitter `dispatch` builds, which shares its
-    parent's count, so the result and the token after it can carry the same number."""
+    followed them — would render a turn nobody could read. Sequence numbers rise
+    strictly: the nested emitter that stamps a `ToolResult` shares its parent's
+    count."""
     fake = FakeRunner(
         Round(
             text=("let me check.",),
@@ -685,8 +683,9 @@ async def test_tool_events_are_yielded_before_the_next_round_s_tokens(
         "AssistantToken",  # "the wiki says yes"
         "AgentCompleted",
     ]
-    sequences = [e.sequence for e in events]
-    assert sequences == sorted(sequences)
+    for operation in {e.operation_id for e in events}:
+        sequences = [e.sequence for e in events if e.operation_id == operation]
+        assert sequences == sorted(set(sequences)), sequences
 
     done = terminal(events)
     assert isinstance(done, ev.AgentCompleted)

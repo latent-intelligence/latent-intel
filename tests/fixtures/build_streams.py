@@ -72,12 +72,16 @@ class Recorder:
         self.events.append(event)
         return event
 
+    @property
+    def path(self) -> Path:
+        return self.directory / f"{self.name}.jsonl"
+
+    def text(self) -> str:
+        return "".join(ev.dump_event(e) + "\n" for e in self.events)
+
     def write(self) -> Path:
-        path = self.directory / f"{self.name}.jsonl"
-        path.write_text(
-            "".join(ev.dump_event(e) + "\n" for e in self.events), encoding="utf-8"
-        )
-        return path
+        self.path.write_text(self.text(), encoding="utf-8")
+        return self.path
 
 
 def prov(source: str, ref: str, method: str, **kw: Any) -> Provenance:
@@ -397,6 +401,8 @@ def recorded_ask() -> Recorder:
         case_id="q17",
         variant_id="haiku",
         epoch=1,
+        # The case's own metadata, copied untouched, as a batch eval run writes it.
+        metadata={"stratum": "factual"},
     )
     r.add(ev.UserMessage, text="is context compaction recoverable?")
     started = r.add(
