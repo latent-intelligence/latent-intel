@@ -38,14 +38,16 @@ lie about a setting the user chose.
 
 **A server's `cwd` is ours to apply.** The binary reads `command`, `args` and `env` from
 `--mcp-config` and ignores `cwd`, so a server reading relative paths found nothing. A
-spec with a `cwd` goes out as `sh -c 'cd "$0" && exec "$@"' <cwd> <command> <args...>`:
-the same server, started in its directory. Windows has no `sh`, so there `cwd` is
-refused before anything is spawned.
+spec with a `cwd` goes out as
+`/bin/sh -c 'cd "$0" && exec "$@"' <cwd> <command> <args...>`: the same server, started
+in its directory. Windows has no `sh`, so there `cwd` is refused before anything is
+spawned. A signal `intel` was started ignoring (`nohup`) is left ignored.
 
 **The child dies with the parent.** For the life of a turn, SIGTERM and SIGHUP end the
 `claude` this turn started and are then delivered to whatever handled them before, so
 `intel` still dies of the signal; an `atexit` hook covers an exit that skips cleanup.
 Without them a killed `intel` left `claude -p` running under PID 1, still spending.
+A signal `intel` was started ignoring (`nohup`) is left ignored.
 """
 
 from __future__ import annotations
@@ -286,7 +288,7 @@ def _start_in_cwd(spec: dict[str, Any]) -> dict[str, Any]:
     if "cwd" not in spec:
         return spec
     out = {k: v for k, v in spec.items() if k != "cwd"}
-    out["command"] = "sh"
+    out["command"] = "/bin/sh"  # not looked up in a PATH the source's env may set
     out["args"] = [
         "-c",
         'cd "$0" && exec "$@"',
@@ -321,6 +323,8 @@ def _dies_with_parent(pid: int) -> Iterator[None]:
     previous: dict[int, Any] = {}
     if threading.current_thread() is threading.main_thread():
         for signum in _FATAL:
+            if signal.getsignal(signum) is signal.SIG_IGN:
+                continue  # `nohup` asked for the turn to outlive this signal
             previous[signum] = signal.signal(signum, handler)
     try:
         yield

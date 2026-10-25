@@ -501,7 +501,7 @@ def test_a_server_with_cwd_is_started_there_by_sh() -> None:
     argv = build_argv(["claude"], servers=servers)
     block = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["design"]
     assert block == {
-        "command": "sh",
+        "command": "/bin/sh",
         "args": [
             "-c",
             'cd "$0" && exec "$@"',
@@ -571,7 +571,7 @@ async def test_the_binary_is_given_the_wrapped_block_and_an_unwrapped_one_as_is(
     assert isinstance(done, ev.AgentCompleted)
     block = json.loads(done.text)["mcpServers"]
     assert block["wrapped"] == {
-        "command": "sh",
+        "command": "/bin/sh",
         "args": ["-c", 'cd "$0" && exec "$@"', "/srv", "serve", "--x"],
     }
     assert block["plain"] == servers["plain"]
@@ -683,14 +683,31 @@ async def test_the_handlers_are_the_callers_again_after_the_turn() -> None:
 
     def mine(signum: int, frame: object) -> None: ...
 
+    hup = signal.getsignal(signal.SIGHUP) if hasattr(signal, "SIGHUP") else None
     before = signal.signal(signal.SIGTERM, mine)
     try:
         await collect("text")
         assert signal.getsignal(signal.SIGTERM) is mine
         if hasattr(signal, "SIGHUP"):
-            assert signal.getsignal(signal.SIGHUP) == signal.SIG_DFL
+            assert signal.getsignal(signal.SIGHUP) == hup
     finally:
         signal.signal(signal.SIGTERM, before)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+def test_an_ignored_signal_stays_ignored_during_the_turn() -> None:
+    """Under `nohup` a hangup must not end the turn: the inherited ignore is kept."""
+    import os
+    import signal
+
+    before = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        with claude_cli._dies_with_parent(os.getpid()):
+            assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
+            assert signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL
+        assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGHUP, before)
 
 
 @pytest.mark.anyio

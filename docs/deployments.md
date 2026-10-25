@@ -121,7 +121,7 @@ when the source attaches.
 |---|---|
 | `files` | `pattern`: which files, default `**/*.md` |
 | `code` | `include` and `exclude`: globs separated by spaces or commas, each replacing its default. `graph` is refused: there is no symbol index yet |
-| `mcp` | `env`: a list of `NAME` (forward your value; refused when unset) or `NAME=value` (a literal, stored as typed, so never a secret). `cwd`: the directory the server starts in; on `claude-cli`, applied through `sh`, so refused on Windows ([runtimes](runtimes.md#the-runtimes)). `server_stderr: true`: show the server's own stderr |
+| `mcp` | `env`: a list of `NAME` (forward your value; refused when unset) or `NAME=value` (a literal, stored as typed, so never a secret). `cwd`: the directory the server starts in; on `claude-cli`, applied through `/bin/sh`, so refused on Windows ([runtimes](runtimes.md#the-runtimes)). `server_stderr: true`: show the server's own stderr |
 
 Any other option is refused by an `mcp` source when it attaches; a `files` source ignores it,
 and a `code` source refuses only `graph`. A source that fails to attach is reported and skipped;
