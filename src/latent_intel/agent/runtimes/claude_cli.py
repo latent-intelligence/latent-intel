@@ -41,7 +41,7 @@ lie about a setting the user chose.
 spec with a `cwd` goes out as
 `/bin/sh -c 'cd "$0" && exec "$@"' <cwd> <command> <args...>`: the same server, started
 in its directory. Windows has no `sh`, so there `cwd` is refused before anything is
-spawned. A signal `intel` was started ignoring (`nohup`) is left ignored.
+spawned.
 
 **The child dies with the parent.** For the life of a turn, SIGTERM and SIGHUP end the
 `claude` this turn started and are then delivered to whatever handled them before, so
