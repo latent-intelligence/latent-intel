@@ -150,10 +150,10 @@ stores:
 | Key | Meaning |
 |---|---|
 | `id` | Required; a row without one is skipped. The name `connect` and `from:` use |
-| `kind` | `markdown-vault` or `context-store`, attached as a `files` source; `wiki`, attached only through its server, so it needs `access: mcp:…`. Any other kind is listed by `intel stores` as not connectable |
+| `kind` | `markdown-vault` or `context-store`, attached as a `files` source; `wiki`, attached only through its server, so it needs `access: mcp:…`. Any other kind, without `access: mcp:…`, is listed by `intel stores` as not connectable |
 | `access` | `filesystem` (the default) or `mcp:<command>`: the command that starts the store's server, attached as an `mcp` source. `paths` is then not read, and `--remote` is refused |
 | `domain` | A line shown beside the id by `intel stores` |
-| `paths` | Local copies, tried in the order `root`, `raw`, `context`, `summaries`, `notes`: the first that is a URI or holds something wins. `mirror` is the remote copy, used with `--remote` or when no local path holds anything. `~` and `${VAR}` are expanded |
+| `paths` | Local copies, tried in the order `root`, `raw`, `context`, `summaries`, `notes`: the first that is a URI or holds something wins. `mirror` is the remote copy, used with `--remote` or when no local path holds anything. `~` and `${VAR}` are expanded in a local path; a URI is used as written |
 
 ## Branding
 
