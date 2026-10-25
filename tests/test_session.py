@@ -680,6 +680,13 @@ async def test_one_unreachable_source_does_not_stop_the_others(tmp_path: Path) -
     await session.aclose()
 
 
+async def test_find_with_nothing_to_search_raises() -> None:
+    """The typed method fails as `run(Find)` does: an empty result would read as no
+    match from sources that were never searched."""
+    with pytest.raises(SessionError, match="nothing to search"):
+        await Session().find("anything")
+
+
 async def test_an_attach_failure_names_its_source_once() -> None:
     """An MCP connector's message already starts with its id, and the report added it
     again: `! tools: tools: env … is not set`."""

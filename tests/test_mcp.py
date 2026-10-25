@@ -33,7 +33,13 @@ from latent_intel.connectors.mcp import (
     _transport,
     read_mcp_config,
 )
-from latent_intel.models import Capability, ConnectError, Effect, SourceRequest
+from latent_intel.models import (
+    Capability,
+    ConnectError,
+    Effect,
+    SessionError,
+    SourceRequest,
+)
 from latent_intel.session import Session
 
 PROBE = Path(__file__).parent / "fixtures" / "mcp_probe_server.py"
@@ -448,7 +454,8 @@ async def test_an_mcp_source_reaches_the_router_but_is_not_searched() -> None:
         "gh.wipe",
         "gh.mystery",
     }
-    assert await session.find("anything") == {}
+    with pytest.raises(SessionError, match="no attached source supports search"):
+        await session.find("anything")
     await session.aclose()
 
 
