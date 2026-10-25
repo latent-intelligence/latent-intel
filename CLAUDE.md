@@ -84,8 +84,7 @@ vocabulary free to change without touching a single connector.
   `/deployment` to the user) composes what already exists — sources, saved searches,
   prompt templates, branding — and is declarative YAML and markdown, because composition needs
   no code and must be authorable by whoever owns the deployment rather than whoever owns
-  the engine. This amends the earlier "entry points, not a plugin directory" rule, which
-  did not anticipate the distinction.
+  the engine.
 
   The test is mechanical: **if it can be expressed as `list[Command]` over installed
   capabilities it is a composition and belongs in a deployment; if it needs a new
