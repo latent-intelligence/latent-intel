@@ -160,7 +160,8 @@ A value is anything Rich reads as a style, such as `"#7aa2f7"` or `"bold #a7c080
 | `web` | `off` | `off`, `search`, `browse`, or `{mode, allowed_domains, blocked_domains, max_uses}`. One domain list at most, plain hostnames only. A value that does not parse turns the web off and is reported |
 | `approval` | `ask` | Read, but not applied today: your config's `approval`, `ask` unless you set it, always wins |
 
-Any other key is reported and not acted on. There is no default search limit: pass `--limit`.
+Any other key is reported and not acted on. `limit` is not a `defaults:` key: a search takes the
+command's own default of 10 unless you pass `--limit`.
 
 ## Saved commands
 

@@ -41,8 +41,8 @@ intel                                           # the shell, with its sources at
 ```
 
 `deployment use` saves the choice. For one command, or one terminal, `LATENT_INTEL_PROJECT=research`
-does the same without saving anything; a command that attaches sources warns when it names no
-deployment. `deployment use none`, or `LATENT_INTEL_PROJECT=none`, returns to no deployment.
+does the same without saving anything; a command that attaches sources warns when the deployment
+it names is not found. `deployment use none`, or `LATENT_INTEL_PROJECT=none`, returns to no deployment.
 
 `deployment add` also finds deployments one folder down, so adding `~/deployments` finds
 `~/deployments/research/research.yaml` and each of its neighbours. It refuses a directory where it
