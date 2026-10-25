@@ -41,8 +41,9 @@ class SourceSpec:
     resolved path, so a config read `/Users/x/Library/CloudStorage/GoogleDrive-x@y.com/
     My Drive/knowledge/wiki` — tied to one machine, and carrying an email address into a
     file people paste into chats. Now a registered store records its *registry id* and
-    re-resolves wherever it is read, and a literal path is kept exactly as typed, with
-    `~` and `${VAR}` intact.
+    re-resolves wherever it is read, and a literal path is kept as typed, with `~` and
+    `${VAR}` intact. A relative `files` or `code` path is the exception: `connect`
+    records it absolute, since as typed it meant only the directory it was typed in.
     """
 
     id: str
@@ -50,7 +51,8 @@ class SourceSpec:
     #: A registry id. When set, `target` is ignored and resolution happens at attach
     #: time — so the same config works on a laptop with Drive and a host without it.
     from_registry: str | None = None
-    #: A path or URI, as typed. Only used when `from_registry` is unset.
+    #: A path or URI, as typed, except a relative `files` or `code` path, which is
+    #: recorded absolute. Only used when `from_registry` is unset.
     target: str | None = None
     #: Prefer the registry's mirror over any local copy.
     remote: bool = False

@@ -317,7 +317,7 @@ def agent_turn_stream() -> Recorder:
         ev.SourceConnected,
         descriptor=Descriptor(
             id="design",
-            kind="wiki",
+            kind="mcp",
             title="DESIGN",
             capabilities=[Capability.SEARCH, Capability.FETCH, Capability.TOOLS],
             count=294,
@@ -397,7 +397,7 @@ def recorded_ask() -> Recorder:
                 skills=[Skill(name="citation-style", body="Cite inline.")],
             )
         ),
-        sources=[AttachedSource(id="design", kind="wiki")],
+        sources=[AttachedSource(id="design", kind="mcp")],
         case_id="q17",
         variant_id="haiku",
         epoch=1,
@@ -450,7 +450,7 @@ def recorded_search() -> Recorder:
         web=WebScope(),
         context=_fingerprint(Settings()),
         sources=[
-            AttachedSource(id="design", kind="wiki"),
+            AttachedSource(id="design", kind="mcp"),
             AttachedSource(id="papers", kind="mcp"),
         ],
     )

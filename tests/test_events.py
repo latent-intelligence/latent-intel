@@ -51,6 +51,23 @@ def test_a_recorded_stream_is_what_its_builder_writes(
     assert recorder.path.read_text(encoding="utf-8") == recorder.text()
 
 
+@pytest.mark.parametrize("build", build_streams.BUILDERS, ids=lambda b: b.__name__)
+def test_a_recorded_source_has_a_kind_that_ships(
+    build: Callable[[], build_streams.Recorder],
+) -> None:
+    """A sample copied by a consumer teaches it the kinds to expect, so one naming a
+    connector that no longer exists (`wiki`) teaches it wrong."""
+    from latent_intel.connectors import base as connectors
+
+    kinds: set[str] = set()
+    for event in build().events:
+        if isinstance(event, ev.SourceConnected):
+            kinds.add(event.descriptor.kind)
+        elif isinstance(event, ev.RunContext):
+            kinds.update(source.kind for source in event.sources)
+    assert kinds <= set(connectors.available_kinds())
+
+
 def test_every_recorded_stream_has_a_builder() -> None:
     recordings = STREAMS.parent / "formats" / "recording"
     on_disk = {*STREAMS.glob("*.jsonl"), *recordings.glob("*.jsonl")}

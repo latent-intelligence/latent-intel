@@ -89,6 +89,9 @@ NO_RUNTIME_REMEDY = (
     "choose one with `/runtime claude-cli` in the shell, or set `runtime:` in "
     "~/.config/latent-intel/config.yaml. Run `intel doctor` to see which are available."
 )
+#: Kinds whose target is a path or URI, never a command line, so a relative one names a
+#: directory, and which directory depends on where the process runs.
+PATH_KINDS = frozenset({"files", "code"})
 
 
 class Session:
@@ -197,6 +200,7 @@ class Session:
                 else:
                     kind, target = request.kind, registry.expand(request.spec)
                     source_id = request.source_id or _id_from(target)
+                    _anchored(kind, request.spec, target, source_id)
                 _claim(source_id)
                 opened[index] = (
                     source_id,
@@ -1035,6 +1039,22 @@ def _fingerprint(resolved: settings_module.Settings) -> Fingerprint:
     return parts.model_copy(update={"hash": digest(parts.model_dump_json())})
 
 
+def _anchored(kind: str, spec: str, target: str, source_id: str) -> None:
+    """Refuse a relative path from a config. `connect` saves one absolute now; an entry
+    saved before that meant the directory it was typed in, which is not recorded, so
+    resolving it anywhere would be a guess. A deployment's paths never reach here
+    relative: they resolve against its file when it is read. A variable unset here is
+    left in place by `expand`, and is not called relative."""
+    if kind not in PATH_KINDS or "://" in target or target.startswith("$"):
+        return
+    if not Path(target).is_absolute():
+        raise ConnectError(
+            f"'{spec}' is a relative path, which means a different directory wherever "
+            f"intel runs — connect it again with the full path: "
+            f"`intel connect <full path> --kind {kind} --as {source_id}`"
+        )
+
+
 def _claim(source_id: str) -> None:
     """Refuse the ids the engine reports under itself. A source under `engine` would
     shadow `load_skill`, or have its tools shadowed by the engine's; one under `web`
@@ -1057,4 +1077,4 @@ def _id_from(target: str) -> str:
     return tail or "source"
 
 
-__all__ = ["NO_RUNTIME", "Session"]
+__all__ = ["NO_RUNTIME", "PATH_KINDS", "Session"]

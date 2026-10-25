@@ -251,3 +251,10 @@ async def test_read_file_output_carries_its_ref(repo: Path) -> None:
         "read_file", {"path": "src/app/ranking.py", "start": 50, "end": 51}
     )
     assert output.startswith("repo:src/app/ranking.py:50-51\n")
+
+
+async def test_search_refuses_a_filter_it_cannot_apply(repo: Path) -> None:
+    connector = CodeConnector("repo", str(repo))
+    assert await connector.search("rank_hits", kind="")
+    with pytest.raises(ConnectError, match="kind"):
+        await connector.search("rank_hits", kind="function")

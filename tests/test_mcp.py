@@ -516,7 +516,7 @@ async def test_a_server_s_instructions_are_bounded() -> None:
 
 
 async def test_a_filter_the_listing_cannot_apply_is_refused() -> None:
-    """Reject what you cannot honour: a `--kind` that silently did nothing would
+    """Reject what you cannot honour: a filter that silently did nothing would
     return results the caller believes were filtered."""
     connector = await connect(build_server())
     try:
