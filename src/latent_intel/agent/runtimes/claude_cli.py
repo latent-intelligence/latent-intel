@@ -35,16 +35,33 @@ allow-list has to be decided up front. It is derived from each `ToolSpec`'s decl
 `auto` writes are too. `ask` therefore means the cautious end until this package grows a
 real approval channel — stated here because silently treating it as `never` would be a
 lie about a setting the user chose.
+
+**A server's `cwd` is ours to apply.** The binary reads `command`, `args` and `env` from
+`--mcp-config` and ignores `cwd`, so a server reading relative paths found nothing. A
+spec with a `cwd` goes out as `sh -c 'cd "$0" && exec "$@"' <cwd> <command> <args...>`:
+the same server, started in its directory. Windows has no `sh`, so there `cwd` is
+refused before anything is spawned.
+
+**The child dies with the parent.** For the life of a turn, SIGTERM and SIGHUP end the
+`claude` this turn started and are then delivered to whatever handled them before, so
+`intel` still dies of the signal; an `atexit` hook covers an exit that skips cleanup.
+Without them a killed `intel` left `claude -p` running under PID 1, still spending.
 """
 
 from __future__ import annotations
 
+import atexit
 import json
+import os
 import re
 import shlex
 import shutil
+import signal
+import sys
+import threading
 from collections import deque
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from subprocess import PIPE
 from typing import Any
@@ -82,6 +99,15 @@ _MAX_LINE = 8 * 1024 * 1024
 #: older ones at a `cli.js` run through `node`.
 _SHIM_TARGET = re.compile(r'"%dp0%\\([^"]+)"')
 
+
+#: No `sh` to apply a server's `cwd` with. A module constant so a test can stand in.
+WINDOWS = sys.platform == "win32"
+
+#: What ends `intel` from outside and must end the binary with it. Ctrl-C is not here:
+#: it reaches the whole foreground process group, and cancellation already terminates.
+_FATAL = tuple(
+    getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
 
 #: The binary's own web tools each mode turns on. Both read the web and nothing else,
 #: so both are `external_read` — declared here, because the binary declares none.
@@ -241,13 +267,69 @@ def build_argv(
     # servable fell back to the ambient config and answered from tools this session
     # never granted. Observed — with no wiki server the agent reported the operator's
     # own unrelated MCP tools as its context. No servers must mean no tools.
-    argv += ["--mcp-config", json.dumps({"mcpServers": servers or {}})]
+    block = {name: _start_in_cwd(spec) for name, spec in (servers or {}).items()}
+    argv += ["--mcp-config", json.dumps({"mcpServers": block})]
     argv += ["--strict-mcp-config"]
     if allow or web:
         argv += ["--allowedTools", *allow, *web]
     if system_prompt:
         argv += ["--append-system-prompt", system_prompt]
     return argv
+
+
+def _start_in_cwd(spec: dict[str, Any]) -> dict[str, Any]:
+    """A server spec the binary will start in its `cwd` — see the module docstring.
+
+    A spec without one goes out unchanged. The directory is made absolute here, where
+    the source checked it exists, since the binary may run elsewhere.
+    """
+    if "cwd" not in spec:
+        return spec
+    out = {k: v for k, v in spec.items() if k != "cwd"}
+    out["command"] = "sh"
+    out["args"] = [
+        "-c",
+        'cd "$0" && exec "$@"',
+        os.path.abspath(spec["cwd"]),
+        spec["command"],
+        *spec.get("args", []),
+    ]
+    return out
+
+
+@contextmanager
+def _dies_with_parent(pid: int) -> Iterator[None]:
+    """End the child `pid` when `intel` is killed or exits, for the life of a turn.
+
+    The handler kills the child rather than cancelling a scope: the loop may be asleep
+    in `select` with nothing to wake it, while the child's death closes its stdout and
+    wakes the reader. The signal is re-raised once the previous handler is back, so the
+    process still dies of it — but only after the caller's cleanup has reaped the child.
+    """
+
+    def end_child() -> None:
+        with suppress(ProcessLookupError, PermissionError):  # already gone
+            os.kill(pid, signal.SIGTERM)
+
+    received: list[int] = []
+
+    def handler(signum: int, frame: Any) -> None:
+        received.append(signum)
+        end_child()
+
+    atexit.register(end_child)
+    previous: dict[int, Any] = {}
+    if threading.current_thread() is threading.main_thread():
+        for signum in _FATAL:
+            previous[signum] = signal.signal(signum, handler)
+    try:
+        yield
+    finally:
+        for signum, before in previous.items():
+            signal.signal(signum, before)
+        atexit.unregister(end_child)
+        if received:
+            signal.raise_signal(received[0])
 
 
 def _usage(payload: dict[str, Any]) -> dict[str, int]:
@@ -332,6 +414,19 @@ class ClaudeCliRuntime:
         if refused := refuse_web(self, scope, emitter):
             yield refused
             return
+        if WINDOWS and (rooted := sorted(s for s in servers if "cwd" in servers[s])):
+            yield emitter.emit(
+                ev.AgentFailed,
+                message=(
+                    f"the '{self.id}' runtime cannot start {', '.join(rooted)} in its "
+                    f"cwd on Windows: Claude Code ignores `cwd`, and the `sh` wrapper "
+                    f"that applies it is not there"
+                ),
+                kind="runtime_error",
+                remedy="drop `cwd:` and use absolute paths in the target, or use a "
+                "runtime that starts its own servers",
+            )
+            return
         argv = build_argv(
             resolved,
             model=self.model,
@@ -367,31 +462,34 @@ class ClaudeCliRuntime:
             )
             return
 
-        async with opened as process:
-            try:
-                async with anyio.create_task_group() as tasks:
-                    tasks.start_soon(self._feed, process, prompt)
-                    tasks.start_soon(self._drain, process, stderr_tail)
-                    async for line in _lines(process):
-                        try:
-                            payload = json.loads(line)
-                        except json.JSONDecodeError:
-                            stderr_tail.append(line[:200])
-                            continue  # claude prints non-JSON here; never fatal
-                        if not isinstance(payload, dict):
-                            continue
-                        for event in self._map(
-                            payload, emitter, declared, by_server, started
-                        ):
-                            if isinstance(event, ev.AgentCompleted | ev.AgentFailed):
-                                saw_result = True
-                            yield event
-            finally:
-                # An orphaned `claude` after Ctrl-C is the same bug this package already
-                # recorded for MCP servers inheriting a pipeline's stdout.
-                with anyio.CancelScope(shield=True):
-                    if process.returncode is None:
-                        process.terminate()
+        with _dies_with_parent(opened.pid):
+            async with opened as process:
+                try:
+                    async with anyio.create_task_group() as tasks:
+                        tasks.start_soon(self._feed, process, prompt)
+                        tasks.start_soon(self._drain, process, stderr_tail)
+                        async for line in _lines(process):
+                            try:
+                                payload = json.loads(line)
+                            except json.JSONDecodeError:
+                                stderr_tail.append(line[:200])
+                                continue  # claude prints non-JSON here; never fatal
+                            if not isinstance(payload, dict):
+                                continue
+                            for event in self._map(
+                                payload, emitter, declared, by_server, started
+                            ):
+                                if isinstance(
+                                    event, ev.AgentCompleted | ev.AgentFailed
+                                ):
+                                    saw_result = True
+                                yield event
+                finally:
+                    # An orphaned `claude` after Ctrl-C is the same bug this package
+                    # already recorded for MCP servers inheriting a pipeline's stdout.
+                    with anyio.CancelScope(shield=True):
+                        if process.returncode is None:
+                            process.terminate()
 
         if not saw_result:
             code = process.returncode

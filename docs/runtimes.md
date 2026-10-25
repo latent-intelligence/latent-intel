@@ -27,7 +27,10 @@ way of naming models. `intel hosts` prints every host with what it still needs, 
   with the same tool events and the same approval rule on every runtime.
 - **`claude-cli`** reaches an `mcp` source as that server, and a `files` or `code` source
   through a server this package starts for it. `intel doctor` marks a source the agent
-  cannot see. It never gets `load_skill`, so it is given the skill bodies whole.
+  cannot see. It never gets `load_skill`, so it is given the skill bodies whole. Claude Code
+  ignores an `mcp` source's `cwd`, so this package starts that server through
+  `sh -c 'cd "$0" && exec "$@"'`; on Windows, with no `sh`, a source with `cwd` is refused.
+  Killing `intel` with SIGTERM or SIGHUP ends the `claude` it started.
 - **`claude-agent-sdk`** runs with your own Claude Code setup shut out: no `~/.claude`
   settings, `CLAUDE.md`, memory, skills or MCP servers. It authenticates with the host's
   variables only, never a claude.ai login. A follow-up resumes its session, which needs
