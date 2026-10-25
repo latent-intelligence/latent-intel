@@ -1,5 +1,5 @@
 """The web scope as a person writes it: the short form, the mapping, and every way a
-value is refused rather than half-honoured."""
+value is refused rather than half-honoured; and refs as `find_all` reads them."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from latent_intel.models import WebScope
+from latent_intel.models import Ref, WebScope
 
 
 @pytest.mark.parametrize(
@@ -94,3 +94,57 @@ def test_a_hostname_is_stored_lowercase_without_a_trailing_dot() -> None:
     assert scope.allowed_domains == ["arxiv.org", "b.example.org"]
     with pytest.raises(ValueError, match="plain hostname"):
         WebScope(blocked_domains=["a.org.."])
+
+
+# -- refs -------------------------------------------------------------------
+
+
+def test_a_label_before_a_server_s_own_name_is_read_once() -> None:
+    """A model that writes `<source>:<store id>:<page>` means one page, not a key
+    that starts with the store id."""
+    text = "see `heron:heronsgate:tide-pool` and heron:heronsgate:tide-pool."
+    assert Ref.find_all(text, {"heron"}, {"heronsgate": "heron"}) == ["heron:tide-pool"]
+
+
+def test_a_doubled_prefix_never_collapses_into_a_bare_url() -> None:
+    assert Ref.find_all("heron:heronsgate://x", {"heron"}, {"heronsgate": "heron"}) == [
+        "heron:heronsgate://x"
+    ]
+
+
+def test_a_name_inside_a_key_that_belongs_to_another_source_is_kept() -> None:
+    assert Ref.find_all("heron:pond:x", {"heron", "egret"}, {"pond": "egret"}) == [
+        "heron:pond:x"
+    ]
+
+
+def test_a_key_stops_at_a_backslash() -> None:
+    """Tool output that is JSON inside JSON puts a backslash before every quote."""
+    text = '{"result": "{\\"ref\\": \\"heron:survey::chunk::0004\\"}"}'
+    assert "\\" in text
+    assert Ref.find_all(text, {"heron"}) == ["heron:survey::chunk::0004"]
+
+
+def test_a_shared_name_is_resolved_key_by_key() -> None:
+    """A name several servers share maps through a function of the key; a key it cannot
+    place is no ref, and a label spelled like the name still reads as itself."""
+    owners = {"reed-bed": "heron", "survey": "egret"}
+    text = "marsh:reed-bed, marsh:survey and marsh:invented"
+    assert Ref.find_all(text, {"heron", "egret"}, {"marsh": owners.get}) == [
+        "heron:reed-bed",
+        "egret:survey",
+    ]
+    assert Ref.find_all(text, {"marsh", "egret"}, {"marsh": owners.get}) == [
+        "heron:reed-bed",
+        "egret:survey",
+        "marsh:invented",
+    ]
+
+
+def test_a_doubled_shared_name_collapses_when_it_resolves_to_the_label() -> None:
+    owners = {"reed-bed": "heron"}
+    text = "heron:marsh:reed-bed and egret:marsh:reed-bed"
+    assert Ref.find_all(text, {"heron", "egret"}, {"marsh": owners.get}) == [
+        "heron:reed-bed",
+        "egret:marsh:reed-bed",
+    ]

@@ -375,6 +375,65 @@ def agent_turn_stream() -> Recorder:
     return r
 
 
+def shared_prefix_stream() -> Recorder:
+    """A wiki and a records store built over one corpus, both naming themselves `marsh`.
+
+    The answer quotes the servers' own `marsh:` refs; the session has placed each one
+    by key, so the tool results and citations carry the labels a reader can open.
+    """
+    r = Recorder("shared_prefix")
+    for source, unit, count in (("wiki", "pages", 41), ("records", "records", 12)):
+        r.add(
+            ev.SourceConnected,
+            descriptor=Descriptor(
+                id=source,
+                kind="mcp",
+                title="Marsh",
+                capabilities=[Capability.SEARCH, Capability.FETCH, Capability.TOOLS],
+                count=count,
+                unit=unit,
+            ),
+        )
+    r.add(ev.UserMessage, text="how were the reed beds surveyed?")
+    for source, tool, output, refs in (
+        (
+            "wiki",
+            "wiki_search",
+            "[concept] marsh:reed-bed — Reed bed\n  Dense stands along the margin.",
+            ["wiki:reed-bed"],
+        ),
+        (
+            "records",
+            "search",
+            '{"result": "{\\"ref\\": \\"marsh:survey-2019::chunk::0004\\"}"}',
+            ["records:survey-2019::chunk::0004"],
+        ),
+    ):
+        started = r.add(
+            ev.ToolStarted,
+            tool=f"{source}.{tool}",
+            source_id=source,
+            arguments={"query": "reed bed survey"},
+            effect=Effect.EXTERNAL_READ.value,
+        )
+        r.add(
+            ev.ToolResult,
+            parent=started,
+            tool=f"{source}.{tool}",
+            source_id=source,
+            output=output,
+            refs=refs,
+            duration_ms=60,
+        )
+    r.add(
+        ev.AgentCompleted,
+        text="Walked in transects (marsh:reed-bed, marsh:survey-2019::chunk::0004).",
+        citations=["wiki:reed-bed", "records:survey-2019::chunk::0004"],
+        usage={"input_tokens": 3100, "output_tokens": 88},
+    )
+    return r
+
+
 def recorded_ask() -> Recorder:
     """A recording of one eval turn: header, question, a search tool, a cited answer."""
     r = Recorder("ask", FORMATS)
@@ -469,6 +528,7 @@ BUILDERS = (
     failure_stream,
     stopped_stream,
     agent_turn_stream,
+    shared_prefix_stream,
     recorded_ask,
     recorded_search,
 )

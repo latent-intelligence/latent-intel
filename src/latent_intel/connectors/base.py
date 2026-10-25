@@ -126,6 +126,19 @@ class SelfNamed(Protocol):
         ...
 
 
+@runtime_checkable
+class ListsKeys(Protocol):
+    """A `SelfNamed` source that can say which keys its server listed.
+
+    Separate, so a connector written before it is still relabelled: the keys only tell
+    apart two servers that gave themselves one name.
+    """
+
+    def ref_keys(self) -> frozenset[str]:
+        """The keys this source's server listed when it attached."""
+        ...
+
+
 #: Capability -> the Protocol that has to be satisfied to claim it.
 CAPABILITY_PROTOCOLS: dict[Capability, type] = {
     Capability.SEARCH: Searchable,
@@ -209,6 +222,7 @@ __all__ = [
     "Connector",
     "Fetchable",
     "Searchable",
+    "ListsKeys",
     "SelfNamed",
     "ToolProvider",
     "available_kinds",

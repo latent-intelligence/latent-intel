@@ -11,7 +11,7 @@ runtime SDK.
 | `latent_intel.commands` | `Command`, `Connect`, `Disconnect`, `ListSources`, `Find`, `Fetch`, `Ask` |
 | `latent_intel.events` | every event class, `UnknownEvent`, `RunContext`, `SCHEMA_VERSION`, `RECORDING_FORMAT`, `recording_schema` |
 | `latent_intel.models` | the value types above, `WebScope`, and the errors |
-| `latent_intel.connectors.base` | `Connector`, `Searchable`, `Fetchable`, `ToolProvider`, `AsyncOpen`, `Servable`, `SelfNamed` |
+| `latent_intel.connectors.base` | `Connector`, `Searchable`, `Fetchable`, `ToolProvider`, `AsyncOpen`, `Servable`, `SelfNamed`, `ListsKeys` |
 | `latent_intel.agent.base` | `Runtime` and the optional Protocols beside it |
 
 Any other module, and any name starting with `_`, is internal and may change. To read what this

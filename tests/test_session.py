@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -1453,8 +1454,8 @@ class Named:
 
     kind = "mcp"
 
-    def __init__(self, source_id: str, prefix: str) -> None:
-        self.id, self.prefix = source_id, prefix
+    def __init__(self, source_id: str, prefix: str, keys: Iterable[str] = ()) -> None:
+        self.id, self.prefix, self.keys = source_id, prefix, frozenset(keys)
 
     def describe(self) -> Descriptor:
         return Descriptor(id=self.id, kind=self.kind)
@@ -1464,6 +1465,9 @@ class Named:
 
     def ref_prefix(self) -> str:
         return self.prefix
+
+    def ref_keys(self) -> frozenset[str]:
+        return self.keys
 
 
 class AnsweringRuntime:
@@ -1489,6 +1493,134 @@ async def test_an_answer_s_ref_is_labelled_only_when_one_server_has_that_name() 
     session._connectors["stork"] = Named("stork", "shore")  # type: ignore[assignment]
     events = [e async for e in session.ask("q")]
     assert events[-1].citations == ["heron:limpets"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
+class ToolThenAnswerRuntime:
+    """A turn in which one source's tool returns `output`, then the model answers."""
+
+    id = "fake"
+    model = "fake-model-1"
+
+    def __init__(self, text: str, source_id: str = "", output: str = "") -> None:
+        self.text, self.source_id, self.output = text, source_id, output
+
+    def available(self) -> bool:
+        return True
+
+    async def stream(self, messages, tools, *, emitter, **options):  # type: ignore[no-untyped-def]
+        if self.source_id:
+            started = emitter.emit(
+                ev.ToolStarted, tool="search", source_id=self.source_id, effect="none"
+            )
+            yield started
+            yield emitter.nested(started).emit(
+                ev.ToolResult,
+                tool="search",
+                source_id=self.source_id,
+                output=self.output,
+            )
+        yield emitter.emit(ev.AgentCompleted, text=self.text)
+
+
+def _shared(runtime: Any) -> Session:
+    """A wiki and a records store built over one corpus: one name, two servers."""
+    session = Session(runtime=runtime)
+    session._connectors["wiki"] = Named("wiki", "marsh", {"reed-bed", "heron"})  # type: ignore[assignment]
+    session._connectors["records"] = Named("records", "marsh", {"survey-2019"})  # type: ignore[assignment]
+    return session
+
+
+async def test_a_shared_name_resolves_to_the_server_that_lists_the_key() -> None:
+    text = "Reeds (marsh:reed-bed) were counted in marsh:survey-2019."
+    session = _shared(AnsweringRuntime(text))
+    events = [e async for e in session.ask("q")]
+    assert events[-1].citations == ["wiki:reed-bed", "records:survey-2019"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
+async def test_a_shared_name_resolves_a_key_a_server_returned_earlier() -> None:
+    """A chunk id is no resource; the session remembers which server's tool output it
+    came from, for later turns too."""
+    chunk = "marsh:survey-2019::chunk::0004"
+    output = f'{{\\"ref\\": \\"{chunk}\\"}}'
+    session = _shared(ToolThenAnswerRuntime(f"See {chunk}.", "records", output))
+    events = [e async for e in session.ask("q")]
+    (result,) = [e for e in events if isinstance(e, ev.ToolResult)]
+    assert result.refs == ["records:survey-2019::chunk::0004"]
+    assert events[-1].citations == ["records:survey-2019::chunk::0004"]  # type: ignore[union-attr]
+
+    session._runtime = AnsweringRuntime(f"Again, {chunk}.")
+    events = [e async for e in session.ask("q2")]
+    assert events[-1].citations == ["records:survey-2019::chunk::0004"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
+async def test_a_shared_name_leaves_a_key_no_server_listed_or_returned() -> None:
+    """A ref the model invented stays text; so does one both servers list or both
+    returned, since either could hold it."""
+    session = _shared(ToolThenAnswerRuntime("x", "wiki", "marsh:twice"))
+    session._connectors["records"] = Named("records", "marsh", {"survey-2019", "heron"})  # type: ignore[assignment]
+    [e async for e in session.ask("q")]
+    session._runtime = ToolThenAnswerRuntime(
+        "marsh:invented, marsh:heron and marsh:twice", "records", "marsh:twice"
+    )
+    events = [e async for e in session.ask("q2")]
+    assert events[-1].citations == []  # type: ignore[union-attr]
+    await session.aclose()
+
+
+async def test_a_key_both_servers_list_resolves_to_the_one_that_returned_it() -> None:
+    session = _shared(ToolThenAnswerRuntime("", "records", "marsh:heron"))
+    session._connectors["records"] = Named("records", "marsh", {"heron"})  # type: ignore[assignment]
+    [e async for e in session.ask("q")]
+    session._runtime = AnsweringRuntime("marsh:heron")
+    events = [e async for e in session.ask("q2")]
+    assert events[-1].citations == ["records:heron"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
+async def test_a_source_detached_takes_what_it_returned_with_it() -> None:
+    """A different server attached later under the same label and name inherits
+    nothing the first one returned."""
+    session = _shared(ToolThenAnswerRuntime("", "records", "marsh:survey::chunk::1"))
+    [e async for e in session.ask("q")]
+    await session.disconnect("records")
+    session._connectors["records"] = Named("records", "marsh")  # type: ignore[assignment]
+    session._runtime = AnsweringRuntime("marsh:survey::chunk::1")
+    events = [e async for e in session.ask("q2")]
+    assert events[-1].citations == []  # type: ignore[union-attr]
+    await session.aclose()
+
+
+class NamedOnly:
+    """A connector written before `ref_keys`: it names itself and lists nothing."""
+
+    kind = "mcp"
+    id = "heron"
+
+    def describe(self) -> Descriptor:
+        return Descriptor(id=self.id, kind=self.kind)
+
+    async def aclose(self) -> None:
+        pass
+
+    def ref_prefix(self) -> str:
+        return "heronsgate"
+
+
+async def test_a_connector_that_lists_no_keys_is_still_relabelled() -> None:
+    session = Session(runtime=AnsweringRuntime("heronsgate:pool"))
+    session._connectors["heron"] = NamedOnly()  # type: ignore[assignment]
+    events = [e async for e in session.ask("q")]
+    assert events[-1].citations == ["heron:pool"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
+async def test_a_shared_name_reports_both_sources() -> None:
+    session = _shared(AnsweringRuntime(""))
+    session._connectors["notes"] = Named("notes", "pond")  # type: ignore[assignment]
+    assert session.shared_ref_prefixes() == {"marsh": ["records", "wiki"]}
     await session.aclose()
 
 

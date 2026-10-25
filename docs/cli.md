@@ -62,7 +62,8 @@ to: [connect sources](guides/connect-sources.md).
 ## stores
 
 Lists the attached sources with their kind, size and capabilities, then the registry's other
-entries, marking those that cannot be connected.
+entries, marking those that cannot be connected. A `!` line names any two attached servers that
+give themselves the same name, since their refs resolve only by key.
 
 ## search and get
 
@@ -136,8 +137,9 @@ attaches your configured sources.
 - **`hosts`** prints each runtime's hosts: `✓` with the variables it reads, or what it still
   needs. `← configured` marks the runtime that answers, `← in use` its host.
 - **`doctor`** prints the connectors, each runtime with its reason if it cannot run, the web
-  scope and which runtimes honour it, the `.env` files loaded, the attached sources, tools with
-  no declared effect, and the config and data paths.
+  scope and which runtimes honour it, the `.env` files loaded, the attached sources (with the
+  same `!` line as `stores` for two servers of one name), tools with no declared effect, and
+  the config and data paths.
 
 Both name variables, never their values. [Choose a runtime](guides/choose-a-runtime.md) reads
 their output.
