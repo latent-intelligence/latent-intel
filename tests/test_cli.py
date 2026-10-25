@@ -1342,6 +1342,20 @@ def test_deployment_add_lists_only_what_it_finds_first_and_names_a_shadow(
     assert "lab" in result.stderr and "shadowed" in result.stderr
 
 
+def test_one_file_reached_from_two_search_paths_shadows_nothing(
+    tmp_path: Path,
+) -> None:
+    """`projects/lab/lab.yaml` is found one folder down from `projects` and again from
+    `projects/lab` once that is added: one file, so no shadow to warn about."""
+    (tmp_path / "projects" / "lab").mkdir(parents=True)
+    (tmp_path / "projects" / "lab" / "lab.yaml").write_text("name: lab\n")
+    result = runner.invoke(app, ["deployment", "add", str(tmp_path / "projects/lab")])
+    assert result.exit_code == 0, result.output
+    assert "(lab)" in flat(result.stdout)
+    assert "shadowed" not in result.stderr
+    assert "shadowed" not in runner.invoke(app, ["deployment", "list"]).stderr
+
+
 def test_connect_warns_when_the_deployment_it_records_into_is_not_found(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

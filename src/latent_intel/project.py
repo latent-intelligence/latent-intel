@@ -585,8 +585,13 @@ def check_sources(project: Project) -> list[str]:
             if not Path(target).is_dir():
                 problems.append(f"source '{spec.id}': no directory at {target}")
         elif spec.kind == "mcp" and not target.startswith(("http://", "https://")):
-            # Expanded as attach expands it, then split: `$VAR` and `~` included.
-            line = str(Path(os.path.expandvars(target)).expanduser())
+            # Expanded as attach expands it, then split: `$VAR` and `~`, unless the
+            # line holds `://` anywhere, which attach then leaves as written.
+            line = (
+                target
+                if "://" in target
+                else str(Path(os.path.expandvars(target)).expanduser())
+            )
             try:
                 command = shlex.split(line)[0]
             except (ValueError, IndexError):
@@ -725,7 +730,8 @@ def discover(
         for candidate in candidates(directory):
             name = candidate.stem
             if name in found:
-                problems.append(f"{name}: {candidate} shadowed by {found[name]}")
+                if found[name] != candidate:  # not one file reached twice
+                    problems.append(f"{name}: {candidate} shadowed by {found[name]}")
                 continue
             found[name] = candidate
     return found, problems

@@ -418,6 +418,7 @@ def test_check_sources_reads_an_mcp_command_as_attach_does(
             "sources:\n"
             "  - {id: bridged, kind: mcp, target: 'absent-bridge https://host/sse'}\n"
             "  - {id: byvar, kind: mcp, target: '$TOOL_DIR/serve-here --flag'}\n"
+            "  - {id: kept, kind: mcp, target: '$TOOL_DIR/serve-here https://h/s'}\n"
             "  - {id: nocwd, kind: mcp, target: ./bin/serve-here, "
             "options: {cwd: ./gone}}\n",
         )
@@ -425,9 +426,11 @@ def test_check_sources_reads_an_mcp_command_as_attach_does(
 
     problems = project.check_sources(loaded)
 
-    assert len(problems) == 2, problems
+    assert len(problems) == 3, problems
     assert problems[0].startswith("source 'bridged'") and "absent-bridge" in problems[0]
-    assert problems[1].startswith("source 'nocwd'") and "cwd" in problems[1]
+    # Attach leaves a line with `://` in it unexpanded, so `$TOOL_DIR` cannot start.
+    assert problems[1].startswith("source 'kept'") and "$TOOL_DIR" in problems[1]
+    assert problems[2].startswith("source 'nocwd'") and "cwd" in problems[2]
 
 
 @pytest.mark.parametrize("body", ["defaults: search\n", "defaults: {1: a, web: off}\n"])

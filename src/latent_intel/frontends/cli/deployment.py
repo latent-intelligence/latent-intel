@@ -12,7 +12,6 @@ that does not exist yet, and refuses one that does.
 
 from __future__ import annotations
 
-import os
 import shlex
 from pathlib import Path
 
@@ -183,17 +182,19 @@ def add(
     config.deployment_paths.append(str(directory))
     config_module.save(config)
     # What this directory now answers for: a name an earlier path holds stays there.
-    found, problems = project_module.discover(
-        config.deployment_paths, config_module.home()
-    )
-    here = sorted(n for n, p in found.items() if p.is_relative_to(directory))
+    found, _ = project_module.discover(config.deployment_paths, config_module.home())
+    mine = project_module.candidates(directory)
+    here = sorted(p.stem for p in mine if found.get(p.stem) == p)
     console.print(
         f"[ok]✓[/] [dim]searching[/] {escape(str(directory))} "
         f"[dim]({escape(', '.join(here) or 'every name shadowed')})[/]"
     )
-    for note in problems:
-        if f" {directory}{os.sep}" in note:
-            err_console.print(f"[warn]![/] [dim]{escape(note)}[/]")
+    for path in mine:
+        if found.get(path.stem) != path:
+            err_console.print(
+                f"[warn]![/] [dim]{escape(path.stem)}: {escape(str(path))} shadowed "
+                f"by {escape(str(found.get(path.stem)))}[/]"
+            )
 
 
 @app.command()
