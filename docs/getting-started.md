@@ -123,8 +123,10 @@ overlays:
 
 The path is recorded exactly as `intel` received it. Quoted, as above, it keeps its `~`, so the
 file works on another machine; unquoted, your shell expands it first.
-Credentials never go in it. `LATENT_INTEL_HOME=$(mktemp -d)` gives a throwaway setup to try
-things in. Every key: [your config](deployments.md#your-config).
+An `mcp` source's `env` is kept as given: a bare `NAME` forwards your value and stores only the
+name, while a `NAME=value` literal, typed or imported with `--from`, is stored as written. Keep
+secrets in the environment or a `.env`, never as literals. `LATENT_INTEL_HOME=$(mktemp -d)`
+gives a throwaway setup to try things in. Every key: [your config](deployments.md#your-config).
 
 ## Next
 
