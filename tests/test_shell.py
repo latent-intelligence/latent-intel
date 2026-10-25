@@ -709,7 +709,7 @@ def test_a_recording_opens_with_its_header_and_adds_one_on_a_change(
     assert [[s.id for s in h.sources] for h in headers] == [[], ["c"]]
 
 
-@pytest.mark.parametrize("name", ["agent_turn", "stopped"])
+@pytest.mark.parametrize("name", ["agent_turn", "stopped", "shared_prefix"])
 def test_shell_replay_prints_what_intel_replay_prints(
     monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:

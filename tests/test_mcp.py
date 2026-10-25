@@ -610,6 +610,37 @@ async def test_bare_keys_in_a_server_s_output_are_not_refs() -> None:
     assert (await result_of(session)).refs == []
 
 
+async def test_a_server_s_keys_are_the_resources_it_listed() -> None:
+    connector = await connect(build_server(name="notes"))
+    assert isinstance(connector, connectors.SelfNamed)
+    assert connector.ref_keys() == {"note://alpha", "note://beta"}
+    await connector.aclose()
+
+
+class Answering:
+    id = "fake"
+    model = "fake-model-1"
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def available(self) -> bool:
+        return True
+
+    async def stream(self, messages, tools, *, emitter, **options):  # type: ignore[no-untyped-def]
+        yield emitter.emit(ev.AgentCompleted, text=self.text)
+
+
+async def test_two_servers_of_one_name_are_told_apart_by_what_they_list() -> None:
+    session = Session(runtime=Answering("notes:note://alpha and notes:note://gamma"))
+    listing = await connect(build_server(name="notes"), "listing")
+    bare = await connect(build_server(name="notes", with_resources=False), "bare")
+    session._connectors.update(listing=listing, bare=bare)  # type: ignore[arg-type]
+    events = [e async for e in session.ask("q")]
+    assert events[-1].citations == ["listing:note://alpha"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
 # -- teardown ---------------------------------------------------------------
 #
 # Each stdio server is a subprocess behind an anyio cancel scope. anyio wants a scope

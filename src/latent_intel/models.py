@@ -20,7 +20,7 @@ and reported as under-declared rather than quietly trusted.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -61,8 +61,8 @@ class Capability(StrEnum):
 
 
 #: What a key is made of: it runs to the first whitespace, bracket, quote (straight or
-#: curly), comma, semicolon, pipe, asterisk, `#` or dash.
-_KEY = r"[^\s<>()\[\]{}\"'`,;|*#“”‘’—–]+"
+#: curly), backslash, comma, semicolon, pipe, asterisk, `#` or dash.
+_KEY = r"[^\s<>()\[\]{}\"'`\\,;|*#“”‘’—–]+"
 
 #: What may follow a key without being part of it: sentence ends, closing emphasis.
 _TRAILING = ".:!?_~"
@@ -100,34 +100,55 @@ class Ref(BaseModel):
 
     @staticmethod
     def find_all(
-        text: str, sources: Iterable[str], aliases: Mapping[str, str] | None = None
+        text: str,
+        sources: Iterable[str],
+        aliases: Mapping[str, str | Callable[[str], str | None]] | None = None,
     ) -> list[str]:
         """Each `source:key` in `text` naming one of `sources`, in order, once each.
 
         Only attached sources count, which is what tells a ref from a URL, a clock time
         or a third-party id — all of which contain a colon. A key runs to the first
-        space, bracket, quote, dash or separator, less trailing sentence punctuation or
-        emphasis, so a ref a model wrote inside `(…)`, `[…]`, backticks or `_…_` still
-        reads cleanly. A `scheme://` is skipped for the reason `parse` refuses one.
+        space, bracket, quote, backslash, dash or separator, less trailing sentence
+        punctuation or emphasis, so a ref a model wrote inside `(…)`, `[…]`, backticks
+        or `_…_` still reads cleanly. A `scheme://` is skipped for the reason `parse`
+        refuses one.
 
         `aliases` maps the name a server prints before its keys to the source it is
         attached as, for a server that names things `<its name>:<key>` and never by our
-        label. An alias wins over a label spelled the same; the caller leaves out any
-        alias it cannot attribute to one source.
+        label. A name several servers share maps through a function of the key instead,
+        which returns None for a key it cannot place: that ref is left out, or read as
+        the label when one is spelled the same. An alias wins over a label spelled the
+        same. `<source>:<alias>:<key>`, where the alias resolves to that source, is read
+        as `<source>:<key>`.
         """
-        labels = {name: name for name in sources} | dict(aliases or {})
-        if not labels or not text:
+        labels, aliases = set(sources), dict(aliases or {})
+        names = labels | set(aliases)
+        if not names or not text:
             return []
-        names = sorted(labels, key=len, reverse=True)
+
+        def owner(name: str, key: str) -> str | None:
+            alias = aliases.get(name, name)
+            found = alias(key) if callable(alias) else alias
+            return found or (name if name in labels else None)
+
         pattern = re.compile(
-            r"(?<![^\W_])(?<![.\-/:])(" + "|".join(map(re.escape, names)) + r"):"
+            r"(?<![^\W_])(?<![.\-/:])("
+            + "|".join(map(re.escape, sorted(names, key=len, reverse=True)))
+            + r"):"
             f"({_KEY})"
         )
         found: dict[str, None] = {}
         for match in pattern.finditer(text):
             key = match.group(2).rstrip(_TRAILING)
-            if key and not key.startswith("//"):
-                found[f"{labels[match.group(1)]}:{key}"] = None
+            if not key or key.startswith("//"):
+                continue
+            source = owner(match.group(1), key)
+            if source is None:
+                continue
+            inner, sep, rest = key.partition(":")
+            if sep and rest and inner in aliases and owner(inner, rest) == source:
+                key = rest
+            found[f"{source}:{key}"] = None
         return list(found)
 
 

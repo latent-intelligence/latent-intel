@@ -112,7 +112,10 @@ vocabulary free to change without touching a single connector.
 - **Refs are `source:key`, and the label is ours.** A server prints its keys as
   `<server name>:<key>`; this client swaps that name for its own source id when it records
   a ref. No server prints the label, so no server needs to know what it was attached as
-  (workspace ADR-003).
+  (workspace ADR-003). A name two servers share (a wiki and a records store over one
+  corpus) is placed key by key: the resource lists, then the tool output each server
+  returned this session. Never by key shape, which is one server's format, and never by
+  asking for distinct store ids, which the engine cannot enforce.
 - **Failures inside `run()` are events.** A frontend iterating a stream over a transport
   has nowhere to catch an exception. Typed methods raise; `run` emits `AgentFailed`.
   A search that reached no source is such a failure, not an empty result: `find` raises

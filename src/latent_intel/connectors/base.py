@@ -125,6 +125,11 @@ class SelfNamed(Protocol):
         """The name this source's server gave itself, or "" when it gave none."""
         ...
 
+    def ref_keys(self) -> frozenset[str]:
+        """The keys this source's server listed, which tell it apart from another
+        server of the same name."""
+        ...
+
 
 #: Capability -> the Protocol that has to be satisfied to claim it.
 CAPABILITY_PROTOCOLS: dict[Capability, type] = {

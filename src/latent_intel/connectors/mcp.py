@@ -434,6 +434,10 @@ class McpConnector:
         `<name>:<key>` gets refs labelled with this source's id in its place."""
         return self._server_name
 
+    def ref_keys(self) -> frozenset[str]:
+        """The URIs of the resources listed at connect, up to `_LIST_LIMIT`."""
+        return frozenset(uri for uri, _, _ in self._resources)
+
     def tools(self) -> list[ToolSpec]:
         return list(self._tools)
 

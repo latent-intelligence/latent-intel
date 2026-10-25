@@ -26,10 +26,11 @@ should see travels as `AgentFailed`.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import hashlib
 import json
 import re
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -117,6 +118,9 @@ class Session:
         self._runtime_kind: str | None = getattr(runtime, "id", None)
         self._history: list[Message] = []
         self._connectors: dict[str, connectors.Connector] = {}
+        #: (server name, key) -> the source whose tool output it appeared in, or None
+        #: once two have returned it. For the session only — see `_refs`.
+        self._seen: dict[tuple[str, str], str | None] = {}
         #: The source a bare key resolves against, set by `/use`.
         self.current: str | None = None
         #: Source id -> failure message, reset by each `find`. Read by `run` so a search
@@ -769,10 +773,12 @@ class Session:
             agents=resolved.agents,
             web=scope,
         ):
-            if isinstance(event, ev.ToolResult) and not event.refs:
-                event = event.model_copy(
-                    update={"refs": self._refs(event.output, event.source_id)}
-                )
+            if isinstance(event, ev.ToolResult):
+                if not event.refs:
+                    event = event.model_copy(
+                        update={"refs": self._refs(event.output, event.source_id)}
+                    )
+                self._remember(event.source_id, event.refs)
             elif isinstance(event, ev.AgentCompleted):
                 self._history.append(Message(role="assistant", text=event.text))
                 # A union, not a fallback: a runtime's own citations — the URLs a web
@@ -784,31 +790,74 @@ class Session:
                     event = event.model_copy(update={"citations": cited})
             yield event
 
+    def shared_ref_prefixes(self) -> dict[str, list[str]]:
+        """Each name two or more attached servers gave themselves, with their sources.
+
+        Their refs resolve key by key, or not at all, so `doctor` and `stores` say so
+        before any question is asked."""
+        return {
+            prefix: sorted(named)
+            for prefix, named in self._named().items()
+            if len(named) > 1
+        }
+
+    def _named(self) -> dict[str, dict[str, connectors.SelfNamed]]:
+        """Server name -> the attached sources whose server gave itself that name."""
+        named: dict[str, dict[str, connectors.SelfNamed]] = {}
+        for source_id, connector in self._connectors.items():
+            if isinstance(connector, connectors.SelfNamed) and (
+                prefix := connector.ref_prefix()
+            ):
+                named.setdefault(prefix, {})[source_id] = connector
+        return named
+
     def _refs(self, text: str, caller: str | None = None) -> list[str]:
         """The `source:key` refs in `text`, labelled here: no server prints a label.
 
         A server that names its things `<its name>:<key>` has that name swapped for
         the source's label, wherever it appears: a wiki's link into a peer wiki counts
-        when that peer is attached. A name two servers share, or one spelled like
-        another source's label, is left alone, never guessed, except in a tool's
-        output, where it is the server that ran the tool.
+        when that peer is attached. In a tool's output the name is the server that ran
+        the tool's. A name spelled like another source's label is left alone. A name
+        two servers share is placed key by key (`_owner`), never guessed.
         """
-        owners: dict[str, str | None] = {}
-        for source_id, connector in self._connectors.items():
-            if isinstance(connector, connectors.SelfNamed) and (
-                prefix := connector.ref_prefix()
-            ):
-                owners[prefix] = None if prefix in owners else source_id
-        ran = self._connectors.get(caller or "")
-        if isinstance(ran, connectors.SelfNamed) and (prefix := ran.ref_prefix()):
-            owners[prefix] = caller
-        aliases = {
-            prefix: owner
-            for prefix, owner in owners.items()
-            if owner
-            and (owner == caller or prefix == owner or prefix not in self._connectors)
-        }
+        aliases: dict[str, str | Callable[[str], str | None]] = {}
+        for prefix, named in self._named().items():
+            if caller in named:
+                aliases[prefix] = caller
+            elif prefix in self._connectors and prefix not in named:
+                continue
+            elif len(named) == 1:
+                aliases[prefix] = next(iter(named))
+            else:
+                aliases[prefix] = functools.partial(self._owner, prefix, named)
         return Ref.find_all(text, self._connectors, aliases)
+
+    def _owner(
+        self, prefix: str, named: dict[str, connectors.SelfNamed], key: str
+    ) -> str | None:
+        """Which of the servers called `prefix` holds `key`: the one whose resource
+        list has it, else the one whose tool output returned it this session. None
+        when neither says, or two do — a ref the model invented stays unplaced."""
+        holders = [source for source, c in named.items() if key in c.ref_keys()]
+        if len(holders) == 1:
+            return holders[0]
+        seen = self._seen.get((prefix, key))
+        return seen if seen in named else None
+
+    def _remember(self, source_id: str, refs: list[str]) -> None:
+        """Note which source's tool output each of its own keys appeared in."""
+        connector = self._connectors.get(source_id)
+        if not (
+            isinstance(connector, connectors.SelfNamed)
+            and (prefix := connector.ref_prefix())
+        ):
+            return
+        for ref in refs:
+            source, _, key = ref.partition(":")
+            if source == source_id:
+                seen = self._seen.setdefault((prefix, key), source_id)
+                if seen != source_id:
+                    self._seen[(prefix, key)] = None
 
     def _invoke(
         self, requested: dict[str, str], project: str | None, available: Sequence[Skill]

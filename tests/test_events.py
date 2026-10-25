@@ -35,6 +35,7 @@ def test_fixtures_exist() -> None:
         "failure",
         "retrieval",
         "search",
+        "shared_prefix",
         "stopped",
         "tool_call",
     }

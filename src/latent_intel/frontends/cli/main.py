@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import typer
@@ -40,6 +40,9 @@ from .._shared import (
     session_scope,
     stream,
 )
+
+if TYPE_CHECKING:
+    from ...session import Session
 
 #: Shared by every command that records, so the four cannot describe it differently.
 _PURPOSE = typer.Option(
@@ -121,6 +124,7 @@ async def _stores() -> None:
                 )
         else:
             console.print("[dim]nothing attached[/]")
+        _shared_names(session)
 
         known = [d for d in session.available() if d.id not in attached]
         if known:
@@ -438,6 +442,16 @@ def hosts() -> None:
     _shared.print_hosts()
 
 
+def _shared_names(session: Session) -> None:
+    """One `!` line per name two attached servers both gave themselves: their refs
+    resolve by the keys each one lists or returns, and others stay unplaced."""
+    for prefix, sources in session.shared_ref_prefixes().items():
+        console.print(
+            f"  [warn]![/] [source]{escape(' and '.join(sources))}[/] [dim]both call "
+            f"themselves '{escape(prefix)}': their refs resolve by key[/]"
+        )
+
+
 @app.command()
 def doctor() -> None:
     """What is installed, what is reachable, and what is not declared."""
@@ -579,6 +593,7 @@ async def _doctor() -> None:
             console.print(f"  [ok]✓[/] [source]{d.id}[/] [dim]{d.kind}[/]{reach}")
         if not session.sources():
             console.print("  [dim]nothing attached[/]")
+        _shared_names(session)
         # A page the agent fetches is a request to an address it chose, and the
         # address can carry what the sources said. An allow-list bounds where to.
         scope = session.web

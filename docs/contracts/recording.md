@@ -73,16 +73,28 @@ field. What a reader scoring a run usually needs:
 **Refs.** `tool_result.refs` lists the `source:key` refs in `output`, in order, once each.
 `agent_completed.citations` lists the runtime's own citations, then those in the answer.
 Only an attached source's id makes a ref, so a URL or a clock time never does. A key runs
-to the first whitespace, bracket, quote (straight or curly), comma, semicolon, pipe,
-asterisk, `#` or dash, less trailing `. : ! ? _ ~`.
+to the first whitespace, bracket, quote (straight or curly), backslash, comma, semicolon,
+pipe, asterisk, `#` or dash, less trailing `. : ! ? _ ~`.
 
 The label is the id this client attached the source under; no server prints it or is
 told it. An MCP server that names its things `<its name>:<key>`, as `latent-wiki serve` does with
 its store id, has that name swapped for the label: `heronsgate:tide-pool` from a wiki
-attached as `heron` is recorded `heron:tide-pool`. A bare word is never a ref. In a tool's
-output the name belongs to the server that ran the tool. Elsewhere, a name two attached
-servers share, or one spelled like another source's label, is left as it is. A wiki's link
-into a peer store is a ref when a server of that name is attached.
+attached as `heron` is recorded `heron:tide-pool`, and so is `heron:heronsgate:tide-pool`.
+A bare word is never a ref. In a tool's output the name belongs to the server that ran the
+tool. A name spelled like another source's label is left as it is. A wiki's link into a
+peer store is a ref when a server of that name is attached.
+
+A name two attached servers share, as a wiki and a records store built over one corpus do,
+is placed key by key, by two lookups in order:
+
+1. **Resource lists.** The one server whose resources, listed when it attached, include the
+   key. Only the first 500 are listed, so a key past that resolves by the second lookup alone.
+2. **Tool output.** The one server whose tool output held the key earlier in the session,
+   which places records' chunk, figure and table ids, none of them a resource.
+
+A key neither lookup places, or that two servers both hold, is left as it is: a ref the
+model invented names no source. `intel doctor` and `intel stores` warn when two attached
+servers share a name.
 
 **The web.** A call the host ran — `web_search`, `web_fetch` — is a `tool_started` /
 `tool_result` pair with `source_id` `web`, `effect` `external_read` and no `duration_ms`.

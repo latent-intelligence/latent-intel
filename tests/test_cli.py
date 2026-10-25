@@ -289,6 +289,33 @@ def test_doctor_expects_only_the_kinds_that_ship() -> None:
     assert "✓ mcp" in result.stdout
 
 
+@pytest.mark.parametrize("command", ["doctor", "stores"])
+def test_two_servers_of_one_name_get_one_warning_naming_both(command: str) -> None:
+    """A name two servers share makes their refs resolve by key, or not at all: said
+    before any question is asked."""
+    from tests.test_mcp import probe_command
+
+    for source in ("tide", "reef"):
+        connected = runner.invoke(
+            app, ["connect", probe_command(), "--kind", "mcp", "--as", source]
+        )
+        assert connected.exit_code == 0, connected.stdout
+    result = runner.invoke(app, [command])
+    assert result.exit_code == 0, result.stdout
+    warnings = [
+        line for line in result.stdout.splitlines() if "!" in line and "probe" in line
+    ]
+    assert len(warnings) == 1, result.stdout
+    assert "tide" in warnings[0] and "reef" in warnings[0]
+
+
+def test_one_server_per_name_gets_no_warning() -> None:
+    from tests.test_mcp import probe_command
+
+    runner.invoke(app, ["connect", probe_command(), "--kind", "mcp", "--as", "tide"])
+    assert "probe" not in runner.invoke(app, ["doctor"]).stdout
+
+
 def test_connecting_with_kind_vector_is_refused_with_the_installed_kinds(
     tmp_path: Path,
 ) -> None:
@@ -791,6 +818,14 @@ def test_doctor_reports_the_env_by_name_and_never_by_value(
 def printed(text: str) -> list[str]:
     """Rendered output as comparable lines — trailing spaces are not the subject."""
     return [line.rstrip() for line in text.splitlines()]
+
+
+def test_a_shared_name_replays_with_the_labels_the_session_placed() -> None:
+    result = runner.invoke(app, ["replay", str(STREAMS / "shared_prefix.jsonl")])
+    assert result.exit_code == 0
+    assert "sources: wiki:reed-bed records:survey-2019::chunk::0004" in flat(
+        result.stdout
+    )
 
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
