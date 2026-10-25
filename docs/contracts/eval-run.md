@@ -60,7 +60,7 @@ The model and host that answered are in each recording's `run_context`, along wi
 
 ## Inputs
 
-**Cases** are `latent-eval.dataset` v1 (its `docs/formats/dataset.md`), YAML or JSON Lines.
+**Cases** are `latent-eval.dataset` v1 (its `docs/contracts/dataset.md`), YAML or JSON Lines.
 Only `id`, `input.question` and `metadata` are read. `reference` is never read, because the
 answer is the scorer's business.
 
@@ -86,8 +86,8 @@ variants:
     options: {model: claude-haiku-4-5, host: anthropic}
 ```
 
-`options` are laid over the deployment's own options for that runtime. Approval comes from
-the deployment's settings, never from a variant. A variant may not be called `manifest.json`.
+`options` are laid over the resolved options for that runtime, the deployment's and your
+config's. Approval comes from the resolved settings, never from a variant. A variant may not be called `manifest.json`.
 
 A variant whose deployment reports a problem refuses the batch. A source skipped for an unset
 variable would otherwise leave the variant smaller than declared. A variant whose runtime

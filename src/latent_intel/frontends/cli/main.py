@@ -57,9 +57,17 @@ _FAMILY_HEADINGS = {
     "managed": "managed",
 }
 
+#: The top-level help, one line per paragraph so the terminal wraps it rather than the
+#: source: the module docstring's line breaks fell mid-sentence at any other width.
+_HELP = (
+    "Search and ask across your sources, with answers that cite them.\n\n"
+    "Bare `intel` opens the interactive shell; every subcommand runs once and exits. "
+    "`--json` on a streaming command prints the raw events, one per line."
+)
+
 app = typer.Typer(
     name="intel",
-    help=__doc__,
+    help=_HELP,
     add_completion=False,
     invoke_without_command=True,
     no_args_is_help=False,
@@ -268,7 +276,7 @@ def ask(
         help="With --web: no domain list and no max_uses, whatever is configured.",
     ),
 ) -> None:
-    """Ask the agent. Reports clearly that no runtime is configured yet."""
+    """Ask the agent, through the configured runtime."""
     if unbounded and web is None:
         err_console.print("[fail]✗[/] --any applies to a mode [dim]— add --web MODE[/]")
         raise typer.Exit(1)
@@ -624,8 +632,9 @@ def main() -> None:
     defaults and carries the error, so `intel doctor` still works on the machine whose
     project file is malformed. That is the machine where you need it.
     """
-    # Before `settings.load()`: a `.env` may name the active project, the registry, or
-    # the credentials a source needs, and settings caches what it reads.
+    # Before anything reads a credential: a `.env` may set the registry or the
+    # credentials a source needs. It cannot choose which deployment's `.env` is read —
+    # see `load_env`.
     _shared.load_env()
 
     brand = _shared.active_brand()

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "latent-intel.recording.v1",
   "title": "latent-intel.recording v1, one line",
-  "description": "One event of a recording. A recording opens with a run_context; a reader skips a type it does not know and refuses a missing or unknown format_version. Spec: docs/formats/recording.md.",
+  "description": "One event of a recording. A recording opens with a run_context; a reader skips a type it does not know and refuses a missing or unknown format_version. Spec: docs/contracts/recording.md.",
   "$defs": {
     "AgentCompleted": {
       "properties": {

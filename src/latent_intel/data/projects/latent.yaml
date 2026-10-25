@@ -55,13 +55,13 @@ description: >
 branding:
   name: LATENT
   tagline: context, with provenance
-  # logo: ./logo.txt          # or an inline block scalar; falls back to the wordmark
+  # logo: ./logo.txt          # or an inline block scalar; without one, Latent's logo
   # prompt: "latent › "       # defaults to the lowercased name
   # theme:                    # semantic tokens only — unknown names are reported
   #   accent: "#a7c080"
 
 # agent:
-#   persona: ./persona.md     # prepended or substituted into the system prompt
+#   persona: ./persona.md     # appended to, or substituted into, the system prompt
 #   persona_mode: append      # append | replace
 #   runtime: claude-cli       # a default the user may still override
 #   runtimes:

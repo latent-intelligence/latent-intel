@@ -102,7 +102,7 @@ class ManifestRecording(BaseModel):
 
 
 class Manifest(BaseModel):
-    """`manifest.json`, `latent-intel.eval-run` v1. Spec: `docs/formats/eval-run.md`;
+    """`manifest.json`, `latent-intel.eval-run` v1. Spec: `docs/contracts/eval-run.md`;
     the schema at `schemas/eval-run.v1.json` is generated from this model."""
 
     #: Required, without defaults, so the schema requires them: a reader refuses a
@@ -133,7 +133,7 @@ def manifest_schema() -> dict[str, Any]:
         "description": (
             "The manifest of one batch eval run: what ran, and each recording's "
             "status. A reader refuses a missing or unknown format_version. "
-            "Spec: docs/formats/eval-run.md."
+            "Spec: docs/contracts/eval-run.md."
         ),
     }
 
