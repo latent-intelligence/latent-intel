@@ -209,7 +209,11 @@ class Session:
                     ),
                 )
             except SessionError as exc:
-                problems[index] = f"{request.source_id or request.spec}: {exc}"
+                # An MCP connector names itself in its own message; said once.
+                label, message = f"{request.source_id or request.spec}: ", str(exc)
+                problems[index] = (
+                    message if message.startswith(label) else label + message
+                )
 
         for index, request in enumerate(specs):
             await one(index, request)
@@ -957,6 +961,14 @@ class Session:
 
             elif isinstance(command, Find):
                 names = self._searchable(command.source)
+                if not names:
+                    # Nothing was searched, which an empty result would not say: a
+                    # script reading exit 0 and no hits would take it for "no match".
+                    raise SessionError(
+                        "nothing to search — no source is attached"
+                        if not self._connectors
+                        else "nothing to search — no attached source supports search"
+                    )
                 yield emit.emit(
                     ev.RetrievalStarted,
                     query=command.query,

@@ -258,3 +258,14 @@ async def test_search_refuses_a_filter_it_cannot_apply(repo: Path) -> None:
     assert await connector.search("rank_hits", kind="")
     with pytest.raises(ConnectError, match="kind"):
         await connector.search("rank_hits", kind="function")
+
+
+async def test_a_capitalised_justfile_is_read(repo: Path) -> None:
+    """`Justfile` is how just's own documentation and most repositories spell it, and
+    the default patterns match case-sensitively."""
+    (repo / "Justfile").write_text("check:\n    pytest\n")
+    connector = CodeConnector("repo", str(repo))
+
+    doc = await connector.fetch("Justfile")
+    assert "pytest" in doc.body
+    assert "Justfile" in [str(p.relative_to(repo)) for p in connector.files]

@@ -99,7 +99,10 @@ root: ./products
 | `root` | the file's directory | Where the deployment's products go: `intel eval run` writes `<root>/runs/`. A local path or a URI. An empty or unreadable `root:` is reported, never replaced by the default |
 
 An unknown top-level key is reported and ignored. A directory key that names no directory is
-reported. `intel deployment validate` lists these problems.
+reported. `intel deployment validate` lists these problems, and also checks each source as far
+as it can without attaching it: a local `files` or `code` target that is not a directory, and an
+`mcp` command that is not on PATH (or, when it names a path, not there under `cwd`). A URI, a
+URL and a `from:` name are checked only when the source attaches.
 
 ## Sources
 
@@ -155,6 +158,8 @@ A value is anything Rich reads as a style, such as `"#7aa2f7"` or `"bold #a7c080
 |---|---|---|
 | `web` | `off` | `off`, `search`, `browse`, or `{mode, allowed_domains, blocked_domains, max_uses}`. One domain list at most, plain hostnames only. A value that does not parse turns the web off and is reported |
 | `approval` | `ask` | Read, but not applied today: your config's `approval`, `ask` unless you set it, always wins |
+
+Any other key is reported and not acted on. There is no default search limit: pass `--limit`.
 
 ## Saved commands
 

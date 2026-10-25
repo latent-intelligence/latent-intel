@@ -17,6 +17,7 @@ machine whose project file is malformed — that is the machine where you need i
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,10 @@ class Settings:
     origin: dict[str, str] = field(default_factory=dict)
     #: Non-fatal complaints: a bad project file, a shadowed name, a legacy block.
     problems: list[str] = field(default_factory=list)
+    #: Why the chosen deployment did not load, when it did not. Also in `problems`;
+    #: kept apart because every command that attaches says it, since none of the
+    #: deployment's sources attach.
+    unloaded: str | None = None
 
     @property
     def project_name(self) -> str | None:
@@ -92,9 +97,9 @@ def _active(config: config_module.Config) -> str | None:
     The environment variable is not an afterthought: it is how two terminals run two
     projects at once, and how CI drives one without touching a home directory.
     """
-    import os
-
-    return os.environ.get(project_module.ENV_ACTIVE) or config.deployment
+    chosen = os.environ.get(project_module.ENV_ACTIVE) or config.deployment
+    # `none` is `intel deployment use none` for one command, not a deployment's name.
+    return None if chosen == "none" else chosen
 
 
 def load(name: str | None = None, *, path: Path | None = None) -> Settings:
@@ -114,13 +119,14 @@ def load(name: str | None = None, *, path: Path | None = None) -> Settings:
     problems: list[str] = []
     origin: dict[str, str] = {}
     loaded: project_module.Project | None = None
+    unloaded: str | None = None
 
     if path is not None:
         try:
             loaded = project_module.load(path)
             problems += loaded.problems
         except project_module.ProjectError as exc:
-            problems.append(str(exc))
+            unloaded = str(exc)
         # The name `intel deployment use` would choose it by, which is its file's:
         # the overlay is kept under that, whatever its `name:` says.
         chosen = path.stem
@@ -131,8 +137,15 @@ def load(name: str | None = None, *, path: Path | None = None) -> Settings:
         problems += collisions
         path = found.get(chosen)
         if path is None:
-            problems.append(
-                f"deployment '{chosen}' not found — `intel deployment list`"
+            # Named, since nothing on screen chose it and `deployment use` would
+            # have refused the same name.
+            named = (
+                f" ({project_module.ENV_ACTIVE})"
+                if os.environ.get(project_module.ENV_ACTIVE) == chosen
+                else ""
+            )
+            unloaded = (
+                f"deployment '{chosen}' not found{named} — `intel deployment list`"
             )
         else:
             try:
@@ -140,9 +153,13 @@ def load(name: str | None = None, *, path: Path | None = None) -> Settings:
                 problems += loaded.problems
             except project_module.ProjectError as exc:
                 # Engine defaults only, and say why. Never fatal.
-                problems.append(str(exc))
+                unloaded = str(exc)
+    if unloaded is not None:
+        problems.append(unloaded)
 
-    settings = Settings(project=loaded, problems=problems, origin=origin)
+    settings = Settings(
+        project=loaded, problems=problems, origin=origin, unloaded=unloaded
+    )
 
     # -- sources: project, plus user additions, minus user detachments ---------
     settings.chosen = chosen

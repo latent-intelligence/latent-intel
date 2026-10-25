@@ -45,7 +45,7 @@ DEFAULT_INCLUDE = (
     "*.scala *.c *.h *.cc *.cpp *.hpp *.cs *.rb *.php *.swift *.lua *.r *.jl "
     "*.sh *.bash *.zsh *.sql *.proto *.graphql *.vue *.svelte *.css *.scss *.html "
     "*.md *.rst *.txt *.toml *.yaml *.yml *.json *.cfg *.ini *.mk "
-    "Makefile justfile Dockerfile"
+    "Makefile justfile Justfile Dockerfile"
 )
 DEFAULT_EXCLUDE = ".git .venv node_modules dist build __pycache__"
 

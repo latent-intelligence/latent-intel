@@ -189,7 +189,10 @@ def test_a_fresh_install_works_with_no_project_at_all() -> None:
     assert resolved.problems == []
 
 
-def test_the_shipped_default_is_a_real_project(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_shipped_default_is_a_real_project(tmp_path: Path) -> None:
+    (
+        tmp_path / "projects"
+    ).mkdir()  # the search path the suite names, or it is reported
     config = config_module.load()
     config.deployment = "latent"
     config_module.save(config)

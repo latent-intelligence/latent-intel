@@ -75,7 +75,9 @@ intel get context-collapse.md             # a bare key: the first attached sourc
 - **A bare key with nothing attached** ends in a traceback today, not a `✗` line.
 
 A source that fails during a search is reported and the command exits 1; the other sources'
-hits are still shown.
+hits are still shown. A search that reaches no source, because nothing is attached or every
+source failed to attach, prints `✗ nothing to search` and exits 1, so it is not read as no
+matches.
 
 ## ask
 
@@ -142,12 +144,14 @@ their output.
 | `deployment use NAME` | Make it active; `none` for none |
 | `deployment show` | The active deployment's file, root, sources and settings, each with the layer it came from |
 | `deployment new NAME [DIRECTORY]` | Write `DIRECTORY/NAME/NAME.yaml` from the worked example. Refuses a folder that exists and a name already found |
-| `deployment add PATH` | Search a directory, or a file's directory, for deployments. Copies nothing |
-| `deployment validate [NAME]` | Load one, the active one by default, and list its problems; exit 1 if any |
+| `deployment add PATH` | Search a directory, or a file's directory, for deployments. Copies nothing. Refused, and nothing recorded, when it finds none |
+| `deployment validate [NAME]` | Load one, the active one by default, and list its problems, a local source directory that is not there and an `mcp` command not on PATH among them; exit 1 if any. Starts no server |
 
-Deployments are found as `*.yaml` in, in order: `LATENT_INTEL_PROJECTS`, the directories `add`
-recorded, `~/.config/latent-intel/projects/`, and the built-in `latent`. The first of one name
-wins. How to: [set up a deployment](guides/set-up-a-deployment.md).
+Deployments are found as `NAME.yaml` in, or `NAME/NAME.yaml` one folder below, in order:
+`LATENT_INTEL_PROJECTS`, the directories `add` recorded, `~/.config/latent-intel/projects/`, and
+the built-in `latent`. The first of one name wins. A directory in `LATENT_INTEL_PROJECTS`, or one
+`add` recorded, that is not there is reported by `deployment list` and `show`. How to:
+[set up a deployment](guides/set-up-a-deployment.md).
 
 ## eval run
 
@@ -176,7 +180,7 @@ Refused, except with `--dry-run`, when a source did not attach. How to: [use man
 | Code | Means |
 |---|---|
 | `0` | Done. Also a question stopped at a ceiling with an answer so far |
-| `1` | A `✗` line: the command failed or was refused. A stream that carried a failure event, such as no runtime, a refused web scope or a source that failed during a search. A `deployment validate` that found problems, an `eval run` with a failed run |
+| `1` | A `✗` line: the command failed or was refused. A stream that carried a failure event, such as no runtime, a refused web scope, a source that failed during a search, or a search that reached no source. A `deployment add` that found nothing, a `deployment validate` that found problems, an `eval run` with a failed run |
 | `2` | A usage error: an unknown option, a missing argument, or a command group given no command |
 
 ## Environment variables
@@ -185,7 +189,7 @@ Refused, except with `--dry-run`, when a source did not attach. How to: [use man
 |---|---|
 | `LATENT_INTEL_HOME` | Config and data in one directory, data in its `data/` |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Move `~/.config` and `~/.local/share` |
-| `LATENT_INTEL_PROJECT` | The active deployment for this command, over `deployment use` |
+| `LATENT_INTEL_PROJECT` | The active deployment for this command, over `deployment use`; `none` for none, keeping the sources you attached with none active. A name not found is warned about by every command that attaches sources |
 | `LATENT_INTEL_PROJECTS` | More directories to find deployments in, separated by `:` (`;` on Windows) |
 | `KNOWLEDGE_REGISTRY` | The registry file, when the deployment names none |
 | `LATENT_INTEL_CUSTOM_HOST`, `LATENT_INTEL_ANTHROPIC_SDK_HOST`, `LATENT_INTEL_OPENAI_AGENTS_HOST`, `LATENT_INTEL_CLAUDE_AGENT_SDK_HOST` | A runtime's host, where no `host:` is set |

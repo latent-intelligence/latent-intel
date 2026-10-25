@@ -169,14 +169,21 @@ def add(
     if str(directory) in config.deployment_paths:
         console.print(f"[dim]already searched[/] [dim]{escape(str(directory))}[/]")
         return
+    # Refused rather than recorded: a search path that finds nothing reported as `✓`
+    # sent people to `deployment use`, to be told the name did not exist.
+    names = sorted({p.stem for p in project_module.candidates(directory)})
+    if not names:
+        err_console.print(
+            f"[fail]✗[/] no deployment in {escape(str(directory))} "
+            "[dim]— looked for NAME.yaml there and NAME/NAME.yaml one folder down; "
+            "nothing recorded[/]"
+        )
+        raise typer.Exit(1)
     config.deployment_paths.append(str(directory))
     config_module.save(config)
-
-    found, _ = project_module.discover(config.deployment_paths, config_module.home())
-    names = [n for n, p in found.items() if p.parent == directory]
     console.print(
         f"[ok]✓[/] [dim]searching[/] {escape(str(directory))} "
-        f"[dim]({', '.join(sorted(names)) or 'nothing yet'})[/]"
+        f"[dim]({escape(', '.join(names))})[/]"
     )
 
 
@@ -186,7 +193,11 @@ def validate(
         None, help="A deployment name; defaults to the active one."
     ),
 ) -> None:
-    """Read a deployment and report what is wrong with it, without switching to it."""
+    """Read a deployment and report what is wrong with it, without switching to it.
+
+    Its sources are checked as far as they can be without attaching one: a local
+    directory that is not there, an `mcp` command not on PATH. No server is started.
+    """
     config = config_module.load()
     target = name or settings_module.load().chosen
     if not target:
@@ -210,8 +221,9 @@ def validate(
         f"[dim]commands[/] {'yes' if loaded.commands_dir else 'no'}  "
         f"[dim]skills[/] {'yes' if loaded.skills_dir else 'no'}"
     )
-    for note in loaded.problems:
+    problems = loaded.problems + project_module.check_sources(loaded)
+    for note in problems:
         err_console.print(f"[warn]![/] [dim]{escape(note)}[/]")
-    if loaded.problems:
+    if problems:
         raise typer.Exit(1)
     console.print("[ok]✓[/] [dim]valid[/]")

@@ -123,3 +123,45 @@ def test_a_broken_deployment_by_path_is_a_problem_not_a_crash(tmp_path: Path) ->
     resolved = settings_module.load(path=broken)
     assert resolved.project is None
     assert any("broken.yaml" in p for p in resolved.problems)
+
+
+# -- the deployment the environment names -----------------------------------
+
+
+@pytest.mark.parametrize("command", [["search", "x"], ["stores"], ["doctor"]])
+def test_a_misspelt_deployment_in_the_environment_is_warned_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: list[str]
+) -> None:
+    """It attaches nothing, so every command that attaches says why — not only
+    `deployment show`. The variable is named, since nothing on screen chose it."""
+    from typer.testing import CliRunner
+
+    from latent_intel.frontends.cli.main import app
+
+    _project(tmp_path, monkeypatch, "name: deploy\n")
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "deplyo")
+    settings_module.invalidate()
+
+    result = CliRunner().invoke(app, command)
+    err = " ".join(result.stderr.split())
+    assert "'deplyo' not found" in err
+    assert "LATENT_INTEL_PROJECT" in err
+
+
+def test_none_in_the_environment_keeps_the_user_s_own_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`LATENT_INTEL_PROJECT=none` is `deployment use none` for one command: no
+    deployment, and the sources attached with none active — not a deployment called
+    `none` that nobody can find."""
+    config = config_module.load()
+    config.deployment = "deploy"
+    config.add(config_module.SourceSpec(id="mine", kind="files", target="~/notes"))
+    config_module.save(config)
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "none")
+    settings_module.invalidate()
+
+    resolved = settings_module.load()
+    assert resolved.chosen is None and resolved.project is None
+    assert [s.id for s in resolved.sources] == ["mine"]
+    assert resolved.problems == []

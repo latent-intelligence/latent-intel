@@ -365,6 +365,84 @@ def test_one_unreadable_skill_is_skipped_while_the_others_still_load(
 # -- discovery --------------------------------------------------------------
 
 
+def test_discovery_finds_a_deployment_one_folder_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`<name>/<name>.yaml` is the layout `deployment new` writes, so the folder that
+    holds several deployments is searched once for all of them. A YAML file whose name
+    is not its folder's is something else that lives there, not a deployment."""
+    parent = tmp_path / "deployments"
+    write(parent / "field", "field", "title: Field\n")
+    write(parent / "lab", "lab", "title: Lab\n")
+    write(parent / "lab", "wiki", "pages: x\n")
+    write(parent / "a" / "b", "b", "title: Too deep\n")
+    monkeypatch.setenv(project.ENV_PROJECTS, str(parent))
+
+    found, problems = project.discover()
+
+    assert found["field"] == parent / "field" / "field.yaml"
+    assert found["lab"] == parent / "lab" / "lab.yaml"
+    assert "wiki" not in found and "b" not in found
+    assert problems == []
+
+
+def test_a_search_path_that_is_not_there_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing, added = tmp_path / "misspelt", tmp_path / "moved"
+    monkeypatch.setenv(project.ENV_PROJECTS, str(missing))
+
+    _, problems = project.discover([str(added)], home=tmp_path / "home")
+
+    assert any(str(missing) in p and project.ENV_PROJECTS in p for p in problems)
+    assert any(str(added) in p and "deployment add" in p for p in problems)
+    # The default directory is created only when something is copied into it.
+    assert not any(str(tmp_path / "home") in p for p in problems)
+
+
+def test_a_default_this_build_does_not_act_on_is_a_problem(tmp_path: Path) -> None:
+    """`defaults: limit` read as a search limit, and was silently dropped: a deployment
+    that says 8 got 10. Only `approval` and `web` are read."""
+    loaded = project.load(
+        write(tmp_path, "field", "defaults: {approval: ask, web: search, limit: 8}\n")
+    )
+    assert len(loaded.problems) == 1
+    assert "limit" in loaded.problems[0] and "not acted on" in loaded.problems[0]
+
+
+def test_check_sources_names_what_would_not_attach_and_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "here").mkdir()
+    (tmp_path / "bin").mkdir()
+    marker = tmp_path / "started"
+    script = tmp_path / "bin" / "serve-here"
+    script.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    loaded = project.load(
+        write(
+            tmp_path,
+            "field",
+            "sources:\n"
+            "  - {id: notes, kind: files, target: ./missing}\n"
+            "  - {id: fine, kind: code, target: ./here}\n"
+            "  - {id: tools, kind: mcp, target: 'absent-server --flag'}\n"
+            "  - {id: local, kind: mcp, target: ./bin/serve-here, options: {cwd: .}}\n"
+            "  - {id: broken, kind: mcp, target: ./bin/nothing, options: {cwd: .}}\n"
+            "  - {id: named, kind: files, from: some-store}\n",
+        )
+    )
+
+    problems = project.check_sources(loaded)
+
+    assert len(problems) == 3, problems
+    assert problems[0].startswith("source 'notes'") and "missing" in problems[0]
+    assert problems[1].startswith("source 'tools'") and "PATH" in problems[1]
+    assert problems[2].startswith("source 'broken'") and "nothing" in problems[2]
+    assert not marker.exists()
+
+
 def test_discovery_prefers_the_earlier_search_path_and_reports_the_shadow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
