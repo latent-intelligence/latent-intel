@@ -115,6 +115,9 @@ vocabulary free to change without touching a single connector.
   (workspace ADR-003).
 - **Failures inside `run()` are events.** A frontend iterating a stream over a transport
   has nowhere to catch an exception. Typed methods raise; `run` emits `AgentFailed`.
+- **A search that reached no source is a failure, not an empty result.** `run(Find)`
+  with nothing searchable emits `AgentFailed`, so `intel search` exits 1: exit 0 with no
+  hits told a script "no match" when every source had failed to attach.
 - **Colours are semantic tokens** from `ui/theme.py` — `[accent]`, `[dim]`, `[source]`,
   never `[green]`. Retheming is one file.
 - **Credentials never touch the config file.** Runtimes read the environment.
