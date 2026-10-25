@@ -400,6 +400,44 @@ def test_a_search_path_that_is_not_there_is_reported(
     assert not any(str(tmp_path / "home") in p for p in problems)
 
 
+def test_check_sources_reads_an_mcp_command_as_attach_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A URL among the arguments does not make the target a URL; `$VAR` and `~` are
+    expanded before the split; a missing `cwd` is the cause, not the program in it."""
+    (tmp_path / "bin").mkdir()
+    script = tmp_path / "bin" / "serve-here"
+    script.write_text("#!/bin/sh\n")
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    monkeypatch.setenv("TOOL_DIR", str(tmp_path / "bin"))
+    loaded = project.load(
+        write(
+            tmp_path,
+            "field",
+            "sources:\n"
+            "  - {id: bridged, kind: mcp, target: 'absent-bridge https://host/sse'}\n"
+            "  - {id: byvar, kind: mcp, target: '$TOOL_DIR/serve-here --flag'}\n"
+            "  - {id: nocwd, kind: mcp, target: ./bin/serve-here, "
+            "options: {cwd: ./gone}}\n",
+        )
+    )
+
+    problems = project.check_sources(loaded)
+
+    assert len(problems) == 2, problems
+    assert problems[0].startswith("source 'bridged'") and "absent-bridge" in problems[0]
+    assert problems[1].startswith("source 'nocwd'") and "cwd" in problems[1]
+
+
+@pytest.mark.parametrize("body", ["defaults: search\n", "defaults: {1: a, web: off}\n"])
+def test_defaults_that_are_not_a_mapping_of_names_are_a_problem_not_a_crash(
+    tmp_path: Path, body: str
+) -> None:
+    loaded = project.load(write(tmp_path, "field", body))
+    assert any(p.startswith("defaults:") for p in loaded.problems)
+
+
 def test_a_default_this_build_does_not_act_on_is_a_problem(tmp_path: Path) -> None:
     """`defaults: limit` read as a search limit, and was silently dropped: a deployment
     that says 8 got 10. Only `approval` and `web` are read."""

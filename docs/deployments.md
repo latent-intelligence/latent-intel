@@ -101,8 +101,9 @@ root: ./products
 An unknown top-level key is reported and ignored. A directory key that names no directory is
 reported. `intel deployment validate` lists these problems, and also checks each source as far
 as it can without attaching it: a local `files` or `code` target that is not a directory, and an
-`mcp` command that is not on PATH (or, when it names a path, not there under `cwd`). A URI, a
-URL and a `from:` name are checked only when the source attaches.
+`mcp` command that is not on PATH (or, when it names a path, not there under `cwd`), and a `cwd`
+that is not a directory. A `files` or `code` URI, an `mcp` URL and a `from:` name are checked only
+when the source attaches.
 
 ## Sources
 

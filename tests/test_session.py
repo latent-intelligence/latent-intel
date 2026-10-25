@@ -697,6 +697,20 @@ async def test_an_attach_failure_names_its_source_once() -> None:
     assert len(failures) == 1
     assert failures[0].startswith("tools: env LATENT_INTEL_TEST_UNSET_VARIABLE")
     assert failures[0].count("tools:") == 1
+
+    unnamed = await session.connect_many(
+        [
+            SourceRequest(
+                spec="/opt/tools/example-mcp",
+                kind="mcp",
+                options={"env": ["LATENT_INTEL_TEST_UNSET_VARIABLE"]},
+            )
+        ]
+    )
+    assert unnamed == [
+        "example-mcp: env LATENT_INTEL_TEST_UNSET_VARIABLE is not set — "
+        "export it or put it in .env"
+    ]
     await session.aclose()
 
 

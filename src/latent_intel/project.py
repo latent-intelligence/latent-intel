@@ -460,8 +460,11 @@ def load(path: Path | str) -> Project:
             f"{', '.join(sorted(TOP_LEVEL_KEYS))}"
         )
 
-    defaults = dict(raw.get("defaults") or {})
-    if unread := sorted(set(defaults) - DEFAULT_KEYS):
+    defaults = raw.get("defaults") or {}
+    if not isinstance(defaults, dict):
+        problems.append(f"defaults: {defaults!r} is not a mapping — ignored")
+        defaults = {}
+    if unread := sorted(set(defaults) - DEFAULT_KEYS, key=str):
         problems.append(
             f"defaults: {', '.join(map(str, unread))} — not acted on; this build reads "
             f"{', '.join(sorted(DEFAULT_KEYS))}"
@@ -576,20 +579,25 @@ def check_sources(project: Project) -> list[str]:
     problems: list[str] = []
     for spec in project.sources:
         target = spec.target
-        if target is None or "://" in target:
+        if target is None:
             continue
-        if spec.kind in ("files", "code"):
+        if spec.kind in ("files", "code") and "://" not in target:
             if not Path(target).is_dir():
                 problems.append(f"source '{spec.id}': no directory at {target}")
-        elif spec.kind == "mcp":
+        elif spec.kind == "mcp" and not target.startswith(("http://", "https://")):
+            # Expanded as attach expands it, then split: `$VAR` and `~` included.
+            line = str(Path(os.path.expandvars(target)).expanduser())
             try:
-                command = shlex.split(target)[0]
+                command = shlex.split(line)[0]
             except (ValueError, IndexError):
                 problems.append(f"source '{spec.id}': no command in {target!r}")
                 continue
+            cwd = spec.options.get("cwd")
+            if cwd is not None and not Path(str(cwd)).is_dir():
+                problems.append(f"source '{spec.id}': cwd {cwd} is not a directory")
+                continue
             if os.sep in command:
-                where = Path(str(spec.options.get("cwd") or "."))
-                found = shutil.which(str(where / Path(command).expanduser()))
+                found = shutil.which(str(Path(str(cwd or ".")) / command))
             else:
                 found = shutil.which(command)
             if found is None:

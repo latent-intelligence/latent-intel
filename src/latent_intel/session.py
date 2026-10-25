@@ -191,6 +191,7 @@ class Session:
         problems: dict[int, str] = {}
 
         async def one(index: int, request: SourceRequest) -> None:
+            source_id = request.source_id or request.spec
             try:
                 if request.kind is None:
                     kind, target = registry.resolve(
@@ -210,9 +211,11 @@ class Session:
                 )
             except SessionError as exc:
                 # An MCP connector names itself in its own message; said once.
-                label, message = f"{request.source_id or request.spec}: ", str(exc)
+                message = str(exc)
                 problems[index] = (
-                    message if message.startswith(label) else label + message
+                    message
+                    if message.startswith(f"{source_id}: ")
+                    else f"{request.source_id or request.spec}: {message}"
                 )
 
         for index, request in enumerate(specs):

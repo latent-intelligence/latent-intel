@@ -144,13 +144,13 @@ their output.
 | `deployment use NAME` | Make it active; `none` for none |
 | `deployment show` | The active deployment's file, root, sources and settings, each with the layer it came from |
 | `deployment new NAME [DIRECTORY]` | Write `DIRECTORY/NAME/NAME.yaml` from the worked example. Refuses a folder that exists and a name already found |
-| `deployment add PATH` | Search a directory, or a file's directory, for deployments. Copies nothing. Refused, and nothing recorded, when it finds none |
+| `deployment add PATH` | Search a directory, or a file's directory, for deployments. Copies nothing. Refused, and nothing recorded, when it finds none; a name an earlier directory already holds is warned about |
 | `deployment validate [NAME]` | Load one, the active one by default, and list its problems, a local source directory that is not there and an `mcp` command not on PATH among them; exit 1 if any. Starts no server |
 
 Deployments are found as `NAME.yaml` in, or `NAME/NAME.yaml` one folder below, in order:
 `LATENT_INTEL_PROJECTS`, the directories `add` recorded, `~/.config/latent-intel/projects/`, and
 the built-in `latent`. The first of one name wins. A directory in `LATENT_INTEL_PROJECTS`, or one
-`add` recorded, that is not there is reported by `deployment list` and `show`. How to:
+`add` recorded, that is not there is reported by `deployment list`. How to:
 [set up a deployment](guides/set-up-a-deployment.md).
 
 ## eval run

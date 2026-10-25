@@ -1327,6 +1327,31 @@ def test_deployment_add_finds_a_deployment_one_folder_down(tmp_path: Path) -> No
     assert runner.invoke(app, ["deployment", "use", "lab"]).exit_code == 0
 
 
+def test_deployment_add_lists_only_what_it_finds_first_and_names_a_shadow(
+    tmp_path: Path,
+) -> None:
+    """A name an earlier search path already holds is not this directory's to offer."""
+    _deployment(tmp_path, "lab")
+    parent = tmp_path / "deployments"
+    for name in ("lab", "field"):
+        (parent / name).mkdir(parents=True)
+        (parent / name / f"{name}.yaml").write_text(f"name: {name}\n")
+    result = runner.invoke(app, ["deployment", "add", str(parent)])
+    assert result.exit_code == 0, result.output
+    assert "(field)" in flat(result.stdout)
+    assert "lab" in result.stderr and "shadowed" in result.stderr
+
+
+def test_connect_warns_when_the_deployment_it_records_into_is_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "nowhere")
+    result = runner.invoke(app, ["connect", str(corpus), "--kind", "files"])
+    assert "'nowhere' not found" in flat(result.stderr)
+
+
 def test_deployment_add_says_when_it_finds_nothing_and_records_nothing(
     tmp_path: Path,
 ) -> None:
