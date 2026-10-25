@@ -71,9 +71,9 @@ class SourceSpec:
 class Overlay:
     """What a *user* changed about one project, without touching the project file.
 
-    `intel connect` writes here. `intel disconnect` removes an overlay source, or — for
-    a source the project declares — records it in `detached`, because the engine must
-    never write to a file the deployment owns.
+    `intel connect` writes here, and `intel disconnect` removes an overlay source.
+    `detached` hides a source the project declares, without writing to a file the
+    deployment owns; nothing writes it yet, so it is set by hand.
     """
 
     sources: list[SourceSpec] = field(default_factory=list)

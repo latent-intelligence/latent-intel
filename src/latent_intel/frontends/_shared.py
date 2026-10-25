@@ -308,9 +308,10 @@ def load_env() -> list[Path]:
 
     Deliberately *after* the project is resolved and *before* anything reads a
     credential: the project's directory is where its `.env` lives. The consequence,
-    stated so nobody debugs it twice: a `.env` cannot choose the active project — that
-    is `intel deployment use`, which persists. It can set anything read later, so
-    settings are invalidated afterwards.
+    stated so nobody debugs it twice: a `.env` cannot choose which deployment's `.env`
+    is read, because the deployment is resolved first — choose one with `intel
+    deployment use`, which persists. It can set anything read later, so settings are
+    invalidated afterwards.
     """
     resolved = settings_module.load()
     directory = resolved.project.directory if resolved.project else None

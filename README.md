@@ -24,7 +24,7 @@ uv tool install git+https://github.com/latent-intelligence/latent-intel
 
 This puts `intel` on your PATH and works from any directory. Add `--reinstall` to update,
 or `uv tool install .` from a clone if you are working on the engine itself. Six runtimes
-ship; for more information see [choosing a runtime](docs/user-guide.md#choosing-a-runtime).
+ship; for more information see [choosing a runtime](docs/index.md).
 
 ## Tutorial 
 
@@ -156,7 +156,7 @@ no code.
 └── persona.md                   voice and standing instructions, on every turn
 ```
 
-Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
+Full detail: [the docs index](docs/index.md).
 
 ### Configure compute
 
@@ -167,7 +167,7 @@ machine (`claude-cli`, which uses your Claude Code login, so it needs no key), o
 vendor's service (`claude-managed-agents`). The others reach Anthropic, Azure AI Foundry,
 Azure OpenAI, OpenAI, OpenRouter or a model on your own machine, reading keys from the
 environment or a `.env` file, never from a config file. `intel hosts` shows what each one
-still needs, and [configuring-compute.md](docs/configuring-compute.md) walks through each.
+still needs, and [the docs](docs/index.md) walk through each.
 
 
 ### Customize the workbench
@@ -198,13 +198,13 @@ research › search context collapse
 Colours are set by role, such as the accent or the border, so one change recolours
 everything that plays that role.
 
-Full detail: [configuring-a-deployment.md](docs/configuring-a-deployment.md).
+Full detail: [the docs index](docs/index.md).
 
 
 ## Documentation
 
 Start with [getting started](docs/getting-started.md), then the
-[user guide](docs/user-guide.md). Both link to the rest.
+[docs index](docs/index.md). Both link to the rest.
 
 ## Contributing
 

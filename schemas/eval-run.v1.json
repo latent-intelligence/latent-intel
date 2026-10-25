@@ -88,7 +88,7 @@
       "type": "object"
     }
   },
-  "description": "The manifest of one batch eval run: what ran, and each recording's status. A reader refuses a missing or unknown format_version. Spec: docs/formats/eval-run.md.",
+  "description": "The manifest of one batch eval run: what ran, and each recording's status. A reader refuses a missing or unknown format_version. Spec: docs/contracts/eval-run.md.",
   "properties": {
     "format": {
       "const": "latent-intel.eval-run",

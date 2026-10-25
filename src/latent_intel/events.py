@@ -54,7 +54,7 @@ SCHEMA_VERSION = 1
 
 #: The format a recording file declares in its `RunContext` header, at `format_version`
 #: `SCHEMA_VERSION` — one constant, because a change that breaks an older reader of the
-#: events breaks an older reader of the file. Spec: `docs/formats/recording.md`.
+#: events breaks an older reader of the file. Spec: `docs/contracts/recording.md`.
 RECORDING_FORMAT = "latent-intel.recording"
 
 #: What a recording is for, so a share, a demo and an eval run can be told apart from
@@ -414,7 +414,7 @@ def recording_schema() -> dict[str, Any]:
         "description": (
             "One event of a recording. A recording opens with a run_context; a reader "
             "skips a type it does not know and refuses a missing or unknown "
-            "format_version. Spec: docs/formats/recording.md."
+            "format_version. Spec: docs/contracts/recording.md."
         ),
         **_ADAPTER.json_schema(mode="serialization"),
     }

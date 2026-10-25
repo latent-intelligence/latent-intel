@@ -1,41 +1,31 @@
 # Getting started
 
-Five minutes, three shapes of use. The full reference is
-[`user-guide.md`](user-guide.md) — come here first, go there when a question outlives
-this page.
-
-- [Install](#install)
-- [One source, right now](#one-source-right-now)
-- [The shell](#the-shell)
-- [A deployment — several sources, plus branding](#a-deployment--several-sources-plus-branding)
-- [Where state lives](#where-state-lives)
-- [Next](#next)
-
----
+latent-intel searches and asks across your notes, code, wikis and MCP servers, with answers that
+cite their sources. Everything on this page up to [Ask a question](#ask-a-question) runs offline
+and costs nothing.
 
 ## Install
 
-```bash
-uv tool install git+https://github.com/latent-intelligence/latent-intel
-uv tool install git+https://github.com/latent-intelligence/latent-intel --reinstall
-```
-
-From a clone instead — if you are working on the engine itself — `uv tool install .`.
-
-That is the whole install for sources, and for `intel ask` through `claude-cli`,
-`custom` and `anthropic-sdk`. The two other runtimes are extras named after themselves,
-and `[all]` is both:
+Python 3.11 or later, and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv tool install "latent-intel[all] @ git+https://github.com/latent-intelligence/latent-intel"
 ```
 
-No sibling package is needed. Files, code and MCP servers all work from it. A store — a
-wiki, a records store — is reached through its own MCP server (`latent-wiki serve`,
-`latent-records serve`), installed with its own package; latent-intel reads no store's
-format itself.
+This puts `intel` on your `PATH`. Add `--reinstall` to update. The base install, without
+`[all]`, has everything but two runtimes:
 
-Check it:
+| Extra | Adds |
+|---|---|
+| none | The `files`, `code` and `mcp` connectors, and four runtimes: `claude-cli`, `custom`, `anthropic-sdk`, `claude-managed-agents` |
+| `openai-agents` | The OpenAI Agents SDK, for the `openai-agents` runtime |
+| `claude-agent-sdk` | The Claude Agent SDK, which bundles the Claude Code binary (about 200 MB, no Windows wheel yet), for the `claude-agent-sdk` runtime |
+| `all` | Both |
+
+No other package is needed. A wiki or a records store is reached through its own MCP server,
+installed with its own package. Working on latent-intel itself: [CONTRIBUTING](../CONTRIBUTING.md).
+
+Check what you have:
 
 ```
 $ intel doctor
@@ -45,204 +35,98 @@ connectors (entry points)
   ✓ code
   ✓ files
   ✓ mcp
+
+runtimes
+  custom loop
+    · custom — no host is set — set `host:` under `runtimes: custom:`; `intel hosts` lists them
+…
 ```
 
-### Credentials
+Captured on a machine with no keys set and nothing attached. The rest of the output is read in
+[choose a runtime](guides/choose-a-runtime.md).
 
-Nothing to set, normally. Object storage uses `fsspec` and `botocore`, so `aws
-configure`, `AWS_PROFILE`, SSO and instance roles work exactly as they already do. This
-package holds no credential code.
+## Attach a folder of notes
 
-On a machine with none of that configured, a `.env` beside the deployment file supplies
-them:
-
-```bash
-# ~/deployments/research/.env       (git-ignored, never committed)
-AWS_ACCESS_KEY_ID=…
-AWS_SECRET_ACCESS_KEY=…
-AWS_DEFAULT_REGION=us-east-1
-```
-
-`~/.config/latent-intel/.env` is the machine-wide equivalent; the deployment's file wins
-where both set a variable, and **anything already exported beats both** — so a one-off
-`AWS_PROFILE=other intel search …` still does what you mean.
-
-The `custom` runtime reads its key from the same place: a deployment's `.env` is loaded
-before the runtime is built, so deployment credentials live there too. Which variables,
-per host, is in [`user-guide.md`](user-guide.md#choosing-a-runtime).
-
-Those are the only two places. The working directory and the root of a checkout are
-never read, so a `.env` left there is silently ignored — `intel doctor` shows which file
-was loaded, or the two paths it looked in when none was.
-
-Credential *values* never reach a command line: a served source is a subprocess handed
-the file's path, not its contents. `.env` is git-ignored at every depth, and a deployment
-directory is git-ignored too — nothing here is designed to be committed. A `.env` cannot
-select the active deployment either; that is `intel deployment use`, which persists.
-
-**Working on the package itself?** The two builds differ in one thing — whether the
-`intel` on your PATH moves when the repository does.
-
-```bash
-uv tool install ".[all]" --reinstall              # user build — a snapshot of the checkout
-uv tool install --editable ".[all]" --reinstall   # dev build  — tracks the working tree
-```
-
-A **user build** is copied at install time and stays put until you reinstall. A **dev
-build** points at `src/`, so an edit is live — and so is a half-finished branch, which is
-the cost: switch branches and the tool switches with you. Either way, a changed dependency
-or entry point still needs another reinstall.
-
-The base install answers through `claude-cli`, `custom` and `anthropic-sdk` — the
-Anthropic and OpenAI SDKs are part of it. Two runtimes are extras, each named after the
-runtime it enables: `[openai-agents]` adds the OpenAI Agents SDK, and
-`[claude-agent-sdk]` the Claude Agent SDK with the Claude Code binary bundled — about
-200 MB, and not published for Windows yet. `[all]` is both. Leave one out and
-`intel ask` reports that runtime as not installed however much else is configured,
-because `uv run` reads the project's own environment while a tool install does not.
-Quote the argument — an unquoted `.[all]` is glob-expanded by the shell.
-
-To skip PATH entirely, `just install` (which is `uv sync --extra dev --extra all`) and
-prefix everything below with `uv run`.
-
----
-
-## One source, right now
-
-This section and the next are **two ways in, not two steps.** Attach sources one at a
-time as below, or describe them all in a deployment file ([below](#a-deployment--several-sources-plus-branding)).
-A deployment needs nothing from this section, and a real one usually starts there.
-
-Point at a store and search it. Nothing else is needed — object storage uses whatever
-credentials your environment already has.
-
-```bash
-intel connect "latent-wiki serve --deployment ~/client/deployments/design" --kind mcp --as design
-intel search "context collapse"
-intel get design:context-collapse
-```
-
-A wiki is its own server, `latent-wiki serve`, attached like any MCP server. It brings the wiki's
-tools for `intel ask`, and lists each page so `intel search` and `intel get` reach it
-without a model. A deployment names its wiki and its context, so the client says nothing
-more; pages come back by their own key, and the `design:` in a citation is this client's
-label for the source, added here. `--kind` is required for a path
-or URI: guessing it from a directory's contents would be wrong exactly when it matters.
-
-Attached sources persist, because the CLI is a new process every time. `intel stores`
-lists them, `intel disconnect design` removes one.
-
-Other kinds, same shape:
-
-```bash
-intel connect ~/knowledge/raw --kind files --as notes
-intel connect "npx -y @upstash/context7-mcp" --kind mcp --as ctx7
-```
-
----
-
-## The shell
-
-Bare `intel` opens it, and it is the primary way in.
+Any directory of Markdown is a source. Here, `~/notes` holds three invented notes, one of them
+`context-collapse.md`:
 
 ```
-latent › search progressive disclosure
-latent › /use design
-latent › open progressive-disclosure
-latent › /tools
+$ intel connect '~/notes' --kind files --as notes
+✓ files  notes  3 files  search fetch tools
+recorded in ~/.config/latent-intel/config.yaml
 ```
 
-One rule of grammar: **a leading `/` is session management, anything else is a query.**
-History persists between sessions, tab completes commands, source ids and the refs from
-your last search, and Ctrl-D leaves.
+The source stays attached for later commands, and for the shell, until you
+`intel disconnect notes`.
 
----
+## Search and read
 
-## A deployment — several sources, plus branding
+```
+$ intel search "context collapse"
+searching notes…
 
-A deployment is one YAML file, and the directory around it: its sources, its branding,
-its saved commands. The engine is installed once and reads deployments; it never edits
-them. `intel deployment new` writes a new one, from the worked example, and nothing else:
+notes  2 hit(s)
+  file notes:context-collapse.md  1
+    Rewriting a long context end to end loses detail at every pass. Small, local edits keep what
+earlier passes learned.
+  file notes:incremental-updates.md  1
+    Add or change one item at a time instead of regenerating the whole context. It is the usual
+remedy for context collapse.
 
-```bash
-intel deployment new research ~/deployments   # writes ~/deployments/research/research.yaml
+$ intel get notes:context-collapse.md
 ```
 
-You do not need to have attached anything above first — a deployment declares its own
-sources, and switching to one attaches all of them at once. Fill in what the file shows
-commented, for instance:
+Each hit has a ref, `source:key`, and `get` prints that document in full. With several sources
+attached, results come back under one heading per source, never merged into one ranking.
+
+## Ask a question
+
+`ask` needs a runtime. The quickest is `claude-cli`, which uses an installed, signed-in Claude
+Code, so it needs no key. Choose it once in the shell, which remembers it:
+
+```
+$ intel
+latent › /runtime claude-cli
+```
+
+Then ask something your notes answer:
+
+```
+$ intel ask "What do my notes say causes context collapse?"
+```
+
+The agent searches `notes`, reads what it finds, and answers citing refs such as
+`notes:context-collapse.md`. The answer is not shown, because it was not captured from a run. A
+question is paid for by whatever the runtime uses: your Claude Code plan here, or a provider's
+key on the other runtimes ([choose a runtime](guides/choose-a-runtime.md)).
+
+## What lands on disk
+
+```
+~/.config/latent-intel/
+└── config.yaml            the active deployment, your runtime choice and attached sources
+~/.local/share/latent-intel/
+├── history                the shell's
+└── recordings/            runs saved with --record NAME
+```
 
 ```yaml
-# ~/deployments/research/research.yaml
-name: research
-title: Research Intelligence
-
-branding:
-  name: RESEARCH
-  tagline: standing context, with provenance
-
-sources:
-  - id: design                                     # a wiki, through its own server
-    kind: mcp
-    target: latent-wiki serve --deployment ~/client/deployments/design
-  - id: notes
-    kind: files
-    target: ~/knowledge/raw
+approval: ask
+runtime: claude-cli
+overlays:
+  default:
+    sources:
+    - id: notes
+      kind: files
+      target: ~/notes
 ```
 
-Then make it the active one:
-
-```bash
-intel deployment add ~/deployments/research   # finds it in place; nothing is copied
-intel deployment use research
-intel                                       # branded shell, both sources attached
-```
-
-Three things worth knowing, and they are the ones that bite otherwise:
-
-- **Relative paths resolve against the deployment file**, never your working directory —
-  so a deployment repo checked out anywhere works there. That includes `root:`, where its
-  products go; it defaults to the file's directory and may be a URI such as `s3://…`.
-- **`context:` pairs a wiki with what it summarises.** Optional: leave it out and search
-  and `open` are unaffected, only escalation to a page's underlying source has nothing to
-  read.
-- **`intel connect` never edits the deployment file.** It records into your own overlay
-  for the active deployment, so a checked-out deployment repo stays clean.
-
-The worked example `new` starts from is `src/latent_intel/data/projects/latent.yaml`,
-with every field commented in the order the loader reads them. `new` refuses a folder that
-exists and a name already in use.
-
-Verify before trusting it:
-
-```bash
-intel deployment validate research   # what is wrong with it, without switching
-intel deployment show                # every resolved value, and which layer it came from
-```
-
----
-
-## Where state lives
-
-```
-~/.config/latent-intel/config.yaml     the active deployment, your overlays, preferences
-~/.local/share/latent-intel/           history and caches
-LATENT_INTEL_HOME                      overrides both — a throwaway setup for trying things
-```
-
-Credentials never go in the config file; runtimes read the environment. Sources belong
-to a deployment: a `sources:` list at the top of `config.yaml`, from before deployments,
-is not read, and `intel deployment show` names what it holds so you can move it.
-
----
+The path is recorded exactly as `intel` received it. Quoted, as above, it keeps its `~`, so the
+file works on another machine; unquoted, your shell expands it first.
+Credentials never go in it. `LATENT_INTEL_HOME=$(mktemp -d)` gives a throwaway setup to try
+things in. Every key: [your config](deployments.md#your-config).
 
 ## Next
 
-- [`user-guide.md`](user-guide.md) — every command, `--json` scripting, MCP servers,
-  what to do when something is wrong.
-- [`configuring-a-deployment.md`](configuring-a-deployment.md) — the deployment
-  directory, branding, saved commands.
-- [`configuring-compute.md`](configuring-compute.md) — one section per host: what to
-  set, and what you should see.
-- [`demos/`](demos/) — scripted walkthroughs with captured output.
-- `intel --help`, and `intel <command> --help`.
+- [The guides](index.md#guides): connect more sources, use the shell, set up a deployment.
+- [CLI](cli.md) and [Python library](library.md).

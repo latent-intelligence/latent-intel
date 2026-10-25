@@ -73,8 +73,8 @@ from ..protocols.messages import (
 #: this SDK. A new one is a row there, not a line here.
 HOSTS = hosts.for_sdk("anthropic")
 
-#: Foundry first: the deployment this was written for runs on Azure, and a default that
-#: is right for the common case beats one that is right for nobody.
+#: The host when none is set: Foundry. A machine using the public API sets
+#: `host: anthropic`.
 DEFAULT_HOST = "foundry-anthropic"
 
 #: Its own variable, not derived from the kind: a machine may well want the runner

@@ -12,9 +12,21 @@ Two frontends: a scriptable Typer/Rich CLI and a keyboard-first `prompt_toolkit`
 sit on one session and one event stream, so a frontend is an addition, never a second
 implementation of the product.
 
-How to use it: [`docs/getting-started.md`](docs/getting-started.md), then
-[`docs/user-guide.md`](docs/user-guide.md).
+How to use it: [`docs/index.md`](docs/index.md).
 Design record: `docs/context/` in this package.
+
+## Docs
+
+The pages and what each holds: [`docs/index.md`](docs/index.md). Setup and checks are in
+`CONTRIBUTING.md`, imported here:
+
+@CONTRIBUTING.md
+
+**Reviewed docs:** `README.md`, `CONTRIBUTING.md`. A person edits these, between and during
+sessions. Re-read one immediately before touching it, since a patch built against an earlier
+copy silently reverts their work. Propose the change and apply it only on a yes. Hold proposed
+edits rather than applying them mid-run, including under auto mode. `.claude/settings.json`
+asks before any edit to them. Everything under `docs/` is edited freely.
 
 ## Package invariants
 
@@ -81,8 +93,9 @@ vocabulary free to change without touching a single connector.
 - **A deployment is read, never written.** The engine writes only the user's own config,
   and `intel deployment new`, which writes a deployment that does not exist yet and
   refuses any that does.
-  `connect` records into that user's overlay for the active deployment; `disconnect` on a
-  deployment-declared source records a detachment. A tool that edited the deployment
+  `connect` records into that user's overlay for the active deployment; a source the
+  deployment declares is left out with the overlay's `detached:` list, which nothing writes
+  yet (`intel disconnect` refuses such a source). A tool that edited the deployment
   file would make a checked-out deployment repo dirty on first use.
 - **Relative paths in a deployment resolve against its file, not the cwd** — `root:`
   included, which defaults to the file's directory and is a `UPath`, so it may be
@@ -129,12 +142,6 @@ vocabulary free to change without touching a single connector.
   reached by diagnosing is one its owner then has to wait out, and the diagnosis
   becomes the outage. A credential is read only to report that it is set, by name —
   the same rule the whole `hosts` module follows, and it does not stop at `src/`.
-- **`README.md` is hand-edited and confirmed before every change.** Re-read it
-  immediately before touching it — it is rewritten between and during sessions, and a
-  patch built against a copy read earlier silently reverts that work. Propose the change
-  and wait for a yes; hold proposed edits rather than applying them mid-run, including
-  under auto mode. This applies to `README.md` alone: everything under `docs/` is edited
-  freely.
 
 ## Acceptance criteria
 
