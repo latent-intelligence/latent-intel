@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import pytest
 
+from latent_intel import config as config_module
 from latent_intel import events as ev
 from latent_intel.agent import base as agent
 from latent_intel.agent.base import WEB_REMEDY
@@ -480,3 +481,250 @@ async def test_claude_cli_gets_skill_bodies_and_never_the_engine_tool(
     assert "## citation-style\n\nCite inline." in prompt
     assert "## deploy\n\nShip it." in prompt
     assert seen["allow"] == []
+
+
+# -- a server's start directory, which the binary ignores --------------------
+
+
+def test_a_server_with_cwd_is_started_there_by_sh() -> None:
+    """Claude Code ignores `cwd` in `--mcp-config`, so the block carries it in the
+    command: `sh` changes directory and execs the server, every argument still its own
+    list item, never a string to re-parse."""
+    servers = {
+        "design": {
+            "command": "uv",
+            "args": ["run", "serve", "--root", "./my store"],
+            "cwd": "/srv/a dir",
+            "env": {"A": "1"},
+        }
+    }
+    argv = build_argv(["claude"], servers=servers)
+    block = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["design"]
+    assert block == {
+        "command": "/bin/sh",
+        "args": [
+            "-c",
+            'cd "$0" && exec "$@"',
+            "/srv/a dir",
+            "uv",
+            "run",
+            "serve",
+            "--root",
+            "./my store",
+        ],
+        "env": {"A": "1"},
+    }
+    assert servers["design"]["cwd"] == "/srv/a dir"  # the caller's spec is untouched
+
+
+def test_a_relative_cwd_is_made_absolute_where_it_was_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The binary may start in another directory (`cwd:` under the runtime), so the
+    server's directory is fixed where the source checked it existed."""
+    monkeypatch.chdir(tmp_path)
+    argv = build_argv(["claude"], servers={"s": {"command": "x", "cwd": "sub"}})
+    block = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["s"]
+    assert block["args"][2] == str(tmp_path / "sub")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the wrapper needs sh")
+def test_the_wrapped_command_runs_in_its_directory(tmp_path: Path) -> None:
+    """The wrapper itself, run as the binary would run it: the server sees its own
+    directory and its arguments intact, spaces and quotes included."""
+    import subprocess
+
+    where = tmp_path / "a dir"
+    where.mkdir()
+    code = "import os, sys; print(os.getcwd()); print(sys.argv[1:])"
+    argv = build_argv(
+        ["claude"],
+        servers={
+            "s": {
+                "command": sys.executable,
+                "args": ["-c", code, "a b", '"q"'],
+                "cwd": str(where),
+            }
+        },
+    )
+    block = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]["s"]
+    out = subprocess.run(
+        [block["command"], *block["args"]], capture_output=True, text=True, check=True
+    )
+    lines = out.stdout.splitlines()
+    assert Path(lines[0]).resolve() == where.resolve()
+    assert lines[1] == str(["a b", '"q"'])
+
+
+@pytest.mark.anyio
+async def test_the_binary_is_given_the_wrapped_block_and_an_unwrapped_one_as_is() -> (
+    None
+):
+    """Through a spawned fake that answers with its own `--mcp-config` argument."""
+    servers = {
+        "wrapped": {"command": "serve", "args": ["--x"], "cwd": "/srv"},
+        "plain": {"command": "serve", "args": ["--x"]},
+        "remote": {"type": "http", "url": "https://mcp.example.org"},
+    }
+    events = await collect("mcp_config", mcp_servers=servers)
+    done = events[-1]
+    assert isinstance(done, ev.AgentCompleted)
+    block = json.loads(done.text)["mcpServers"]
+    assert block["wrapped"] == {
+        "command": "/bin/sh",
+        "args": ["-c", 'cd "$0" && exec "$@"', "/srv", "serve", "--x"],
+    }
+    assert block["plain"] == servers["plain"]
+    assert block["remote"] == servers["remote"]
+
+
+@pytest.mark.anyio
+async def test_cwd_is_refused_where_there_is_no_sh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On Windows the wrapper has no `sh` to run, and a server started in the wrong
+    directory finds nothing; the turn says so before anything is spawned."""
+    monkeypatch.setattr(claude_cli, "WINDOWS", True)
+    servers = {
+        "design": {"command": "serve", "cwd": "C:\\srv"},
+        "plain": {"command": "x"},
+    }
+    events = await collect("text", mcp_servers=servers)
+    assert [type(e).__name__ for e in events] == ["AgentFailed"]
+    failed = events[0]
+    assert isinstance(failed, ev.AgentFailed)
+    assert "design" in failed.message and "cwd" in failed.message
+    assert "plain" not in failed.message
+
+
+# -- the child ends with the parent -----------------------------------------
+
+
+SLEEPER = """#!{python}
+import os, sys, time
+open(os.environ["FAKE_CLAUDE_PID"], "w").write(str(os.getpid()))
+sys.stdin.read()
+time.sleep(60)
+"""
+
+
+def _alive(pid: int) -> bool:
+    import os
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+@pytest.mark.parametrize("signame", ["SIGTERM", "SIGHUP"])
+def test_killing_intel_ask_ends_the_claude_it_started(
+    signame: str, tmp_path: Path
+) -> None:
+    """Killed by a signal, `intel ask` used to leave `claude -p` running under PID 1,
+    still spending. A fake `claude` on PATH records its pid and sleeps; after the
+    signal, that pid must be gone and `intel` must have died of the signal."""
+    import contextlib
+    import os
+    import signal
+    import subprocess
+    import time
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "claude"
+    fake.write_text(SLEEPER.format(python=sys.executable), encoding="utf-8")
+    fake.chmod(0o755)
+    config = config_module.config_path()
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text("runtime: claude-cli\n", encoding="utf-8")
+    pid_file = tmp_path / "claude.pid"
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "FAKE_CLAUDE_PID": str(pid_file),
+    }
+    intel = Path(sys.executable).parent / "intel"
+    parent = subprocess.Popen(
+        [str(intel), "ask", "q"],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    try:
+        deadline = time.monotonic() + 30
+        while not pid_file.is_file() or not pid_file.read_text():
+            assert parent.poll() is None, parent.stdout.read() if parent.stdout else ""
+            assert time.monotonic() < deadline, "the fake claude never started"
+            time.sleep(0.05)
+        child = int(pid_file.read_text())
+        assert _alive(child)
+
+        parent.send_signal(getattr(signal, signame))
+        assert parent.wait(timeout=15) == -getattr(signal, signame)
+        deadline = time.monotonic() + 10
+        while _alive(child) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not _alive(child), "claude outlived the intel that started it"
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+        if pid_file.is_file() and pid_file.read_text():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+@pytest.mark.anyio
+async def test_the_handlers_are_the_callers_again_after_the_turn() -> None:
+    """Installed for the life of the turn, never left behind."""
+    import signal
+
+    def mine(signum: int, frame: object) -> None: ...
+
+    hup = signal.getsignal(signal.SIGHUP) if hasattr(signal, "SIGHUP") else None
+    before = signal.signal(signal.SIGTERM, mine)
+    try:
+        await collect("text")
+        assert signal.getsignal(signal.SIGTERM) is mine
+        if hasattr(signal, "SIGHUP"):
+            assert signal.getsignal(signal.SIGHUP) == hup
+    finally:
+        signal.signal(signal.SIGTERM, before)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+def test_an_ignored_signal_stays_ignored_during_the_turn() -> None:
+    """Under `nohup` a hangup must not end the turn: the inherited ignore is kept."""
+    import os
+    import signal
+
+    before = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        with claude_cli._dies_with_parent(os.getpid()):
+            assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
+            assert signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL
+        assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGHUP, before)
+
+
+@pytest.mark.anyio
+async def test_no_handler_is_installed_off_the_main_thread() -> None:
+    """`signal.signal` raises outside the main thread; a turn run in a worker thread
+    still runs, with the exit fallback only."""
+    import threading
+
+    result: list[object] = []
+
+    def work() -> None:
+        import anyio
+
+        result.append(anyio.run(collect, "text"))
+
+    thread = threading.Thread(target=work)
+    thread.start()
+    thread.join(30)
+    events = result[0]
+    assert isinstance(events, list) and isinstance(events[-1], ev.AgentCompleted)

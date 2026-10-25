@@ -136,6 +136,10 @@ vocabulary free to change without touching a single connector.
   directory it ran in, home written as `~`: kept as typed, it meant a different
   directory to every later command. An old relative entry is refused at attach, never
   guessed at.
+- **Under `claude-cli`, this package applies a server's `cwd` itself,** through
+  `/bin/sh -c 'cd "$0" && exec "$@"'`, because Claude Code ignores `cwd` in
+  `--mcp-config`. The SIGTERM/SIGHUP handler kills the child pid rather than cancelling
+  the scope, since a cancel from a signal handler may not wake a loop asleep in `select`.
 - Escape user-supplied text with `rich.markup.escape` before printing it — a page title
   containing `[bold]` must not restyle the terminal.
 - Tests mirror `src/`. A test against a real store server runs only where that store's
