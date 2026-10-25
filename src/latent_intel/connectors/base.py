@@ -125,9 +125,17 @@ class SelfNamed(Protocol):
         """The name this source's server gave itself, or "" when it gave none."""
         ...
 
+
+@runtime_checkable
+class ListsKeys(Protocol):
+    """A `SelfNamed` source that can say which keys its server listed.
+
+    Separate, so a connector written before it is still relabelled: the keys only tell
+    apart two servers that gave themselves one name.
+    """
+
     def ref_keys(self) -> frozenset[str]:
-        """The keys this source's server listed, which tell it apart from another
-        server of the same name."""
+        """The keys this source's server listed when it attached."""
         ...
 
 
@@ -214,6 +222,7 @@ __all__ = [
     "Connector",
     "Fetchable",
     "Searchable",
+    "ListsKeys",
     "SelfNamed",
     "ToolProvider",
     "available_kinds",

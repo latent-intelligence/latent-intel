@@ -1570,6 +1570,53 @@ async def test_a_shared_name_leaves_a_key_no_server_listed_or_returned() -> None
     await session.aclose()
 
 
+async def test_a_key_both_servers_list_resolves_to_the_one_that_returned_it() -> None:
+    session = _shared(ToolThenAnswerRuntime("", "records", "marsh:heron"))
+    session._connectors["records"] = Named("records", "marsh", {"heron"})  # type: ignore[assignment]
+    [e async for e in session.ask("q")]
+    session._runtime = AnsweringRuntime("marsh:heron")
+    events = [e async for e in session.ask("q2")]
+    assert events[-1].citations == ["records:heron"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
+async def test_a_source_detached_takes_what_it_returned_with_it() -> None:
+    """A different server attached later under the same label and name inherits
+    nothing the first one returned."""
+    session = _shared(ToolThenAnswerRuntime("", "records", "marsh:survey::chunk::1"))
+    [e async for e in session.ask("q")]
+    await session.disconnect("records")
+    session._connectors["records"] = Named("records", "marsh")  # type: ignore[assignment]
+    session._runtime = AnsweringRuntime("marsh:survey::chunk::1")
+    events = [e async for e in session.ask("q2")]
+    assert events[-1].citations == []  # type: ignore[union-attr]
+    await session.aclose()
+
+
+class NamedOnly:
+    """A connector written before `ref_keys`: it names itself and lists nothing."""
+
+    kind = "mcp"
+    id = "heron"
+
+    def describe(self) -> Descriptor:
+        return Descriptor(id=self.id, kind=self.kind)
+
+    async def aclose(self) -> None:
+        pass
+
+    def ref_prefix(self) -> str:
+        return "heronsgate"
+
+
+async def test_a_connector_that_lists_no_keys_is_still_relabelled() -> None:
+    session = Session(runtime=AnsweringRuntime("heronsgate:pool"))
+    session._connectors["heron"] = NamedOnly()  # type: ignore[assignment]
+    events = [e async for e in session.ask("q")]
+    assert events[-1].citations == ["heron:pool"]  # type: ignore[union-attr]
+    await session.aclose()
+
+
 async def test_a_shared_name_reports_both_sources() -> None:
     session = _shared(AnsweringRuntime(""))
     session._connectors["notes"] = Named("notes", "pond")  # type: ignore[assignment]

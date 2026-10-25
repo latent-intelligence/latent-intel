@@ -146,7 +146,13 @@ class Ref(BaseModel):
             if source is None:
                 continue
             inner, sep, rest = key.partition(":")
-            if sep and rest and inner in aliases and owner(inner, rest) == source:
+            if (
+                sep
+                and rest
+                and not rest.startswith("//")
+                and inner in aliases
+                and owner(inner, rest) == source
+            ):
                 key = rest
             found[f"{source}:{key}"] = None
         return list(found)

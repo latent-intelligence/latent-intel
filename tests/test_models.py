@@ -106,6 +106,12 @@ def test_a_label_before_a_server_s_own_name_is_read_once() -> None:
     assert Ref.find_all(text, {"heron"}, {"heronsgate": "heron"}) == ["heron:tide-pool"]
 
 
+def test_a_doubled_prefix_never_collapses_into_a_bare_url() -> None:
+    assert Ref.find_all("heron:heronsgate://x", {"heron"}, {"heronsgate": "heron"}) == [
+        "heron:heronsgate://x"
+    ]
+
+
 def test_a_name_inside_a_key_that_belongs_to_another_source_is_kept() -> None:
     assert Ref.find_all("heron:pond:x", {"heron", "egret"}, {"pond": "egret"}) == [
         "heron:pond:x"

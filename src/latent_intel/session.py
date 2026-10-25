@@ -242,6 +242,7 @@ class Session:
         if connector is None:
             raise SessionError(f"'{source_id}' is not connected")
         await connector.aclose()
+        self._seen = {k: v for k, v in self._seen.items() if v != source_id}
         if self.current == source_id:
             self.current = next(iter(self._connectors), None)
 
@@ -838,7 +839,11 @@ class Session:
         """Which of the servers called `prefix` holds `key`: the one whose resource
         list has it, else the one whose tool output returned it this session. None
         when neither says, or two do — a ref the model invented stays unplaced."""
-        holders = [source for source, c in named.items() if key in c.ref_keys()]
+        holders = [
+            source
+            for source, c in named.items()
+            if isinstance(c, connectors.ListsKeys) and key in c.ref_keys()
+        ]
         if len(holders) == 1:
             return holders[0]
         seen = self._seen.get((prefix, key))

@@ -92,9 +92,10 @@ is placed key by key, by two lookups in order:
 2. **Tool output.** The one server whose tool output held the key earlier in the session,
    which places records' chunk, figure and table ids, none of them a resource.
 
-A key neither lookup places, or that two servers both hold, is left as it is: a ref the
-model invented names no source. `intel doctor` and `intel stores` warn when two attached
-servers share a name.
+A key neither lookup places, or that two servers both returned, is left as it is: a ref
+the model invented names no source. When the shared name is also one of those sources'
+label, such a key reads as that label, as any `<label>:<key>` does. `intel doctor` and
+`intel stores` warn when two attached servers share a name.
 
 **The web.** A call the host ran — `web_search`, `web_fetch` — is a `tool_started` /
 `tool_result` pair with `source_id` `web`, `effect` `external_read` and no `duration_ms`.

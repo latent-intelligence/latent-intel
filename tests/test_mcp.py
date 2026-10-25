@@ -613,6 +613,7 @@ async def test_bare_keys_in_a_server_s_output_are_not_refs() -> None:
 async def test_a_server_s_keys_are_the_resources_it_listed() -> None:
     connector = await connect(build_server(name="notes"))
     assert isinstance(connector, connectors.SelfNamed)
+    assert isinstance(connector, connectors.ListsKeys)
     assert connector.ref_keys() == {"note://alpha", "note://beta"}
     await connector.aclose()
 
