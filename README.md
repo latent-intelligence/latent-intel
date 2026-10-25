@@ -24,7 +24,7 @@ uv tool install git+https://github.com/latent-intelligence/latent-intel
 
 This puts `intel` on your PATH and works from any directory. Add `--reinstall` to update,
 or `uv tool install .` from a clone if you are working on the engine itself. Six runtimes
-ship; for more information see [choosing a runtime](docs/index.md).
+ship; for more information see [choosing a runtime](docs/guides/choose-a-runtime.md).
 
 ## Tutorial 
 
@@ -143,7 +143,7 @@ no code.
 ~/deployments/research/          anywhere on disk; `deployment add` copies nothing
 ├── research.yaml                the declaration — sources, branding, defaults
 ├── logo.txt                     wordmark, or inline in the YAML
-├── commands/                    one .md per saved command  →  /brief, /recent
+├── commands/                    one .md per saved command, read when commands: names it
 │   ├── brief.md
 │   └── recent.md
 ├── corpus/                      material this deployment ships, if any
