@@ -680,6 +680,47 @@ async def test_one_unreachable_source_does_not_stop_the_others(tmp_path: Path) -
     await session.aclose()
 
 
+async def test_find_with_nothing_to_search_raises() -> None:
+    """The typed method fails as `run(Find)` does: an empty result would read as no
+    match from sources that were never searched."""
+    with pytest.raises(SessionError, match="nothing to search"):
+        await Session().find("anything")
+
+
+async def test_an_attach_failure_names_its_source_once() -> None:
+    """An MCP connector's message already starts with its id, and the report added it
+    again: `! tools: tools: env … is not set`."""
+    session = Session()
+    failures = await session.connect_many(
+        [
+            SourceRequest(
+                spec="example-mcp",
+                kind="mcp",
+                source_id="tools",
+                options={"env": ["LATENT_INTEL_TEST_UNSET_VARIABLE"]},
+            )
+        ]
+    )
+    assert len(failures) == 1
+    assert failures[0].startswith("tools: env LATENT_INTEL_TEST_UNSET_VARIABLE")
+    assert failures[0].count("tools:") == 1
+
+    unnamed = await session.connect_many(
+        [
+            SourceRequest(
+                spec="/opt/tools/example-mcp",
+                kind="mcp",
+                options={"env": ["LATENT_INTEL_TEST_UNSET_VARIABLE"]},
+            )
+        ]
+    )
+    assert unnamed == [
+        "example-mcp: env LATENT_INTEL_TEST_UNSET_VARIABLE is not set — "
+        "export it or put it in .env"
+    ]
+    await session.aclose()
+
+
 async def test_a_relative_literal_path_from_a_config_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

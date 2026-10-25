@@ -53,7 +53,8 @@ Always `aclose()` it, since an `mcp` source is a process or a connection.
 - **`await disconnect(source_id)`**, **`sources()`** (attached, in order) and **`available()`**
   (the registry's entries).
 - **`await find(query, *, source=None, limit=10, **filters)`** returns
-  `{source_id: [Hit, ...]}`, never one merged list. A source that fails gives an empty list.
+  `{source_id: [Hit, ...]}`, never one merged list. A source that fails gives an empty list;
+  with no source to search, it raises `SessionError` rather than returning `{}`.
   `filters` go to every source, and a source refuses one it cannot apply: none of `files`,
   `code` and `mcp` has a field to filter on, so a non-empty filter is that source's failure.
 - **`await fetch(ref)`** returns a `Doc`. A bare key reads from `session.current`, the first

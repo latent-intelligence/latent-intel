@@ -191,6 +191,7 @@ class Session:
         problems: dict[int, str] = {}
 
         async def one(index: int, request: SourceRequest) -> None:
+            source_id = request.source_id or request.spec
             try:
                 if request.kind is None:
                     kind, target = registry.resolve(
@@ -209,7 +210,13 @@ class Session:
                     ),
                 )
             except SessionError as exc:
-                problems[index] = f"{request.source_id or request.spec}: {exc}"
+                # An MCP connector names itself in its own message; said once.
+                message = str(exc)
+                problems[index] = (
+                    message
+                    if message.startswith(f"{source_id}: ")
+                    else f"{request.source_id or request.spec}: {message}"
+                )
 
         for index, request in enumerate(specs):
             await one(index, request)
@@ -674,7 +681,8 @@ class Session:
 
         Sources are searched concurrently, so the cost is the slowest source rather than
         their sum. A source that fails contributes an empty list rather than taking the
-        whole search down with it; `run` surfaces the failure as an event.
+        whole search down with it; `run` surfaces the failure as an event. With nothing
+        to search it raises `SessionError`.
         """
         targets = self._searchable(source)
         results: dict[str, list[Hit]] = {name: [] for name in targets}
@@ -1006,7 +1014,9 @@ class Session:
     # -- internals ------------------------------------------------------------
 
     def _searchable(self, source: str | None) -> list[str]:
-        """Which connected sources a search should reach."""
+        """Which connected sources a search should reach. Raises when none would:
+        nothing searched is not an empty result, and a script reading no hits would
+        take it for "no match"."""
         if source is not None:
             connector = self._connectors.get(source)
             if connector is None:
@@ -1014,11 +1024,18 @@ class Session:
             if not connector.describe().can(Capability.SEARCH):
                 raise CapabilityError(f"'{source}' does not support search")
             return [source]
-        return [
+        names = [
             name
             for name, connector in self._connectors.items()
             if connector.describe().can(Capability.SEARCH)
         ]
+        if not names:
+            raise SessionError(
+                "nothing to search — no source is attached"
+                if not self._connectors
+                else "nothing to search — no attached source supports search"
+            )
+        return names
 
 
 def _fingerprint(resolved: settings_module.Settings) -> Fingerprint:

@@ -41,6 +41,7 @@ async def open_session() -> tuple[Session, list[str]]:
     should not stop a search over the other four.
     """
     session = Session()
+    resolved = settings_module.load()
     requests = [
         SourceRequest(
             spec=spec.spec,
@@ -50,9 +51,12 @@ async def open_session() -> tuple[Session, list[str]]:
             remote=spec.remote,
             options=spec.options,
         )
-        for spec in settings_module.load().sources
+        for spec in resolved.sources
     ]
-    return session, await session.connect_many(requests)
+    # A deployment that did not load attaches none of its sources, which is the first
+    # thing to say: otherwise a misspelt name reads as a deployment with nothing in it.
+    first = [resolved.unloaded] if resolved.unloaded else []
+    return session, first + await session.connect_many(requests)
 
 
 @contextmanager

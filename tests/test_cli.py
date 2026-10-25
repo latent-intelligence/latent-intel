@@ -8,6 +8,7 @@ web client exists.
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -1251,6 +1252,131 @@ def test_deployment_validate_with_nothing_active_says_so() -> None:
     result = runner.invoke(app, ["deployment", "validate"])
     assert result.exit_code == 1
     assert "no deployment to validate" in result.output
+
+
+def test_a_search_that_reaches_no_source_fails_on_stdout_and_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every source failed to attach, so nothing was searched. Exit 0 and an empty
+    result would read as "no hits" to a script; the failure goes on stdout too, where
+    the results would have been."""
+    _deployment(
+        tmp_path,
+        "field",
+        "sources:\n  - {id: notes, kind: files, target: ./not-here}\n",
+    )
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "field")
+
+    result = runner.invoke(app, ["search", "x"])
+    assert result.exit_code == 1
+    assert "✗" in result.stdout and "nothing to search" in result.stdout
+    assert "notes" in result.stderr  # why, said once by the attach report
+
+    as_json = runner.invoke(app, ["search", "x", "--json"])
+    assert as_json.exit_code == 1
+    types = [json.loads(line)["type"] for line in as_json.stdout.splitlines()]
+    assert types == ["agent_failed"]
+
+
+def test_validate_reports_targets_that_are_not_there_and_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Checked without attaching: a local `files` or `code` directory must exist and an
+    `mcp` command must be on PATH. A command that is there is never run."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "started"
+    server = bin_dir / "example-mcp"
+    server.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n")
+    server.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    (tmp_path / "projects" / "here").mkdir(parents=True)
+    _deployment(
+        tmp_path,
+        "field",
+        "sources:\n"
+        "  - {id: notes, kind: files, target: ./not-here}\n"
+        "  - {id: repo, kind: code, target: ./also-not-here}\n"
+        "  - {id: fine, kind: files, target: ./here}\n"
+        "  - {id: tools, kind: mcp, target: 'no-such-server-xyz serve'}\n"
+        "  - {id: served, kind: mcp, target: 'example-mcp --flag'}\n"
+        "  - {id: hosted, kind: mcp, target: 'https://mcp.example.org/mcp'}\n"
+        "  - {id: remote, kind: files, target: 's3://example-bucket/notes'}\n",
+    )
+
+    result = runner.invoke(app, ["deployment", "validate", "field"])
+    assert result.exit_code == 1
+    err = flat(result.stderr)
+    assert "not-here" in err and "also-not-here" in err
+    assert "no-such-server-xyz" in err and "PATH" in err
+    for clean in ("'fine'", "'served'", "'hosted'", "'remote'"):
+        assert clean not in err
+    assert not marker.exists()
+
+
+def test_deployment_add_finds_a_deployment_one_folder_down(tmp_path: Path) -> None:
+    """The layout `deployment new` writes is `<name>/<name>.yaml`, so adding the folder
+    that holds several finds each of them."""
+    parent = tmp_path / "deployments"
+    for name in ("field", "lab"):
+        (parent / name).mkdir(parents=True)
+        (parent / name / f"{name}.yaml").write_text(f"name: {name}\n")
+    result = runner.invoke(app, ["deployment", "add", str(parent)])
+    assert result.exit_code == 0, result.output
+    assert "field" in result.stdout and "lab" in result.stdout
+    assert runner.invoke(app, ["deployment", "use", "lab"]).exit_code == 0
+
+
+def test_deployment_add_lists_only_what_it_finds_first_and_names_a_shadow(
+    tmp_path: Path,
+) -> None:
+    """A name an earlier search path already holds is not this directory's to offer."""
+    _deployment(tmp_path, "lab")
+    parent = tmp_path / "deployments"
+    for name in ("lab", "field"):
+        (parent / name).mkdir(parents=True)
+        (parent / name / f"{name}.yaml").write_text(f"name: {name}\n")
+    result = runner.invoke(app, ["deployment", "add", str(parent)])
+    assert result.exit_code == 0, result.output
+    assert "(field)" in flat(result.stdout)
+    assert "lab" in result.stderr and "shadowed" in result.stderr
+
+
+def test_one_file_reached_from_two_search_paths_shadows_nothing(
+    tmp_path: Path,
+) -> None:
+    """`projects/lab/lab.yaml` is found one folder down from `projects` and again from
+    `projects/lab` once that is added: one file, so no shadow to warn about."""
+    (tmp_path / "projects" / "lab").mkdir(parents=True)
+    (tmp_path / "projects" / "lab" / "lab.yaml").write_text("name: lab\n")
+    result = runner.invoke(app, ["deployment", "add", str(tmp_path / "projects/lab")])
+    assert result.exit_code == 0, result.output
+    assert "(lab)" in flat(result.stdout)
+    assert "shadowed" not in result.stderr
+    assert "shadowed" not in runner.invoke(app, ["deployment", "list"]).stderr
+
+
+def test_connect_warns_when_the_deployment_it_records_into_is_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    monkeypatch.setenv("LATENT_INTEL_PROJECT", "nowhere")
+    result = runner.invoke(app, ["connect", str(corpus), "--kind", "files"])
+    assert "'nowhere' not found" in flat(result.stderr)
+
+
+def test_deployment_add_says_when_it_finds_nothing_and_records_nothing(
+    tmp_path: Path,
+) -> None:
+    empty = tmp_path / "empty"
+    (empty / "deeper" / "still").mkdir(parents=True)
+    (empty / "deeper" / "still" / "still.yaml").write_text("name: still\n")
+    result = runner.invoke(app, ["deployment", "add", str(empty)])
+    assert result.exit_code == 1
+    assert "✓" not in result.output
+    assert "no deployment" in flat(result.stderr)
+    assert str(empty.resolve()) not in config_module.load().deployment_paths
 
 
 def _renamed(tmp_path: Path) -> Path:

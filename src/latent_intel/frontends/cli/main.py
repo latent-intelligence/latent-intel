@@ -176,6 +176,10 @@ async def _connect(
     from ...session import Session
 
     options: dict[str, Any] = {}
+    # The source is recorded into this deployment's overlay, so a deployment that did
+    # not load is said; other sources' attach failures are not this command's business.
+    if unloaded := settings_module.load().unloaded:
+        report([unloaded])
     async with session_scope() as (session, _):
         try:
             if from_file is not None:

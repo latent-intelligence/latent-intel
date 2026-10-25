@@ -41,7 +41,12 @@ intel                                           # the shell, with its sources at
 ```
 
 `deployment use` saves the choice. For one command, or one terminal, `LATENT_INTEL_PROJECT=research`
-does the same without saving anything. `deployment use none` returns to no deployment.
+does the same without saving anything; a command that attaches sources warns when the deployment
+it names is not found. `deployment use none`, or `LATENT_INTEL_PROJECT=none`, returns to no deployment.
+
+`deployment add` also finds deployments one folder down, so adding `~/deployments` finds
+`~/deployments/research/research.yaml` and each of its neighbours. It refuses a directory where it
+finds none.
 
 ## Check it
 
@@ -49,11 +54,12 @@ does the same without saving anything. `deployment use none` returns to no deplo
 intel deployment validate research
 ```
 
-It lists every problem without switching: an unknown top-level key, a directory that is not there, a skill
-that does not parse, a `${VAR}` nobody defines. Each is reported and skipped, never fatal, so one
-bad source still lets the rest attach; `validate` exits 1 while any remain. A saved command that
-does not parse is reported by the shell when it starts, and by `intel run`. `intel doctor` shows
-which sources attached.
+It lists every problem without switching: an unknown top-level key, a directory that is not there
+(a source's included), an `mcp` command that is not on PATH, a skill that does not parse, a `${VAR}`
+nobody defines. Each is reported and skipped, never fatal, so one bad source still lets the rest
+attach; `validate` exits 1 while any remain. It starts no server, so a server that is installed
+but fails to start is found by `intel doctor`, which shows which sources attached. A saved command
+that does not parse is reported by the shell when it starts, and by `intel run`.
 
 ## Locations that change between machines
 

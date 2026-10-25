@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -70,6 +72,11 @@ TOP_LEVEL_KEYS = frozenset(
         "root",
     }
 )
+
+
+#: The `defaults:` keys this build reads. Another one is a problem: `limit: 8` was
+#: silently dropped while every search returned 10.
+DEFAULT_KEYS = frozenset({"approval", "web"})
 
 
 class ProjectError(Exception):
@@ -453,6 +460,16 @@ def load(path: Path | str) -> Project:
             f"{', '.join(sorted(TOP_LEVEL_KEYS))}"
         )
 
+    defaults = raw.get("defaults") or {}
+    if not isinstance(defaults, dict):
+        problems.append(f"defaults: {defaults!r} is not a mapping — ignored")
+        defaults = {}
+    if unread := sorted(set(defaults) - DEFAULT_KEYS, key=str):
+        problems.append(
+            f"defaults: {', '.join(map(str, unread))} — not acted on; this build reads "
+            f"{', '.join(sorted(DEFAULT_KEYS))}"
+        )
+
     name = str(raw.get("name") or path.stem)
     if name in RESERVED:
         problems.append(f"'{name}' is reserved — rename the deployment")
@@ -545,10 +562,56 @@ def load(path: Path | str) -> Project:
         persona=persona,
         persona_mode=persona_mode,
         skills=skills,
-        defaults=dict(raw.get("defaults") or {}),
+        defaults=defaults,
         root=root,
         problems=problems,
     )
+
+
+def check_sources(project: Project) -> list[str]:
+    """What would stop each source attaching that can be seen without attaching it.
+
+    A local `files` or `code` target must be a directory, and an `mcp` command must be
+    on PATH or, when it names a path, there — under its `cwd`, which is where it starts,
+    else the working directory. Nothing is started or read, so a URI, a URL and a
+    registry name are left for attach to judge.
+    """
+    problems: list[str] = []
+    for spec in project.sources:
+        target = spec.target
+        if target is None:
+            continue
+        if spec.kind in ("files", "code") and "://" not in target:
+            if not Path(target).is_dir():
+                problems.append(f"source '{spec.id}': no directory at {target}")
+        elif spec.kind == "mcp" and not target.startswith(("http://", "https://")):
+            # Expanded as attach expands it, then split: `$VAR` and `~`, unless the
+            # line holds `://` anywhere, which attach then leaves as written.
+            line = (
+                target
+                if "://" in target
+                else str(Path(os.path.expandvars(target)).expanduser())
+            )
+            try:
+                command = shlex.split(line)[0]
+            except (ValueError, IndexError):
+                problems.append(f"source '{spec.id}': no command in {target!r}")
+                continue
+            cwd = spec.options.get("cwd")
+            if cwd is not None and not Path(str(cwd)).is_dir():
+                problems.append(f"source '{spec.id}': cwd {cwd} is not a directory")
+                continue
+            if os.sep in command:
+                found = shutil.which(str(Path(str(cwd or ".")) / command))
+            else:
+                found = shutil.which(command)
+            if found is None:
+                problems.append(
+                    f"source '{spec.id}': {command} is not on PATH"
+                    if os.sep not in command
+                    else f"source '{spec.id}': no program at {command}"
+                )
+    return problems
 
 
 #: A name `create` writes: lowercase, digits and hyphens, so it is the same on every
@@ -617,9 +680,7 @@ def search_paths(
     A deployment override first, then whatever the user added, then the directory
     `project add --copy` writes to, then what ships with the engine.
     """
-    paths: list[Path] = []
-    if env := os.environ.get(ENV_PROJECTS):
-        paths += [Path(p).expanduser() for p in env.split(os.pathsep) if p]
+    paths = _env_paths()
     paths += [Path(p).expanduser() for p in (extra or [])]
     if home is not None:
         paths.append(home / "projects")
@@ -627,26 +688,50 @@ def search_paths(
     return paths
 
 
+def _env_paths() -> list[Path]:
+    value = os.environ.get(ENV_PROJECTS) or ""
+    return [Path(p).expanduser() for p in value.split(os.pathsep) if p]
+
+
+def candidates(directory: Path) -> list[Path]:
+    """The deployment files in one search directory: `<name>.yaml` in it, then
+    `<name>/<name>.yaml` one folder down — the layout `create` writes, so the folder
+    that holds several is added once. A YAML file named otherwise below it is something
+    else that lives in a deployment's folder."""
+    nested = (p for p in directory.glob("*/*.yaml") if p.stem == p.parent.name)
+    return sorted(directory.glob("*.yaml")) + sorted(nested)
+
+
 def discover(
     extra: list[str] | None = None, home: Path | None = None
 ) -> tuple[dict[str, Path], list[str]]:
-    """Every project findable, by name, plus any collisions.
+    """Every project findable, by name, plus problems: collisions and missing paths.
 
     First path wins, and a name found twice is reported rather than silently shadowed:
     two deployments disagreeing about what one name means is the kind of confusion that
     is unbearable to debug later.
     """
     found: dict[str, Path] = {}
-    collisions: list[str] = []
+    problems: list[str] = []
+    configured = {
+        **{
+            Path(p).expanduser(): "added with `intel deployment add`"
+            for p in extra or []
+        },
+        **{p: f"named in {ENV_PROJECTS}" for p in _env_paths()},
+    }
     for directory in search_paths(extra, home):
         if not directory.is_dir():
             # A configured path that does not exist is worth saying out loud; a
             # not-yet-created default directory is not.
+            if (why := configured.get(directory)) is not None:
+                problems.append(f"{directory} is not a directory — {why}")
             continue
-        for candidate in sorted(directory.glob("*.yaml")):
+        for candidate in candidates(directory):
             name = candidate.stem
             if name in found:
-                collisions.append(f"{name}: {candidate} shadowed by {found[name]}")
+                if found[name] != candidate:  # not one file reached twice
+                    problems.append(f"{name}: {candidate} shadowed by {found[name]}")
                 continue
             found[name] = candidate
-    return found, collisions
+    return found, problems
