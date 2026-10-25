@@ -21,7 +21,8 @@ research/                 anywhere on disk; `intel deployment add` copies nothin
 ```
 
 Only `research.yaml` is required. `.env` has that fixed name beside it; the other names are
-whatever the file points at.
+whatever the file points at, and a folder is read only when its key names it: a `commands/`
+folder with no `commands:` key is ignored.
 
 ## A complete example
 
@@ -87,7 +88,7 @@ root: ./products
 | `name` | the file's name | Shown by `intel deployment show`. `none` and `default` are reserved. A deployment is found, chosen and keyed in your config by its file's name |
 | `title` | the name | Shown by `intel deployment show` |
 | `description` | empty | For people |
-| `registry` | none | A registry file that `from:` names resolve against, instead of `KNOWLEDGE_REGISTRY` and `~/.config/latent-intel/registry.yaml` |
+| `registry` | none | A [registry file](#registry) that `from:` names resolve against, instead of `KNOWLEDGE_REGISTRY` and `~/.config/latent-intel/registry.yaml` |
 | `vars` | none | Location variables for `${NAME}`. Never credentials |
 | `sources` | none | [Sources](#sources) |
 | `branding` | Latent's | [Branding](#branding) |
@@ -120,11 +121,39 @@ when the source attaches.
 |---|---|
 | `files` | `pattern`: which files, default `**/*.md` |
 | `code` | `include` and `exclude`: globs separated by spaces or commas, each replacing its default. `graph` is refused: there is no symbol index yet |
-| `mcp` | `env`: a list of `NAME` (forward your value; refused when unset) or `NAME=value` (a literal). `cwd`: the directory the server starts in. `server_stderr: true`: show the server's own stderr |
+| `mcp` | `env`: a list of `NAME` (forward your value; refused when unset) or `NAME=value` (a literal, stored as typed, so never a secret). `cwd`: the directory the server starts in. `server_stderr: true`: show the server's own stderr |
 
 Any other option is refused by an `mcp` source when it attaches; a `files` source ignores it,
 and a `code` source refuses only `graph`. A source that fails to attach is reported and skipped;
 the others still attach.
+
+## Registry
+
+A registry file lists the stores on a machine by id, so a source can name one with `from:` or
+`intel connect <id>` and find it again on each machine. It is the deployment's `registry:`, else
+`KNOWLEDGE_REGISTRY`, else `registry.yaml` beside your config. A missing file is an empty
+registry.
+
+```yaml
+stores:
+  - id: notes-vault
+    kind: markdown-vault
+    domain: notes on context engineering
+    paths:
+      root: ~/notes
+      mirror: s3://bucket/notes
+  - id: research-wiki
+    kind: wiki
+    access: "mcp:latent-wiki-mcp --deployment ~/wikis/research"
+```
+
+| Key | Meaning |
+|---|---|
+| `id` | Required; a row without one is skipped. The name `connect` and `from:` use |
+| `kind` | `markdown-vault` or `context-store`, attached as a `files` source; `wiki`, attached only through its server, so it needs `access: mcp:…`. Any other kind, without `access: mcp:…`, is listed by `intel stores` as not connectable |
+| `access` | `filesystem` (the default) or `mcp:<command>`: the command that starts the store's server, attached as an `mcp` source. `paths` is then not read, and `--remote` is refused |
+| `domain` | A line shown beside the id by `intel stores` |
+| `paths` | Local copies, tried in the order `root`, `raw`, `context`, `summaries`, `notes`: the first that is a URI or holds something wins. `mirror` is the remote copy, used with `--remote` or when no local path holds anything. `~` and `${VAR}` are expanded in a local path; a URI is used as written |
 
 ## Branding
 
@@ -193,7 +222,9 @@ wins, and that is reported.
 
 ## Credentials
 
-Credentials live in the environment, never in a YAML file. Two `.env` files are read, if they
+Credentials belong in the environment, not in a YAML file. An `mcp` source's `env` names them as
+a bare `NAME`, which forwards your value and stores only the name; a `NAME=value` literal is
+stored as typed, in the deployment file or in your config. Two `.env` files are read, if they
 exist: the active deployment's, beside its YAML file, then `~/.config/latent-intel/.env`. The
 deployment's wins where both set a variable, and a variable already exported wins over both.
 A `.env` in the working directory is never read. `intel doctor` names the files it loaded.

@@ -13,9 +13,11 @@ than they look:
     LATENT_INTEL_HOME                      overrides both — needed for tests and for
                                            multi-tenant hosts
 
-**Credentials never live in this file.** Runtimes read keys from the environment. A
-config file gets copied into a gist, committed to a dotfiles repo and pasted into a
-support thread; an environment variable does not.
+**Runtimes read credentials from the environment, never from this file.** An `mcp`
+source's `NAME=value` env literal is stored as typed, so secrets belong in the
+environment or a `.env`, forwarded by a bare `NAME`. A config file gets copied into a
+gist, committed to a dotfiles repo and pasted into a support thread; an environment
+variable does not.
 
 **Nothing is written inside the install directory.** It gets replaced on upgrade.
 """
@@ -332,7 +334,9 @@ def save(config: Config) -> Path:
     settings_module.invalidate()
     path.write_text(
         "# latent-intel — attached sources and preferences.\n"
-        "# Credentials belong in the environment, never here.\n\n"
+        "# Runtimes read credentials from the environment, never from this file.\n"
+        "# An mcp source's NAME=value literal is stored as typed: keep secrets\n"
+        "# in the environment or .env.\n\n"
         + yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )

@@ -31,6 +31,7 @@ line go to stderr, so `--json` output pipes clean.
 intel connect ~/notes --kind files --as notes
 intel connect ~/src/agent-harness --kind code --as repo
 intel connect "latent-wiki serve --deployment ~/wikis/research" --kind mcp --as wiki
+intel connect "latent-records-mcp --deployment ~/records/research" --kind mcp --as records
 intel connect https://example.com/mcp --kind mcp --as docs
 intel connect --from ./.mcp.json                 # the one server in the file
 intel connect records --from ./.mcp.json         # one of several, by name
@@ -46,7 +47,12 @@ intel disconnect notes
 - **`--as`** sets the source id, which labels every ref; without it, the last segment of the path,
   or the registry id.
 - **`--from FILE`** reads one server out of a `.mcp.json` (`mcpServers`) or `.vscode/mcp.json`
-  (`servers`): its `command` and `args`, `url`, `env` and `cwd`. The file is read once.
+  (`servers`): its `command` and `args`, `url`, `env` and `cwd`. The file is read once. An `env`
+  entry `NAME: ${NAME}` is recorded as the bare `NAME`, another `${…}` is refused, and a plain
+  value is recorded as typed.
+- **A store** is attached through its server: `latent-wiki serve` or `latent-records serve`, or
+  the standalone `latent-wiki-mcp` and `latent-records-mcp`, which install without the store
+  package.
 - **`--remote`** uses a registry entry's mirror instead of its local copy.
 
 The source is recorded under the active deployment in your config, never in the deployment file.

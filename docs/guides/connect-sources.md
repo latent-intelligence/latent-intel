@@ -47,16 +47,21 @@ lists resources is searchable too: search matches each resource's name and descr
 **Credentials for a server.** The server starts with a handful of variables, such as `HOME` and
 `PATH`, and nothing else. Name what it needs in the source's `env` option, which a deployment or
 an imported `.mcp.json` sets: a bare `NAME` forwards your value, from the environment or a `.env`,
-and is refused when unset; `NAME=value` passes a literal. A server that fails to start shows its
-own error.
+and is refused when unset; `NAME=value` passes a literal. Only the name of a bare `NAME` is
+recorded, but a literal is recorded as typed, `--from` included, so keep secrets out of literals.
+A server that fails to start shows its own error.
 
-**A store.** A wiki or a records store is a server of its own package:
+**A store.** A wiki or a records store is reached through a server: its own package's `serve`
+command, or the standalone `latent-wiki-mcp` and `latent-records-mcp`, which install without the
+store package and answer with the same tools:
 
 ```bash
 intel connect "latent-wiki serve --deployment ~/wikis/research" --kind mcp --as wiki
+intel connect "latent-wiki-mcp --deployment ~/wikis/research" --kind mcp --as wiki
+intel connect "latent-records-mcp --deployment ~/records/research" --kind mcp --as records
 ```
 
-Its tools come from the server, and its pages are searchable as resources.
+Its tools come from the server, and its pages or records are searchable as resources.
 
 ## Remote locations
 
@@ -74,8 +79,9 @@ intel connect notes-vault --remote      # the entry's mirror, not its local copy
 ```
 
 The registry is the deployment's `registry:`, else `KNOWLEDGE_REGISTRY`, else
-`~/.config/latent-intel/registry.yaml`. `intel stores` lists what is attached and what the
-registry offers. A source attached by id is recorded by id, and found again on each machine.
+`~/.config/latent-intel/registry.yaml`; its format is in [registry](../deployments.md#registry).
+`intel stores` lists what is attached and what the registry offers. A source attached by id is
+recorded by id, and found again on each machine.
 
 ## What is recorded, and detaching
 

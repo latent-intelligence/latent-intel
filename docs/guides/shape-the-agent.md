@@ -4,7 +4,9 @@ A deployment shapes how the agent behaves with three kinds of Markdown file: a *
 on every turn, **skills** loaded when a question needs one, and **subagents** it can hand work
 to. Together they are the deployment's context engineering. They follow Claude Code's file
 conventions, so one folder can serve this package, Claude Code and the Agent SDK. Each is
-declared in the deployment ([keys](../deployments.md#top-level)).
+declared in the deployment ([keys](../deployments.md#top-level)): a `skills/` or `agents/` folder
+loads only when its key names it, and the file `intel deployment new` writes has those keys
+commented out.
 
 ```yaml
 agent:

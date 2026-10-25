@@ -80,7 +80,18 @@ the active deployment's commands read ([credentials](../deployments.md#credentia
 ## Saved commands
 
 A saved command is one Markdown file in the deployment's `commands:` directory: a search, a
-question, or a sequence of other commands, named by its file. This is `commands/recent.md`:
+question, or a sequence of other commands, named by its file. The folder is read only when the
+deployment names it, so declare it:
+
+```yaml
+commands: ./commands
+```
+
+The file `new` writes has this line commented out. Without it, a `commands/` folder is ignored and
+`intel run` says the deployment defines no commands. `skills:` and `agents:` work the same way:
+each folder loads only when its key names it ([shape the agent](shape-the-agent.md)).
+
+This is `commands/recent.md`:
 
 ```markdown
 ---

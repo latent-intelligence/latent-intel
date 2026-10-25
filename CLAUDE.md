@@ -120,7 +120,9 @@ vocabulary free to change without touching a single connector.
   every source had failed to attach.
 - **Colours are semantic tokens** from `ui/theme.py` — `[accent]`, `[dim]`, `[source]`,
   never `[green]`. Retheming is one file.
-- **Credentials never touch the config file.** Runtimes read the environment.
+- **Runtimes read credentials from the environment, never the config file.** An `mcp`
+  source's `NAME=value` env literal is the exception, stored as typed on purpose (`--from`
+  included), so the docs tell users to forward a bare `NAME` for anything secret.
   `LATENT_INTEL_HOME` overrides both config and data directories, for tests and for
   multi-tenant hosts.
 - **Sources are recorded as named, never as resolved.** A registered store keeps its
