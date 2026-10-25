@@ -221,9 +221,6 @@ def search(
     query: str = typer.Argument(..., help="What to look for."),
     source: str = typer.Option(None, "--source", help="Search one source only."),
     limit: int = typer.Option(10, "--limit", help="Hits per source."),
-    kind: str = typer.Option(
-        None, "--kind", help="Filter by type, where a source supports it."
-    ),
     as_json: bool = typer.Option(False, "--json", help="Emit raw events."),
     record_to: Path = typer.Option(
         None, "--record", help="Also append every event to this file, for `replay`."
@@ -232,8 +229,7 @@ def search(
     title: str = _TITLE,
 ) -> None:
     """Search every attached source. Results group by source and are never merged."""
-    filters = {"type": kind} if kind else {}
-    command = Find(query=query, source=source, limit=limit, filters=filters)
+    command = Find(query=query, source=source, limit=limit)
     recorded = _recording(record_to, purpose, title)
     anyio.run(lambda: _stream(command, as_json, *recorded))
 

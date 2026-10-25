@@ -124,7 +124,11 @@ vocabulary free to change without touching a single connector.
 - **Sources are recorded as named, never as resolved.** A registered store keeps its
   registry id under `from:` and re-resolves wherever the config is read; a literal path
   is stored verbatim with `~` and `${VAR}` intact. Storing the resolved path made configs
-  machine-specific *and* leaked the email address embedded in a Drive mount path.
+  machine-specific *and* leaked the email address embedded in a Drive mount path. The
+  one exception is a relative `files` or `code` path, which `connect` anchors at the
+  directory it ran in, home written as `~`: kept as typed, it meant a different
+  directory to every later command. An old relative entry is refused at attach, never
+  guessed at.
 - Escape user-supplied text with `rich.markup.escape` before printing it — a page title
   containing `[bold]` must not restyle the terminal.
 - Tests mirror `src/`. A test against a real store server runs only where that store's

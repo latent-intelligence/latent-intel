@@ -213,7 +213,9 @@ are kept, but comments are not: every write rewrites the file.
 Each overlay holds `sources:` (rows like a deployment's, written by `intel connect`),
 `detached:` (deployment source ids to leave out; nothing writes it today) and `runtimes:`
 (what `intel managed sync` created). A source is recorded as you named it: a registry id under
-`from:`, or a path exactly as typed, `~` and `${VAR}` included. A top-level `sources:` from an
+`from:`, or a path as typed, `~` and `${VAR}` included. A relative `files` or `code` path is
+the exception: it is recorded absolute, against the directory `connect` ran in, with the home
+folder as `~`. A top-level `sources:` from an
 older version is not read; `intel deployment show` names it so you can move it.
 
 ## Where state lives

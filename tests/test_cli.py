@@ -703,6 +703,14 @@ def test_search_json_emits_parseable_events(tmp_path: Path) -> None:
         assert not isinstance(ev.parse_event(payload), ev.UnknownEvent)
 
 
+def test_search_has_no_kind_option() -> None:
+    """Every hit is a `file` or a `resource`, so `--kind` had nothing to filter;
+    `--source` is what separates sources."""
+    result = runner.invoke(app, ["search", "x", "--kind", "concept"])
+    assert result.exit_code == 2
+    assert "No such option" in result.stderr
+
+
 def test_ask_exits_nonzero_and_says_what_to_do() -> None:
     result = runner.invoke(app, ["ask", "why"])
     assert result.exit_code == 1
@@ -1450,3 +1458,195 @@ def test_eval_from_the_built_in_deployment_refuses_and_writes_nothing(
     assert result.exit_code == 1
     assert "intel deployment use" in result.output
     assert not (batch.PACKAGE / "data" / "projects" / "runs").exists()
+
+
+# -- relative connect paths -----------------------------------------------
+
+
+def _notes(directory: Path) -> Path:
+    directory.mkdir(parents=True)
+    (directory / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    return directory
+
+
+def test_a_relative_connect_path_is_saved_absolute_with_home_as_tilde(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recorded as typed, `./notes` meant a different directory to every later
+    command. It is anchored where `connect` ran, and the home folder stays `~`, so the
+    config names no user."""
+    user = tmp_path / "user"
+    _notes(user / "work" / "notes")
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.chdir(user / "work")
+
+    result = runner.invoke(app, ["connect", "./notes", "--kind", "files", "--as", "n"])
+    assert result.exit_code == 0, result.output
+    recorded = config_module.load().find("n")
+    assert recorded is not None and recorded.target == "~/work/notes"
+
+    monkeypatch.chdir(tmp_path)
+    found = runner.invoke(app, ["search", "retrieval"])
+    assert "n:note.md" in found.stdout, found.output
+
+
+def test_a_relative_connect_path_outside_home_is_saved_absolute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    code = _notes(tmp_path / "elsewhere" / "repo")
+    monkeypatch.chdir(code.parent)
+
+    result = runner.invoke(app, ["connect", "repo", "--kind", "code"])
+    assert result.exit_code == 0, result.output
+    recorded = config_module.load().find("repo")
+    assert recorded is not None and recorded.target == str(code)
+
+
+def test_a_home_or_variable_path_is_saved_as_typed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sources are recorded as named: `~` and `${VAR}` re-resolve wherever the config
+    is read, so neither is expanded on the way in."""
+    user = tmp_path / "user"
+    _notes(user / "notes")
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("NOTES_ROOT", str(user))
+    monkeypatch.chdir(tmp_path)
+
+    for spec, name in (("~/notes", "home"), ("${NOTES_ROOT}/notes", "var")):
+        result = runner.invoke(app, ["connect", spec, "--kind", "files", "--as", name])
+        assert result.exit_code == 0, result.output
+        recorded = config_module.load().find(name)
+        assert recorded is not None and recorded.target == spec
+
+
+def test_a_relative_path_under_a_symlinked_directory_keeps_the_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`getcwd()` follows links, and a Drive mount's real path carries an email
+    address. The directory the shell reports, `PWD`, is the one the user typed."""
+    user = tmp_path / "user"
+    user.mkdir()
+    real = tmp_path / "mount" / "Drive-someone@example.com"
+    _notes(real / "notes")
+    (user / "drive").symlink_to(real)
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.chdir(user / "drive")
+    monkeypatch.setenv("PWD", str(user / "drive"))
+
+    result = runner.invoke(app, ["connect", "notes", "--kind", "files"])
+    assert result.exit_code == 0, result.output
+    recorded = config_module.load().find("notes")
+    assert recorded is not None and recorded.target == "~/drive/notes"
+
+
+def test_a_parent_path_under_a_symlinked_directory_means_what_ls_means(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`..` under a link is the link target's parent, as the connector resolves it, so
+    it is kept rather than collapsed against `PWD`."""
+    user = tmp_path / "user"
+    user.mkdir()
+    real = tmp_path / "mount" / "real"
+    real.mkdir(parents=True)
+    _notes(real.parent / "x")
+    (user / "drive").symlink_to(real)
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.chdir(user / "drive")
+    monkeypatch.setenv("PWD", str(user / "drive"))
+
+    result = runner.invoke(app, ["connect", "../x", "--kind", "files", "--as", "x"])
+    assert result.exit_code == 0, result.output
+    monkeypatch.chdir(tmp_path)
+    found = runner.invoke(app, ["search", "retrieval"])
+    assert "x:note.md" in found.stdout, found.output
+
+
+def test_a_relative_path_holding_a_variable_is_anchored_with_it_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = tmp_path / "user"
+    _notes(user / "data" / "notes")
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("SUBDIR", "notes")
+    monkeypatch.chdir(user)
+
+    result = runner.invoke(
+        app, ["connect", "data/${SUBDIR}", "--kind", "files", "--as", "n"]
+    )
+    assert result.exit_code == 0, result.output
+    recorded = config_module.load().find("n")
+    assert recorded is not None and recorded.target == "~/data/${SUBDIR}"
+
+    monkeypatch.chdir(tmp_path)
+    found = runner.invoke(app, ["search", "retrieval"])
+    assert "n:note.md" in found.stdout, found.output
+
+
+def test_an_unset_variable_is_not_reported_as_a_relative_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entry is fine; the variable is missing in this shell."""
+    monkeypatch.delenv("NOTES_ROOT", raising=False)
+    config = config_module.load()
+    config.add(
+        config_module.SourceSpec(id="v", kind="files", target="${NOTES_ROOT}/notes")
+    )
+    config_module.save(config)
+
+    result = runner.invoke(app, ["search", "retrieval"])
+    assert "relative" not in result.stderr
+
+
+def test_an_old_relative_entry_fails_with_a_message_to_reconnect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No migration: the directory it was typed in is not known, so guessing would
+    attach the wrong one. It fails loudly, even where `./notes` happens to exist."""
+    _notes(tmp_path / "notes")
+    monkeypatch.chdir(tmp_path)
+    config = config_module.load()
+    config.add(config_module.SourceSpec(id="old", kind="files", target="./notes"))
+    config_module.save(config)
+
+    result = runner.invoke(app, ["search", "retrieval"])
+    assert "old:note.md" not in result.stdout
+    message = " ".join(result.stderr.split())
+    assert "old: './notes' is a relative path" in message
+    assert "connect it again with the full path" in message
+
+
+def test_a_variable_set_to_a_relative_path_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _notes(tmp_path / "notes")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NOTES", "notes")
+    config = config_module.load()
+    config.add(config_module.SourceSpec(id="v", kind="files", target="$NOTES"))
+    config_module.save(config)
+
+    result = runner.invoke(app, ["search", "retrieval"])
+    assert "v:note.md" not in result.stdout
+    assert "is a relative path" in " ".join(result.stderr.split())
+
+
+def test_a_deployment_s_relative_target_still_resolves_against_its_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deployment's paths are anchored by the file that declares them, so the
+    refusal of a relative user entry never reaches one."""
+    _notes(tmp_path / "projects" / "corpus")
+    _deployment(
+        tmp_path,
+        "research",
+        "sources:\n  - {id: notes, kind: files, target: ./corpus}\n",
+    )
+    assert runner.invoke(app, ["deployment", "use", "research"]).exit_code == 0
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["search", "retrieval"])
+    assert result.exit_code == 0, result.output
+    assert "notes:note.md" in result.stdout
+    assert "relative" not in result.stderr

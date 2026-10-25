@@ -8,6 +8,7 @@ are looking at the same thing — and `--json` doubles as the serialization proo
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -22,7 +23,7 @@ from .. import events as ev
 from .. import settings as settings_module
 from ..commands import Command
 from ..models import Descriptor, SourceRequest
-from ..session import Session
+from ..session import PATH_KINDS, Session
 from ..ui import brand as brand_module
 from ..ui import render as render_module
 from ..ui import theme as theme_module
@@ -365,9 +366,11 @@ def record(
     """Write an attached source to the config, as it was named.
 
     `by_name` is what keeps this portable: a registry id is stored as `from:` and
-    re-resolved wherever the config is read, while a literal path is stored verbatim.
-    Neither stores what the path resolved to — that is machine-specific and, for a Drive
-    mount, personally identifying.
+    re-resolved wherever the config is read, while a literal path is stored as typed,
+    with `~` and `${VAR}` intact. Neither stores what a name resolved to — that is
+    machine-specific and, for a Drive mount, personally identifying. The one exception
+    is a relative `files` or `code` path, which meant the directory `connect` ran in
+    and would mean another one to every later command: see `anchored`.
 
     It writes the **user's overlay for the active project**, never the project file.
     That file belongs to whoever owns the deployment, and a tool that edited it would
@@ -383,10 +386,35 @@ def record(
             id=descriptor.id,
             kind=descriptor.kind,
             from_registry=spec if by_name else None,
-            target=None if by_name else spec,
+            target=None if by_name else anchored(spec, descriptor.kind),
             remote=remote,
             options=dict(options or {}),
         ),
         settings_module.load().overlay_key,
     )
     return config_module.save(cfg)
+
+
+def anchored(spec: str, kind: str) -> str:
+    """A relative `files` or `code` path, made absolute against the working directory,
+    with the home folder written as `~`. Anything else is returned as typed: a URI, a
+    path that is already absolute or starts with `~` or `$`, and any other kind's
+    target, such as an MCP command line. A variable inside a relative path is kept.
+
+    The working directory is the shell's `PWD` when it names the same place, because
+    `getcwd()` follows symlinks, and a Drive mount's real path carries an email address.
+    """
+    if kind not in PATH_KINDS or "://" in spec or spec.startswith(("~", "$")):
+        return spec
+    if Path(spec).is_absolute():
+        return spec
+    pwd = os.environ.get("PWD", "")
+    same = os.path.isabs(pwd) and os.path.isdir(pwd) and os.path.samefile(pwd, ".")
+    here = pwd if same else os.getcwd()
+    # Joined, not normalised: `..` under a link means the target's parent, as the
+    # connector resolves it, and collapsing it against `PWD` would name another place.
+    path = Path(here) / spec
+    for home in (Path.home(), Path.home().resolve()):
+        if path.is_relative_to(home):
+            return str(Path("~") / path.relative_to(home))
+    return str(path)

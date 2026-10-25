@@ -277,6 +277,27 @@ async def test_search_groups_by_source_and_never_merges(corpus: Path) -> None:
     await session.aclose()
 
 
+async def test_files_refuses_a_filter_it_cannot_apply(corpus: Path) -> None:
+    """Reject what you cannot honour: a `kind=` that did nothing returned results the
+    caller believed were filtered. An empty value is no filter, as in `mcp`."""
+    connector = FilesConnector("notes", str(corpus))
+    assert await connector.search("retrieval", kind=None)
+    with pytest.raises(ConnectError, match="kind"):
+        await connector.search("retrieval", kind="concept")
+
+
+async def test_a_refused_filter_reaches_the_stream_as_a_failure(corpus: Path) -> None:
+    session = Session()
+    await session.connect(str(corpus), kind="files", source_id="notes")
+    events = [
+        e
+        async for e in session.run(Find(query="retrieval", filters={"kind": "concept"}))
+    ]
+    failed = [e for e in events if isinstance(e, ev.AgentFailed)]
+    assert len(failed) == 1 and "kind" in failed[0].message
+    await session.aclose()
+
+
 async def test_fetch_resolves_a_bare_key_against_the_current_source(
     corpus: Path,
 ) -> None:
@@ -656,6 +677,24 @@ async def test_one_unreachable_source_does_not_stop_the_others(tmp_path: Path) -
 
     assert len(failures) == 1 and failures[0].startswith("bad:")
     assert [d.id for d in session.sources()] == ["good"]
+    await session.aclose()
+
+
+async def test_a_relative_literal_path_from_a_config_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`connect_many` attaches what a config recorded. A relative path there means a
+    different directory to every command, so it is refused even where it exists."""
+    (tmp_path / "notes").mkdir()
+    monkeypatch.chdir(tmp_path)
+    session = Session()
+    failures = await session.connect_many(
+        [SourceRequest(spec="./notes", kind="files", source_id="old")]
+    )
+    assert len(failures) == 1
+    assert failures[0].startswith("old: './notes' is a relative path")
+    assert "connect it again with the full path" in failures[0]
+    assert session.sources() == []
     await session.aclose()
 
 

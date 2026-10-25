@@ -960,3 +960,35 @@ def test_deployment_parses_bare_and_with_a_name() -> None:
 
 def test_project_is_no_longer_a_slash_command() -> None:
     assert not isinstance(parse("/project research"), Local)
+
+
+def test_shell_connect_saves_a_relative_path_absolute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/connect` records through the CLI's own `record`, so the two agree."""
+    import anyio
+
+    from latent_intel import config as config_module
+    from latent_intel.frontends.shell import repl
+    from latent_intel.session import Session
+
+    user = tmp_path / "user"
+    (user / "notes").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.chdir(user)
+    _shell(monkeypatch)
+    session = Session()
+
+    async def go() -> None:
+        completer = repl.ShellCompleter(session)
+        await repl._dispatch(
+            session,
+            Connect(spec="notes", kind="files", source_id="n"),
+            completer,
+            repl.Recording(),
+        )
+        await session.aclose()
+
+    anyio.run(go)
+    recorded = config_module.load().find("n")
+    assert recorded is not None and recorded.target == "~/notes"

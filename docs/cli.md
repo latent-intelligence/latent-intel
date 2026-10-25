@@ -40,6 +40,9 @@ intel disconnect notes
 
 - **`--kind`** is `files`, `code` or `mcp`, and is required for a path or URI. A registry id
   carries its own.
+- **A relative `files` or `code` path** is saved absolute, against the directory `connect` runs
+  in, with your home folder written as `~`. A path starting `~` or `${VAR}` is saved as typed,
+  and a variable inside a relative path is kept.
 - **`--as`** sets the source id, which labels every ref; without it, the last segment of the path,
   or the registry id.
 - **`--from FILE`** reads one server out of a `.mcp.json` (`mcpServers`) or `.vscode/mcp.json`
@@ -68,8 +71,6 @@ intel get context-collapse.md             # a bare key: the first attached sourc
 - **Results are grouped by source and never merged into one ranking.** A source with no match is
   listed with `no matches`, so it is not mistaken for one that was not searched.
 - **`--limit`** (10) is hits per source.
-- **`--kind`** is passed to each source as a type filter. No connector filters by type today: an
-  `mcp` source refuses it, and `files` and `code` ignore it.
 - **`--json`, `--record`, `--purpose` and `--title`** are as for [`ask`](#ask).
 - **A bare key with nothing attached** ends in a traceback today, not a `✗` line.
 

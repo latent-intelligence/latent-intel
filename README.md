@@ -114,9 +114,9 @@ intel connect ~/knowledge/raw --kind files --as manuals
 
 intel search "context collapse"
   design  2 hit(s)
-    concept design:context-collapse  12
+    resource design:context-collapse  12
       Asking a model to rewrite an accumulated context end to end…
-    source design:zhang2025-agentic-context-engineering  6
+    resource design:zhang2025-agentic-context-engineering  6
       Argues that adapting a model through its context rather than…
 
   manuals  1 hit(s)

@@ -80,8 +80,9 @@ registry offers. A source attached by id is recorded by id, and found again on e
 ## What is recorded, and detaching
 
 `connect` records the source in your config, under the active deployment, so later commands and
-the shell attach it too. It never edits the deployment file. Switching deployment leaves it
-behind: a source attached with no deployment active belongs to none.
+the shell attach it too. A relative path is recorded absolute, against the directory you ran
+`connect` in, with your home folder as `~`. It never edits the deployment file. Switching
+deployment leaves it behind: a source attached with no deployment active belongs to none.
 
 ```bash
 intel stores
@@ -93,10 +94,9 @@ still attach.
 
 ## Known limits
 
-- **A relative path is recorded as typed,** and resolved against the working directory of each
-  later command. Give an absolute path or one starting `~`.
+- **A source an older version recorded with a relative path** fails to attach, with a message to
+  connect it again with the full path. It is not guessed at, since the directory it was typed in
+  was never recorded.
 - **`disconnect` removes only what you attached.** A source the deployment declares is reported
   as not attached; leave it out with `detached:` in your config by hand
   ([your config](../deployments.md#your-config)).
-- **No source filters by type:** `search --kind` is ignored by `files` and `code`, and refused
-  by `mcp`.

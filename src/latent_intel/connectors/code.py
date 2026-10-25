@@ -141,6 +141,14 @@ class CodeConnector:
         )
 
     async def search(self, query: str, *, limit: int = 10, **filters: Any) -> list[Hit]:
+        """Filters are refused, not ignored: every hit is a file, so there is
+        nothing to filter on."""
+        if given := sorted(
+            k for k, v in filters.items() if v not in (None, "", [], {})
+        ):
+            raise ConnectError(
+                f"{self.id} has no fields to filter on ({', '.join(given)})"
+            )
         needle = query.lower().strip()
         if not needle:
             return []
