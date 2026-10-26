@@ -639,6 +639,26 @@ class Session:
                 servers[source_id] = spec
         return servers
 
+    def unreachable(self) -> dict[str, str]:
+        """Each attached source the configured runtime cannot reach, with the reason.
+
+        Asked of the runtime, as `subagent_problems` is, because only it knows how it
+        reaches a source: one that routes tools through this package reaches them all.
+        Empty with no runtime configured, nothing attached, or a runtime that does not
+        build, which `doctor`'s runtime block reports.
+        """
+        resolved = self._settings()
+        name = resolved.runtime
+        if not name or not self._connectors:
+            return {}
+        try:
+            runtime = agent.build(name, **self._runtime_options(name, resolved))
+        except Exception:  # noqa: BLE001 — the runtime block reports a broken build
+            return {}
+        if not isinstance(runtime, agent.Served):
+            return {}
+        return runtime.unreachable(list(self._connectors), self.mcp_servers())
+
     def tools(self) -> list[ToolSpec]:
         """The router's namespace: every tool every connected source offers, and the
         engine's own.

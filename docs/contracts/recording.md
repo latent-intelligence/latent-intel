@@ -68,7 +68,8 @@ field. What a reader scoring a run usually needs:
 | `tool_result` | `tool`, `source_id`, `ok`, `output`, `error`, `duration_ms`, `refs`; `parent_id` is its `tool_started` |
 | `retrieval_result` | `source_id`, `query`, `hits` — one event per source, never merged |
 | `agent_completed` | `text`, `citations`, `usage` (integer counts: tokens, and `web_search_requests` / `web_fetch_requests` where the host ran web tools), `cost_usd` (null when the runtime does not report one), `stopped` (null when the model finished; `tool_rounds` or `cost` when a ceiling ended the turn, and `text` is the answer so far) |
-| `agent_failed` | `message`, `kind`, `remedy` |
+| `agent_failed` | `message`, `kind`, `remedy`; `kind` is `source_unreachable` when a turn ended because the agent could reach none of its sources |
+| `source_unreachable` | `source_id`, `status`: a source the agent cannot reach this turn, said before the answer, with the runtime's own word for why (`failed`, `needs-auth`). Only `claude-cli` emits it |
 
 **Refs.** `tool_result.refs` lists the `source:key` refs in `output`, in order, once each.
 `agent_completed.citations` lists the runtime's own citations, then those in the answer.

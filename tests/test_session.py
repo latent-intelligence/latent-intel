@@ -2059,3 +2059,59 @@ async def test_a_session_given_a_deployment_resolves_against_its_registry(
     await session.connect("design")
     assert await _attached(session) == "deployed"
     await session.aclose()
+
+
+class _ServedFrom:
+    """Served, with a start directory — what an `mcp` source with `cwd:` hands over."""
+
+    kind = "mcp"
+
+    def __init__(self, source_id: str, target: str, **options: Any) -> None:
+        self.id = source_id
+        self.cwd = options.get("cwd")
+
+    def describe(self) -> Descriptor:
+        return Descriptor(id=self.id, kind=self.kind, capabilities=[])
+
+    def server_spec(self) -> dict[str, Any]:
+        return {"command": "serve", **({"cwd": self.cwd} if self.cwd else {})}
+
+    async def aclose(self) -> None:
+        return None
+
+
+def _runtime(name: str) -> None:
+    from latent_intel import config as config_module
+
+    config = config_module.load()
+    config.runtime = name
+    config_module.save(config)
+
+
+def test_claude_cli_cannot_reach_a_source_no_server_serves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Asked of the runtime, since only it knows how it reaches a source: `doctor`
+    marked every source with no server as unseen, whichever runtime answered."""
+    from latent_intel.agent.runtimes import claude_cli
+
+    monkeypatch.setattr(claude_cli, "WINDOWS", False)
+    _runtime("claude-cli")
+    session = Session()
+    session._connectors["plain"] = _Unservable("plain", "")  # type: ignore[assignment]
+    session._connectors["rooted"] = _ServedFrom("rooted", "", cwd="/srv")  # type: ignore[assignment]
+    session._connectors["plain2"] = _ServedFrom("plain2", "")  # type: ignore[assignment]
+    assert list(session.unreachable()) == ["plain"]
+
+    # `ask` refuses the whole turn there, so the server with no `cwd` is unreached too.
+    monkeypatch.setattr(claude_cli, "WINDOWS", True)
+    unreachable = session.unreachable()
+    assert sorted(unreachable) == ["plain", "plain2", "rooted"]
+    assert "sh" in unreachable["rooted"] and "rooted" in unreachable["plain2"]
+
+
+def test_a_runtime_that_routes_tools_itself_reaches_every_source() -> None:
+    _runtime("custom")
+    session = Session()
+    session._connectors["plain"] = _Unservable("plain", "")  # type: ignore[assignment]
+    assert session.unreachable() == {}

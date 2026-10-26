@@ -584,12 +584,13 @@ async def _doctor() -> None:
 
     async with session_scope() as (session, problems):
         console.print("\n[accent.strong]attached[/]")
-        # An agent that owns its own tool loop reaches a source only as an MCP server.
-        # `files` is in-process and has none, so say which sources the
-        # agent can actually see rather than implying it sees everything attached.
-        servable = set(session.mcp_servers())
+        # Which sources the configured runtime's agent cannot reach, and why, rather
+        # than implying it sees everything attached: `claude-cli` reaches a source only
+        # through a server it starts itself.
+        unreachable = session.unreachable()
         for d in session.sources():
-            reach = "" if d.id in servable else " [dim](not visible to the agent)[/]"
+            why = unreachable.get(d.id)
+            reach = f" [dim](not visible to the agent: {escape(why)})[/]" if why else ""
             console.print(f"  [ok]✓[/] [source]{d.id}[/] [dim]{d.kind}[/]{reach}")
         if not session.sources():
             console.print("  [dim]nothing attached[/]")

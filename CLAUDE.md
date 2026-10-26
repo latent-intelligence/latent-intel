@@ -140,6 +140,9 @@ vocabulary free to change without touching a single connector.
   `/bin/sh -c 'cd "$0" && exec "$@"'`, because Claude Code ignores `cwd` in
   `--mcp-config`. The SIGTERM/SIGHUP handler kills the child pid rather than cancelling
   the scope, since a cancel from a signal handler may not wake a loop asleep in `select`.
+- **What `doctor` marks unreachable is asked of the runtime** (`agent.Served`), never
+  decided by `Session` alone from `mcp_servers()`: a runtime that routes tools itself
+  reaches every source, and only the runtime knows which it cannot start.
 - Escape user-supplied text with `rich.markup.escape` before printing it — a page title
   containing `[bold]` must not restyle the terminal.
 - Tests mirror `src/`. A test against a real store server runs only where that store's

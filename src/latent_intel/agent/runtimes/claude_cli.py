@@ -48,6 +48,15 @@ spawned.
 `intel` still dies of the signal; an `atexit` hook covers an exit that skips cleanup.
 Without them a killed `intel` left `claude -p` running under PID 1, still spending.
 A signal `intel` was started ignoring (`nohup`) is left ignored.
+
+**A server the binary could not start is said, before the model runs.** The first
+`system/init` line lists each server with a status. One of ours down is a
+`SourceUnreachable` carrying that status, and the turn goes on, since the agent can
+still answer from the rest. Every one of ours down ends the turn with `AgentFailed`:
+left to run with no tools, the model wrote fake tool calls as text for five minutes.
+With the web tools on it has real ones, so that too is a warning. A server still
+`pending` at init is not down, and is not followed: later `system/status` lines are not
+read, since none has been seen to report a server.
 """
 
 from __future__ import annotations
@@ -62,8 +71,14 @@ import signal
 import sys
 import threading
 from collections import deque
-from collections.abc import AsyncIterator, Iterator, Sequence
-from contextlib import contextmanager, suppress
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Collection,
+    Iterator,
+    Sequence,
+)
+from contextlib import aclosing, contextmanager, suppress
 from pathlib import Path
 from subprocess import PIPE
 from typing import Any
@@ -110,6 +125,9 @@ WINDOWS = sys.platform == "win32"
 _FATAL = tuple(
     getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
 )
+
+#: Statuses in `system/init` that are not a server down: started, or still starting.
+_NOT_DOWN = frozenset({"connected", "pending"})
 
 #: The binary's own web tools each mode turns on. Both read the web and nothing else,
 #: so both are `external_read` — declared here, because the binary declares none.
@@ -279,6 +297,11 @@ def build_argv(
     return argv
 
 
+def _rooted(servers: dict[str, Any]) -> list[str]:
+    """The servers `stream` refuses to start: on Windows, every one with a `cwd`."""
+    return sorted(s for s in servers if "cwd" in servers[s]) if WINDOWS else []
+
+
 def _start_in_cwd(spec: dict[str, Any]) -> dict[str, Any]:
     """A server spec the binary will start in its `cwd` — see the module docstring.
 
@@ -390,6 +413,25 @@ class ClaudeCliRuntime:
         """See `web_reason` above and `agent/base.WebScoped`."""
         return web_reason(self.id, scope)
 
+    def unreachable(
+        self, sources: Sequence[str], servers: dict[str, dict[str, Any]]
+    ) -> dict[str, str]:
+        """See `agent/base.Served`. A source with no server is never handed to the
+        binary. On Windows a server with a `cwd` makes `stream` refuse the whole turn,
+        so then no source is reached."""
+        rooted = _rooted(servers)
+        out: dict[str, str] = {}
+        for source_id in sources:
+            if source_id not in servers:
+                out[source_id] = "no server reaches it"
+            elif source_id in rooted:
+                out[source_id] = "its cwd needs `sh`, which Windows does not have"
+            elif rooted:
+                out[source_id] = (
+                    f"`ask` refuses every turn while {', '.join(rooted)} has a cwd"
+                )
+        return out
+
     async def stream(
         self,
         messages: list[Message],
@@ -418,7 +460,7 @@ class ClaudeCliRuntime:
         if refused := refuse_web(self, scope, emitter):
             yield refused
             return
-        if WINDOWS and (rooted := sorted(s for s in servers if "cwd" in servers[s])):
+        if rooted := _rooted(servers):
             yield emitter.emit(
                 ev.AgentFailed,
                 message=(
@@ -472,22 +514,36 @@ class ClaudeCliRuntime:
                     async with anyio.create_task_group() as tasks:
                         tasks.start_soon(self._feed, process, prompt)
                         tasks.start_soon(self._drain, process, stderr_tail)
-                        async for line in _lines(process):
-                            try:
-                                payload = json.loads(line)
-                            except json.JSONDecodeError:
-                                stderr_tail.append(line[:200])
-                                continue  # claude prints non-JSON here; never fatal
-                            if not isinstance(payload, dict):
-                                continue
-                            for event in self._map(
-                                payload, emitter, declared, by_server, started
-                            ):
-                                if isinstance(
-                                    event, ev.AgentCompleted | ev.AgentFailed
+                        async with aclosing(_lines(process)) as lines:
+                            async for line in lines:
+                                try:
+                                    payload = json.loads(line)
+                                except json.JSONDecodeError:
+                                    # claude prints non-JSON here; never fatal
+                                    stderr_tail.append(line[:200])
+                                    continue
+                                if not isinstance(payload, dict):
+                                    continue
+                                ended = False
+                                for event in self._map(
+                                    payload,
+                                    emitter,
+                                    declared,
+                                    by_server,
+                                    started,
+                                    servers=servers,
+                                    web=bool(WEB_TOOLS[scope.mode]),
                                 ):
-                                    saw_result = True
-                                yield event
+                                    if isinstance(
+                                        event, ev.AgentCompleted | ev.AgentFailed
+                                    ):
+                                        saw_result = True
+                                    if isinstance(event, ev.AgentFailed):
+                                        ended = event.kind == "source_unreachable"
+                                    yield event
+                                if ended:  # the model must not run with no sources
+                                    tasks.cancel_scope.cancel()
+                                    break
                 finally:
                     # An orphaned `claude` after Ctrl-C is the same bug this package
                     # already recorded for MCP servers inheriting a pipeline's stdout.
@@ -530,7 +586,12 @@ class ClaudeCliRuntime:
         declared: dict[tuple[str, str], ToolSpec],
         by_server: dict[str, str],
         started: dict[str, ev.ToolStarted],
+        *,
+        servers: Collection[str] = (),
+        web: bool = False,
     ) -> list[ev.AgentEvent]:
+        """One line of the binary's stream as our events. `servers` are this turn's
+        source ids, and `web` whether its web tools are on."""
         kind = payload.get("type")
 
         if kind == "stream_event":
@@ -612,7 +673,58 @@ class ClaudeCliRuntime:
                 )
             ]
 
-        return []  # system/init, system/status, rate_limit_event
+        if kind == "system" and payload.get("subtype") == "init":
+            return self._servers_down(payload, emitter, by_server, servers, web)
+
+        return []  # system/status, rate_limit_event
+
+    @staticmethod
+    def _servers_down(
+        payload: dict[str, Any],
+        emitter: ev.Emitter,
+        by_server: dict[str, str],
+        servers: Collection[str],
+        web: bool,
+    ) -> list[ev.AgentEvent]:
+        """Each of this turn's servers `system/init` reports down — see the module
+        docstring. A name is the source id the block was keyed by; folded only when it
+        is not one, in case the binary folded it."""
+        down: dict[str, str] = {}
+        for server in payload.get("mcp_servers") or []:
+            if not isinstance(server, dict):
+                continue
+            name = str(server.get("name") or "")
+            status = str(server.get("status") or "")
+            source_id = name if name in servers else by_server.get(sanitise(name))
+            if source_id is not None and status and status not in _NOT_DOWN:
+                down[source_id] = status
+        if web or not down or set(down) != set(servers):
+            return [
+                emitter.emit(ev.SourceUnreachable, source_id=s, status=status)
+                for s, status in down.items()
+            ]
+        listed = ", ".join(f"{s} ({status})" for s, status in down.items())
+        auth = [s for s, status in down.items() if status == "needs-auth"]
+        start = [s for s in down if s not in auth]
+        remedy = []
+        if start:
+            remedy.append(
+                f"run the target of {', '.join(start)} by hand to see why it does "
+                "not start"
+            )
+        if auth:
+            remedy.append(
+                f"{', '.join(auth)} asked to sign in, which Claude Code cannot do "
+                "with nobody there to answer: give the server its credentials instead"
+            )
+        return [
+            emitter.emit(
+                ev.AgentFailed,
+                message=f"Claude Code started none of this turn's sources: {listed}",
+                kind="source_unreachable",
+                remedy="; ".join(remedy),
+            )
+        ]
 
     @staticmethod
     def _split(tool: str, by_server: dict[str, str]) -> tuple[str, str]:
@@ -624,7 +736,7 @@ class ClaudeCliRuntime:
         return "claude-cli", tool
 
 
-async def _lines(process: Process) -> AsyncIterator[str]:
+async def _lines(process: Process) -> AsyncGenerator[str]:
     """Split stdout into lines. `anyio` has no line reader, and a tool result can be
     large enough that an unbounded buffer is a denial of service on ourselves."""
     if process.stdout is None:

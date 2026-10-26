@@ -35,6 +35,7 @@ def test_fixtures_exist() -> None:
         "failure",
         "retrieval",
         "search",
+        "servers_down",
         "shared_prefix",
         "stopped",
         "tool_call",
@@ -166,7 +167,7 @@ def test_malformed_input_does_not_raise() -> None:
 def test_known_types_matches_the_union() -> None:
     """A new event class added to the union but not exported, or vice versa, is the kind
     of drift that only shows up as a renderer silently ignoring something."""
-    assert len(ev.KNOWN_TYPES) == 18
+    assert len(ev.KNOWN_TYPES) == 19
     assert "retrieval_result" in ev.KNOWN_TYPES
     assert "unknown" not in ev.KNOWN_TYPES  # the fallback is not a member
 

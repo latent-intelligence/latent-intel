@@ -28,6 +28,11 @@ def render(console: Console, event: ev.AgentEvent | ev.UnknownEvent) -> None:
             _source(console, event)
         case ev.SourceDisconnected():
             console.print(f"  [dim]dropped[/] [source]{escape(event.source_id)}[/]")
+        case ev.SourceUnreachable():
+            console.print(
+                f"[warn]![/] [source]{escape(event.source_id)}[/] [dim]the agent "
+                f"cannot reach this source ({escape(event.status)})[/]"
+            )
         case ev.RetrievalStarted():
             names = ", ".join(event.sources) or "nothing attached"
             console.print(f"[dim]searching {escape(names)}…[/]")
