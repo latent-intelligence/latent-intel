@@ -657,9 +657,67 @@ def test_a_folded_server_name_is_reported_under_its_source_id() -> None:
             {"name": "notes", "status": "connected"},
         ],
     }
-    by_server = {sanitise(s): s for s in ("my.wiki", "notes")}
-    out = runtime("text")._map(payload, ev.Emitter(uuid4()), {}, by_server, {})
+    servers = ("my.wiki", "notes")
+    by_server = {sanitise(s): s for s in servers}
+    out = runtime("text")._map(
+        payload, ev.Emitter(uuid4()), {}, by_server, {}, servers=servers
+    )
     assert [(e.source_id, e.status) for e in out] == [("my.wiki", "failed")]
+
+
+def test_two_ids_that_fold_alike_are_told_apart_by_their_own_names() -> None:
+    """The block is keyed by source id, so the binary reports that id; folding first
+    lost one of two ids that fold alike, and called the turn's every server down."""
+    payload = {
+        "type": "system",
+        "subtype": "init",
+        "mcp_servers": [
+            {"name": "my.wiki", "status": "failed"},
+            {"name": "my-wiki", "status": "connected"},
+        ],
+    }
+    servers = ("my.wiki", "my-wiki")
+    by_server = {sanitise(s): s for s in servers}
+    out = runtime("text")._map(
+        payload, ev.Emitter(uuid4()), {}, by_server, {}, servers=servers
+    )
+    assert [(type(e).__name__, e.source_id) for e in out] == [
+        ("SourceUnreachable", "my.wiki")
+    ]
+
+
+def _init(*statuses: tuple[str, str]) -> dict[str, object]:
+    servers = [{"name": n, "status": s} for n, s in statuses]
+    return {"type": "system", "subtype": "init", "mcp_servers": servers}
+
+
+def test_every_server_down_with_the_web_on_is_a_warning_not_the_end() -> None:
+    """With the web tools the agent has real ones, so the turn is worth running."""
+    out = runtime("text")._map(
+        _init(("gone", "failed")),
+        ev.Emitter(uuid4()),
+        {},
+        {"gone": "gone"},
+        {},
+        servers=("gone",),
+        web=True,
+    )
+    assert [type(e).__name__ for e in out] == ["SourceUnreachable"]
+
+
+def test_a_server_asking_to_sign_in_is_not_told_to_be_started_by_hand() -> None:
+    out = runtime("text")._map(
+        _init(("gone", "failed"), ("remote", "needs-auth")),
+        ev.Emitter(uuid4()),
+        {},
+        {"gone": "gone", "remote": "remote"},
+        {},
+        servers=("gone", "remote"),
+    )
+    [failed] = out
+    assert isinstance(failed, ev.AgentFailed)
+    assert "run the target of gone by hand" in failed.remedy
+    assert "remote asked to sign in" in failed.remedy
 
 
 def test_a_server_still_starting_is_not_called_down() -> None:
@@ -668,7 +726,9 @@ def test_a_server_still_starting_is_not_called_down() -> None:
         "subtype": "init",
         "mcp_servers": [{"name": "slow", "status": "pending"}],
     }
-    out = runtime("text")._map(payload, ev.Emitter(uuid4()), {}, {"slow": "slow"}, {})
+    out = runtime("text")._map(
+        payload, ev.Emitter(uuid4()), {}, {"slow": "slow"}, {}, servers=("slow",)
+    )
     assert out == []
 
 

@@ -27,10 +27,12 @@ way of naming models. `intel hosts` prints every host with what it still needs, 
   with the same tool events and the same approval rule on every runtime.
 - **`claude-cli`** reaches an `mcp` source as that server, and a `files` or `code` source
   through a server this package starts for it. Under this runtime `intel doctor` marks
-  `(not visible to the agent)` a source no server reaches, and on Windows one with `cwd`. A
-  server Claude Code could not start is reported by `intel ask` before the answer, with
-  Claude Code's own status (`failed`, `needs-auth`), and the turn goes on; when none of the
-  turn's servers started, the turn ends there with an error naming them. It never gets
+  `(not visible to the agent)` a source no server reaches, and on Windows every source while
+  one has `cwd`, since `ask` then refuses the turn. A server Claude Code could not start is
+  reported by `intel ask` before the answer, with Claude Code's own status (`failed`,
+  `needs-auth`), and the turn goes on; when none of the turn's servers started and the web
+  tools are off, the turn ends there with an error naming them. A server still starting
+  when the turn begins is not checked. It never gets
   `load_skill`, so it is given the skill bodies whole. Claude Code ignores an `mcp` source's
   `cwd`, so this package starts that server through `/bin/sh -c 'cd "$0" && exec "$@"'`; on
   Windows, with no `/bin/sh`, `intel ask` refuses a source with `cwd`. Killing `intel` with SIGTERM or SIGHUP ends the `claude` it started; a
