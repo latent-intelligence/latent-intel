@@ -597,6 +597,81 @@ async def test_cwd_is_refused_where_there_is_no_sh(
     assert "plain" not in failed.message
 
 
+# -- what the binary could not start ----------------------------------------
+
+#: The two servers named in the captured `system/init`: one whose command did not
+#: exist, one that started. The block's contents do not matter to a replay.
+CAPTURED = {"gone": {"command": "no-such-server"}, "probe": {"command": "probe"}}
+
+
+@pytest.mark.anyio
+async def test_a_server_the_binary_could_not_start_is_said_and_the_turn_goes_on() -> (
+    None
+):
+    """The `system/init` line is a real one, captured from Claude Code 2.1.310 with one
+    server whose command did not exist. Dropping it let the agent write fake tool calls
+    for five minutes with nothing said; one server down among several is a warning,
+    since the agent can still answer from the rest."""
+    events = await collect("server_failed", mcp_servers=CAPTURED)
+    down = [e for e in events if isinstance(e, ev.SourceUnreachable)]
+    assert [(e.source_id, e.status) for e in down] == [("gone", "failed")]
+    assert events.index(down[0]) < next(
+        i for i, e in enumerate(events) if isinstance(e, ev.AssistantToken)
+    )
+    assert isinstance(events[-1], ev.AgentCompleted) and events[-1].text == "ok"
+
+
+@pytest.mark.anyio
+async def test_every_server_down_ends_the_turn_before_the_model_says_anything() -> None:
+    events = await collect("servers_failed", mcp_servers=CAPTURED)
+    assert [type(e).__name__ for e in events] == ["AgentFailed"]
+    failed = events[0]
+    assert isinstance(failed, ev.AgentFailed)
+    assert failed.kind == "source_unreachable"
+    assert "gone" in failed.remedy and "probe" in failed.remedy
+    assert "failed" in failed.message
+
+
+@pytest.mark.anyio
+async def test_a_server_the_turn_did_not_declare_is_not_counted() -> None:
+    """Every declared server down is what ends a turn; the binary reporting one more
+    than this package gave it, all of them down, is still every declared one down,
+    and a declared server it does not mention is not called down."""
+    events = await collect("servers_failed", mcp_servers={"gone": {"command": "x"}})
+    assert [type(e).__name__ for e in events] == ["AgentFailed"]
+    servers = {**CAPTURED, "quiet": {"command": "q"}}
+    events = await collect("servers_failed", mcp_servers=servers)
+    down = [e.source_id for e in events if isinstance(e, ev.SourceUnreachable)]
+    assert down == ["gone", "probe"]
+    assert isinstance(events[-1], ev.AgentCompleted)
+
+
+def test_a_folded_server_name_is_reported_under_its_source_id() -> None:
+    """Claude folds a server's name as it folds tool names; the event names the
+    source as this package attached it."""
+    payload = {
+        "type": "system",
+        "subtype": "init",
+        "mcp_servers": [
+            {"name": "my_wiki", "status": "failed"},
+            {"name": "notes", "status": "connected"},
+        ],
+    }
+    by_server = {sanitise(s): s for s in ("my.wiki", "notes")}
+    out = runtime("text")._map(payload, ev.Emitter(uuid4()), {}, by_server, {})
+    assert [(e.source_id, e.status) for e in out] == [("my.wiki", "failed")]
+
+
+def test_a_server_still_starting_is_not_called_down() -> None:
+    payload = {
+        "type": "system",
+        "subtype": "init",
+        "mcp_servers": [{"name": "slow", "status": "pending"}],
+    }
+    out = runtime("text")._map(payload, ev.Emitter(uuid4()), {}, {"slow": "slow"}, {})
+    assert out == []
+
+
 # -- the child ends with the parent -----------------------------------------
 
 

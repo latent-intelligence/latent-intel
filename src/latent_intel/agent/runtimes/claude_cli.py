@@ -48,6 +48,13 @@ spawned.
 `intel` still dies of the signal; an `atexit` hook covers an exit that skips cleanup.
 Without them a killed `intel` left `claude -p` running under PID 1, still spending.
 A signal `intel` was started ignoring (`nohup`) is left ignored.
+
+**A server the binary could not start is said, before the model runs.** The first
+`system/init` line lists each server with a status. One of ours down is a
+`SourceUnreachable` carrying that status, and the turn goes on, since the agent can
+still answer from the rest. Every one of ours down ends the turn with `AgentFailed`:
+left to run, the model wrote fake tool calls as text for five minutes. `pending` is not
+down; neither is a server this turn did not declare.
 """
 
 from __future__ import annotations
@@ -110,6 +117,9 @@ WINDOWS = sys.platform == "win32"
 _FATAL = tuple(
     getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
 )
+
+#: Statuses in `system/init` that are not a server down: started, or still starting.
+_NOT_DOWN = frozenset({"connected", "pending"})
 
 #: The binary's own web tools each mode turns on. Both read the web and nothing else,
 #: so both are `external_read` — declared here, because the binary declares none.
@@ -390,6 +400,20 @@ class ClaudeCliRuntime:
         """See `web_reason` above and `agent/base.WebScoped`."""
         return web_reason(self.id, scope)
 
+    def unreachable(
+        self, sources: Sequence[str], servers: dict[str, dict[str, Any]]
+    ) -> dict[str, str]:
+        """See `agent/base.Served`. A source with no server is never handed to the
+        binary; one with a `cwd` on Windows is refused by `stream`."""
+        out: dict[str, str] = {}
+        for source_id in sources:
+            spec = servers.get(source_id)
+            if spec is None:
+                out[source_id] = "no server reaches it"
+            elif WINDOWS and "cwd" in spec:
+                out[source_id] = "its cwd needs `sh`, which Windows does not have"
+        return out
+
     async def stream(
         self,
         messages: list[Message],
@@ -480,6 +504,7 @@ class ClaudeCliRuntime:
                                 continue  # claude prints non-JSON here; never fatal
                             if not isinstance(payload, dict):
                                 continue
+                            ended = False
                             for event in self._map(
                                 payload, emitter, declared, by_server, started
                             ):
@@ -487,7 +512,12 @@ class ClaudeCliRuntime:
                                     event, ev.AgentCompleted | ev.AgentFailed
                                 ):
                                     saw_result = True
+                                if isinstance(event, ev.AgentFailed):
+                                    ended = event.kind == "source_unreachable"
                                 yield event
+                            if ended:  # the model must not run with no sources
+                                tasks.cancel_scope.cancel()
+                                break
                 finally:
                     # An orphaned `claude` after Ctrl-C is the same bug this package
                     # already recorded for MCP servers inheriting a pipeline's stdout.
@@ -612,7 +642,44 @@ class ClaudeCliRuntime:
                 )
             ]
 
-        return []  # system/init, system/status, rate_limit_event
+        if kind == "system" and payload.get("subtype") == "init":
+            return self._servers_down(payload, emitter, by_server)
+
+        return []  # system/status, rate_limit_event
+
+    @staticmethod
+    def _servers_down(
+        payload: dict[str, Any], emitter: ev.Emitter, by_server: dict[str, str]
+    ) -> list[ev.AgentEvent]:
+        """Each of this turn's servers `system/init` reports down — see the module
+        docstring. The name is folded first, in case the binary folded it."""
+        down: dict[str, str] = {}
+        for server in payload.get("mcp_servers") or []:
+            if not isinstance(server, dict):
+                continue
+            status = str(server.get("status") or "")
+            source_id = by_server.get(sanitise(str(server.get("name") or "")))
+            if source_id is not None and status and status not in _NOT_DOWN:
+                down[source_id] = status
+        if not down or set(down) != set(by_server.values()):
+            return [
+                emitter.emit(ev.SourceUnreachable, source_id=s, status=status)
+                for s, status in down.items()
+            ]
+        names = ", ".join(down)
+        listed = ", ".join(f"{s} ({status})" for s, status in down.items())
+        return [
+            emitter.emit(
+                ev.AgentFailed,
+                message=f"Claude Code started none of this turn's sources: {listed}",
+                kind="source_unreachable",
+                remedy=(
+                    f"run the target of {names} by hand to see why it does not start; "
+                    "`intel doctor` starts these servers itself, so a ✓ there points "
+                    "at what differs for Claude Code"
+                ),
+            )
+        ]
 
     @staticmethod
     def _split(tool: str, by_server: dict[str, str]) -> tuple[str, str]:

@@ -1538,6 +1538,76 @@
       "title": "SourceDisconnected",
       "type": "object"
     },
+    "SourceUnreachable": {
+      "description": "An attached source the agent cannot reach this turn, said before it answers.\n\nEmitted by a runtime that starts its own servers, `claude-cli`, when its binary\nreports one down. `status` is the binary's own word for it (`failed`,\n`needs-auth`), copied rather than mapped onto a list of ours.",
+      "properties": {
+        "type": {
+          "const": "source_unreachable",
+          "default": "source_unreachable",
+          "title": "Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "sequence": {
+          "default": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "operation_id",
+        "source_id",
+        "status"
+      ],
+      "title": "SourceUnreachable",
+      "type": "object"
+    },
     "ToolResult": {
       "properties": {
         "type": {
@@ -1958,6 +2028,7 @@
       "run_context": "#/$defs/RunContext",
       "source_connected": "#/$defs/SourceConnected",
       "source_disconnected": "#/$defs/SourceDisconnected",
+      "source_unreachable": "#/$defs/SourceUnreachable",
       "tool_result": "#/$defs/ToolResult",
       "tool_started": "#/$defs/ToolStarted",
       "tools_changed": "#/$defs/ToolsChanged",
@@ -1998,6 +2069,9 @@
     },
     {
       "$ref": "#/$defs/SourceDisconnected"
+    },
+    {
+      "$ref": "#/$defs/SourceUnreachable"
     },
     {
       "$ref": "#/$defs/ContextAdded"

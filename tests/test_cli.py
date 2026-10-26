@@ -281,6 +281,41 @@ def test_doctor_runs_with_nothing_attached() -> None:
     assert "nothing attached" in result.stdout
 
 
+def test_doctor_marks_a_source_the_configured_runtime_cannot_reach(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Under `claude-cli` on Windows a server with `cwd:` cannot be started where it
+    reads its paths, and `ask` refuses it; doctor said ✓ beside it."""
+    from latent_intel.agent.runtimes import claude_cli
+
+    probe = Path(__file__).parent / "fixtures" / "mcp_probe_server.py"
+    servers = {"rooted": {"command": sys.executable, "args": [str(probe)], "cwd": "."}}
+    block = tmp_path / ".mcp.json"
+    block.write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
+    assert runner.invoke(app, ["connect", "--from", str(block)]).exit_code == 0
+    config = config_module.load()
+    config.runtime = "claude-cli"
+    config_module.save(config)
+
+    monkeypatch.setattr(claude_cli, "WINDOWS", False)
+    assert "not visible to the agent" not in flat(runner.invoke(app, ["doctor"]).stdout)
+
+    monkeypatch.setattr(claude_cli, "WINDOWS", True)
+    out = flat(runner.invoke(app, ["doctor"]).stdout)
+    assert "rooted mcp (not visible to the agent" in out
+    assert "cwd" in out
+
+
+def test_a_source_the_agent_cannot_reach_renders_with_the_status_it_was_given() -> None:
+    console = capture()
+    events = list(ev.read_stream((STREAMS / "servers_down.jsonl").read_text()))
+    for event in events:
+        render.render(console, event)
+    out = flat(console.export_text())
+    assert "! records the agent cannot reach this source (failed)" in out
+    assert "! papers the agent cannot reach this source (needs-auth)" in out
+
+
 def test_doctor_expects_only_the_kinds_that_ship() -> None:
     """A records store is an `mcp` source on its own server; `vector` is not a kind."""
     result = runner.invoke(app, ["doctor"])

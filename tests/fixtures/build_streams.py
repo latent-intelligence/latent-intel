@@ -293,6 +293,28 @@ def failure_stream() -> Recorder:
     return r
 
 
+def servers_down_stream() -> Recorder:
+    """Two servers the `claude-cli` runtime's binary could not start, one that did.
+
+    Each one down is said before the answer, with the binary's own status, rather than
+    left for the model to discover; the turn goes on, since the agent can still answer
+    from the server that started.
+    """
+    r = Recorder("servers_down")
+    r.add(ev.UserMessage, text="what bounds context compaction?")
+    r.add(ev.SourceUnreachable, source_id="records", status="failed")
+    r.add(ev.SourceUnreachable, source_id="papers", status="needs-auth")
+    r.add(ev.AssistantToken, text="From the wiki alone: ")
+    r.add(ev.AssistantToken, text="compaction is bounded by the probe.")
+    r.add(
+        ev.AgentCompleted,
+        text="From the wiki alone: compaction is bounded by the probe.",
+        streamed=True,
+        usage={"input_tokens": 40, "output_tokens": 12},
+    )
+    return r
+
+
 def stopped_stream() -> Recorder:
     """A turn that reached its round ceiling: the answer so far, marked as stopped,
     rather than an error that throws ten rounds of evidence away."""
@@ -526,6 +548,7 @@ BUILDERS = (
     tool_call_stream,
     approval_stream,
     failure_stream,
+    servers_down_stream,
     stopped_stream,
     agent_turn_stream,
     shared_prefix_stream,

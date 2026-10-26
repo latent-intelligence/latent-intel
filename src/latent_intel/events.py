@@ -216,6 +216,19 @@ class SourceDisconnected(BaseEvent):
     source_id: str
 
 
+class SourceUnreachable(BaseEvent):
+    """An attached source the agent cannot reach this turn, said before it answers.
+
+    Emitted by a runtime that starts its own servers, `claude-cli`, when its binary
+    reports one down. `status` is the binary's own word for it (`failed`,
+    `needs-auth`), copied rather than mapped onto a list of ours.
+    """
+
+    type: Literal["source_unreachable"] = "source_unreachable"
+    source_id: str
+    status: str
+
+
 class ContextAdded(BaseEvent):
     """Material pinned into the working context by hand, not retrieved."""
 
@@ -337,6 +350,7 @@ AgentEvent = Annotated[
     | ToolResult
     | SourceConnected
     | SourceDisconnected
+    | SourceUnreachable
     | ContextAdded
     | ContextRemoved
     | ArtifactCreated
@@ -501,6 +515,7 @@ __all__ = [
     "RunContext",
     "SourceConnected",
     "SourceDisconnected",
+    "SourceUnreachable",
     "ToolResult",
     "ToolStarted",
     "ToolsChanged",

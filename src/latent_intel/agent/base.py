@@ -179,6 +179,23 @@ def subagent_tools(
 
 
 @runtime_checkable
+class Served(Protocol):
+    """A runtime that reaches a source only as an MCP server it starts itself.
+
+    Optional, and composed the way `Delegating` is: implementing it is the
+    declaration. A runtime that does not routes every attached source's tools through
+    this package, so it reaches them all, and `doctor` marks none.
+    """
+
+    def unreachable(
+        self, sources: Sequence[str], servers: dict[str, dict[str, Any]]
+    ) -> dict[str, str]:
+        """Each of `sources` this runtime cannot reach, with the reason, given the
+        `mcpServers` block a turn would hand it."""
+        ...
+
+
+@runtime_checkable
 class Provisioned(Protocol):
     """A runtime whose agent is created on someone else's infrastructure ahead of any
     turn, and pinned there by version — `claude-managed-agents`.
@@ -314,6 +331,7 @@ __all__ = [
     "Hosted",
     "Owned",
     "Runtime",
+    "Served",
     "WebScoped",
     "available_kinds",
     "build",

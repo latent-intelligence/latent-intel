@@ -137,8 +137,9 @@ attaches your configured sources.
 - **`hosts`** prints each runtime's hosts: `✓` with the variables it reads, or what it still
   needs. `← configured` marks the runtime that answers, `← in use` its host.
 - **`doctor`** prints the connectors, each runtime with its reason if it cannot run, the web
-  scope and which runtimes honour it, the `.env` files loaded, the attached sources (with the
-  same `!` line as `stores` for two servers of one name), tools with no declared effect, and
+  scope and which runtimes honour it, the `.env` files loaded, the attached sources (each one
+  the configured runtime cannot reach marked `(not visible to the agent)` with the reason,
+  and the same `!` line as `stores` for two servers of one name), tools with no declared effect, and
   the config and data paths.
 
 Both name variables, never their values. [Choose a runtime](guides/choose-a-runtime.md) reads
