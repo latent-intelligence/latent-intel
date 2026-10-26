@@ -140,6 +140,10 @@ vocabulary free to change without touching a single connector.
   `/bin/sh -c 'cd "$0" && exec "$@"'`, because Claude Code ignores `cwd` in
   `--mcp-config`. The SIGTERM/SIGHUP handler kills the child pid rather than cancelling
   the scope, since a cancel from a signal handler may not wake a loop asleep in `select`.
+- **Under `claude-cli`, `system/init` is read:** a server it reports down is
+  `SourceUnreachable`, and every declared server down ends the turn before the model runs,
+  since a model with no tools wrote fake tool calls for minutes. What `doctor` marks
+  unreachable is asked of the runtime (`agent.Served`), never computed from `mcp_servers()`.
 - Escape user-supplied text with `rich.markup.escape` before printing it — a page title
   containing `[bold]` must not restyle the terminal.
 - Tests mirror `src/`. A test against a real store server runs only where that store's
