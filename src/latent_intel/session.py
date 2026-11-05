@@ -1168,9 +1168,9 @@ def _located(kind: str, spec: str) -> str:
 
 
 def _id_from(target: str) -> str:
-    """A readable default id from a path or URI — the last meaningful segment."""
-    cleaned = target.rstrip("/")
-    tail = cleaned.rsplit("/", 1)[-1] if "/" in cleaned else cleaned
+    """A readable default id from a path or URI — the last meaningful segment, after
+    either slash, since a Windows path may use both."""
+    tail = re.split(r"[\\/]", target.rstrip("/\\"))[-1]
     return tail or "source"
 
 

@@ -418,7 +418,8 @@ def anchored(spec: str, kind: str) -> str:
     # Joined, not normalised: `..` under a link means the target's parent, as the
     # connector resolves it, and collapsing it against `PWD` would name another place.
     path = Path(here) / spec
+    # Recorded with `/` on every OS, which Windows reads too.
     for home in (Path.home(), Path.home().resolve()):
         if path.is_relative_to(home):
-            return str(Path("~") / path.relative_to(home))
-    return str(path)
+            return (Path("~") / path.relative_to(home)).as_posix()
+    return path.as_posix()

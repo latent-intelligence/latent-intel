@@ -81,6 +81,8 @@ root: ./products
   relative executable is what the `cwd` option is for. It is split into arguments the same
   way on every OS: quotes group words as in a POSIX shell, and `\` is an ordinary
   character, so a Windows path may use either slash. Quote an argument that holds a space.
+  `${NAME}` is filled in before the split, so quote it too when its value may hold a space;
+  `~` and `$VAR` left for the environment are expanded in each argument after it.
 
 ## Top level
 

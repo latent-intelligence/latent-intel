@@ -977,6 +977,7 @@ def test_shell_connect_saves_a_relative_path_absolute(
     user = tmp_path / "user"
     (user / "notes").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.chdir(user)
     _shell(monkeypatch)
     session = Session()

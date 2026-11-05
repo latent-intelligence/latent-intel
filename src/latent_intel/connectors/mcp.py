@@ -489,6 +489,10 @@ def _transport(
     parts = commandline.argv(target)
     if not parts:
         raise ConnectError("no server command given")
+    # A relative path starts from `cwd`, as `deployment validate` looks for it there:
+    # Windows looks the program up from this process's directory, not the child's.
+    if cwd and os.path.dirname(parts[0]) and not os.path.isabs(parts[0]):
+        parts[0] = os.path.join(cwd, parts[0])
 
     from mcp.client.stdio import StdioServerParameters, stdio_client
 

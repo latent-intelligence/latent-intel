@@ -36,7 +36,7 @@ from latent_intel.models import (
     ToolSpec,
     WebScope,
 )
-from latent_intel.session import Session
+from latent_intel.session import Session, _id_from
 from tests.test_mcp import probe_command
 
 pytestmark = pytest.mark.anyio
@@ -2134,3 +2134,11 @@ def test_a_runtime_that_routes_tools_itself_reaches_every_source() -> None:
     session = Session()
     session._connectors["plain"] = _Unservable("plain", "")  # type: ignore[assignment]
     assert session.unreachable() == {}
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["/home/someone/notes", r"C:\Users\someone\notes", "C:/Users/someone/notes/"],
+)
+def test_a_default_id_is_the_last_folder_with_either_slash(target: str) -> None:
+    assert _id_from(target) == "notes"

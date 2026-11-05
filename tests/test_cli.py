@@ -1673,6 +1673,7 @@ def test_a_relative_connect_path_is_saved_absolute_with_home_as_tilde(
     user = tmp_path / "user"
     _notes(user / "work" / "notes")
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.chdir(user / "work")
 
     result = runner.invoke(app, ["connect", "./notes", "--kind", "files", "--as", "n"])
@@ -1689,6 +1690,7 @@ def test_a_relative_connect_path_outside_home_is_saved_absolute(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "user"))
     code = _notes(tmp_path / "elsewhere" / "repo")
     monkeypatch.chdir(code.parent)
 
@@ -1706,6 +1708,7 @@ def test_a_home_or_variable_path_is_saved_as_typed(
     user = tmp_path / "user"
     _notes(user / "notes")
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.setenv("NOTES_ROOT", str(user))
     monkeypatch.chdir(tmp_path)
 
@@ -1727,6 +1730,7 @@ def test_a_relative_path_under_a_symlinked_directory_keeps_the_link(
     _notes(real / "notes")
     (user / "drive").symlink_to(real)
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.chdir(user / "drive")
     monkeypatch.setenv("PWD", str(user / "drive"))
 
@@ -1748,6 +1752,7 @@ def test_a_parent_path_under_a_symlinked_directory_means_what_ls_means(
     _notes(real.parent / "x")
     (user / "drive").symlink_to(real)
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.chdir(user / "drive")
     monkeypatch.setenv("PWD", str(user / "drive"))
 
@@ -1764,6 +1769,7 @@ def test_a_relative_path_holding_a_variable_is_anchored_with_it_kept(
     user = tmp_path / "user"
     _notes(user / "data" / "notes")
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.setenv("SUBDIR", "notes")
     monkeypatch.chdir(user)
 
