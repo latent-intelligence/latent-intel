@@ -544,7 +544,7 @@ async def execute(
     def write(finished: str | None) -> dict[str, Any]:
         manifest = planned.manifest(started, finished)
         manifest_path.write_text(
-            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
         return manifest
 
@@ -583,7 +583,7 @@ async def _one(
         "metadata": case.metadata,
     }
     session: Session | None = None
-    with target.open("w", encoding="utf-8") as handle:
+    with target.open("w", encoding="utf-8", newline="\n") as handle:
 
         def tee(event: ev.BaseEvent) -> None:
             handle.write(ev.dump_event(event) + "\n")

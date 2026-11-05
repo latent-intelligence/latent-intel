@@ -8,12 +8,15 @@ so routing, schema validation and the not-found reply are the SDK's, not a copy.
 
 from __future__ import annotations
 
-import importlib.util
 from typing import Any
 from uuid import UUID, uuid4
 
-import claude_agent_sdk as sdk
 import pytest
+
+# No Windows wheel is published, so the extra is not installed there.
+pytest.importorskip("claude_agent_sdk", reason="claude-agent-sdk is not installed")
+
+import claude_agent_sdk as sdk
 
 from latent_intel import events as ev
 from latent_intel.agent import hosts
@@ -153,19 +156,6 @@ def test_an_unknown_host_is_named_with_the_ones_there_are() -> None:
     assert (
         "bedrock" in reason and "anthropic" in reason and "foundry-anthropic" in reason
     )
-
-
-def test_a_missing_sdk_names_the_extra(
-    credentials: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    real = importlib.util.find_spec
-    monkeypatch.setattr(
-        importlib.util,
-        "find_spec",
-        lambda name, *a: None if name == "claude_agent_sdk" else real(name, *a),
-    )
-    reason = ClaudeAgentSdkRuntime().unavailable_reason()
-    assert reason is not None and "latent-intel[claude-agent-sdk]" in reason
 
 
 @pytest.mark.anyio

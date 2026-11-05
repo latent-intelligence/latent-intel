@@ -78,7 +78,7 @@ def test_the_user_s_scope_survives_a_save_by_something_else() -> None:
     config = config_module.load()
     config.runtime = "custom"
     config_module.save(config)
-    written = yaml.safe_load(config_module.config_path().read_text())
+    written = yaml.safe_load(config_module.config_path().read_text(encoding="utf-8"))
     assert written["web"] == {"mode": "search", "blocked_domains": ["b.example.org"]}
 
 

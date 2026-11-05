@@ -65,7 +65,6 @@ import atexit
 import json
 import os
 import re
-import shlex
 import shutil
 import signal
 import sys
@@ -86,6 +85,7 @@ from typing import Any
 import anyio
 from anyio.abc import Process
 
+from ... import commandline
 from ... import events as ev
 from ...models import Effect, Message, RuntimeUnavailable, ToolSpec, WebScope
 from .. import turn
@@ -396,7 +396,7 @@ class ClaudeCliRuntime:
         #: A string is split; a sequence is taken as-is, so a test can point at a fake
         #: interpreter without touching PATH.
         self.command: list[str] = (
-            shlex.split(command) if isinstance(command, str) else list(command)
+            commandline.argv(command) if isinstance(command, str) else list(command)
         )
         self.approval = approval
         self.cwd = cwd

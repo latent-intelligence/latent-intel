@@ -651,6 +651,8 @@ async def test_two_servers_of_one_name_are_told_apart_by_what_they_list() -> Non
 
 def children() -> set[int]:
     """This process's live child processes, so a test can say none was left behind."""
+    if sys.platform == "win32":
+        pytest.skip("counting child processes needs pgrep")
     out = subprocess.run(
         ["pgrep", "-P", str(os.getpid())], capture_output=True, text=True, check=False
     ).stdout
@@ -906,3 +908,26 @@ def test_an_mcp_source_refuses_trio_hosted_on_asyncio_s_loop() -> None:
     asyncio.run(host())
     assert "need the asyncio event loop" in str(raised[0])
     assert children() <= before
+
+
+def test_a_relative_command_starts_from_its_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`deployment validate` looks for `./bin/serve` under `cwd`, so attach must start
+    it from there. POSIX resolved it in the child's directory anyway; Windows looks it
+    up from the parent's, and the source failed to attach after validating clean."""
+    import mcp.client.stdio as stdio
+
+    seen: list[Any] = []
+    monkeypatch.setattr(
+        stdio, "stdio_client", lambda params, errlog: seen.append(params)
+    )
+    _transport("./bin/serve --flag", cwd=str(tmp_path))
+    _transport("serve --flag", cwd=str(tmp_path))
+    _transport("./bin/serve", cwd=None)
+
+    assert [(p.command, p.args) for p in seen] == [
+        (os.path.join(str(tmp_path), "./bin/serve"), ["--flag"]),
+        ("serve", ["--flag"]),
+        ("./bin/serve", []),
+    ]

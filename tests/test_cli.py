@@ -25,6 +25,7 @@ from latent_intel.frontends.cli.main import app
 from latent_intel.models import Capability, Descriptor, WebScope
 from latent_intel.ui import banner, render
 from latent_intel.ui.theme import THEME
+from tests.fixtures.programs import program
 
 ROOT_FORMATS = Path(__file__).parent / "fixtures" / "formats" / "recording"
 STREAMS = Path(__file__).parent / "fixtures" / "streams"
@@ -111,7 +112,7 @@ def test_every_recorded_event_renders(path: Path) -> None:
     """A renderer that raised on one event type would make every future addition a
     breaking change for every frontend at once."""
     console = capture()
-    for event in ev.read_stream(path.read_text()):
+    for event in ev.read_stream(path.read_text(encoding="utf-8")):
         render.render(console, event)
     assert console.export_text() is not None
 
@@ -132,7 +133,7 @@ def test_an_unknown_event_renders_as_a_line_not_a_crash() -> None:
 def test_results_are_labelled_by_source() -> None:
     """The visible half of never merging rankings: two sources, two headings."""
     console = capture()
-    for event in ev.read_stream((STREAMS / "search.jsonl").read_text()):
+    for event in ev.read_stream((STREAMS / "search.jsonl").read_text(encoding="utf-8")):
         render.render(console, event)
     text = console.export_text()
     assert "design" in text and "papers" in text
@@ -141,7 +142,9 @@ def test_results_are_labelled_by_source() -> None:
 
 def test_a_failure_shows_its_remedy() -> None:
     console = capture()
-    for event in ev.read_stream((STREAMS / "failure.jsonl").read_text()):
+    for event in ev.read_stream(
+        (STREAMS / "failure.jsonl").read_text(encoding="utf-8")
+    ):
         render.render(console, event)
     text = console.export_text()
     assert "no agent runtime configured" in text
@@ -154,7 +157,9 @@ def test_a_failure_shows_its_remedy() -> None:
 )
 def test_a_stopped_answer_says_so_after_the_answer(stopped: str, line: str) -> None:
     console = capture()
-    events = list(ev.read_stream((STREAMS / "stopped.jsonl").read_text()))
+    events = list(
+        ev.read_stream((STREAMS / "stopped.jsonl").read_text(encoding="utf-8"))
+    )
     done = events[-1]
     assert isinstance(done, ev.AgentCompleted) and done.stopped == "tool_rounds"
     render.render(console, done.model_copy(update={"stopped": stopped}))
@@ -164,7 +169,9 @@ def test_a_stopped_answer_says_so_after_the_answer(stopped: str, line: str) -> N
 def test_an_answer_recorded_before_stopped_existed_reads_as_finished() -> None:
     done = [
         e
-        for e in ev.read_stream((STREAMS / "agent_turn.jsonl").read_text())
+        for e in ev.read_stream(
+            (STREAMS / "agent_turn.jsonl").read_text(encoding="utf-8")
+        )
         if isinstance(e, ev.AgentCompleted)
     ]
     assert done and all(e.stopped is None for e in done)
@@ -181,7 +188,9 @@ async def test_a_stopped_answer_is_not_a_failure_to_a_script() -> None:
 
     class Stopped:
         async def run(self, command: Any) -> Any:
-            for event in ev.read_stream((STREAMS / "stopped.jsonl").read_text()):
+            for event in ev.read_stream(
+                (STREAMS / "stopped.jsonl").read_text(encoding="utf-8")
+            ):
                 yield event
 
     assert await _shared.stream(Stopped(), None, as_json=True) is True  # type: ignore[arg-type]
@@ -308,7 +317,9 @@ def test_doctor_marks_a_source_the_configured_runtime_cannot_reach(
 
 def test_a_source_the_agent_cannot_reach_renders_with_the_status_it_was_given() -> None:
     console = capture()
-    events = list(ev.read_stream((STREAMS / "servers_down.jsonl").read_text()))
+    events = list(
+        ev.read_stream((STREAMS / "servers_down.jsonl").read_text(encoding="utf-8"))
+    )
     for event in events:
         render.render(console, event)
     out = flat(console.export_text())
@@ -693,7 +704,9 @@ def test_connect_records_the_source_and_search_finds_it(tmp_path: Path) -> None:
     """The CLI is a new process each time, so 'attached' has to survive in config."""
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (corpus / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
 
     connected = runner.invoke(
         app, ["connect", str(corpus), "--kind", "files", "--as", "c"]
@@ -753,7 +766,9 @@ def test_search_json_emits_parseable_events(tmp_path: Path) -> None:
     """`--json` is the scripting path and the serialization proof at once."""
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (corpus / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
     runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
 
     result = runner.invoke(app, ["search", "retrieval", "--json"])
@@ -790,7 +805,10 @@ def test_connecting_an_unknown_registry_id_lists_what_is_known(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     stores = tmp_path / "stores.yaml"
-    stores.write_text("stores:\n  - {id: alpha, kind: wiki, paths: {root: /tmp/a}}\n")
+    stores.write_text(
+        "stores:\n  - {id: alpha, kind: wiki, paths: {root: /tmp/a}}\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("KNOWLEDGE_REGISTRY", str(stores))
     result = runner.invoke(app, ["connect", "beta"])
     assert result.exit_code == 1
@@ -831,7 +849,7 @@ def test_doctor_reports_the_env_by_name_and_never_by_value(
     secret = "sentinel-never-printed-9f3a"
     home = config_module.home()
     home.mkdir(parents=True, exist_ok=True)
-    (home / ".env").write_text(f"AWS_SECRET_ACCESS_KEY={secret}\n")
+    (home / ".env").write_text(f"AWS_SECRET_ACCESS_KEY={secret}\n", encoding="utf-8")
     monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
     # `.env` is applied by the console-script entry (`main`), which `CliRunner`
     # bypasses by invoking the app directly — so apply it the way `main` does.
@@ -874,11 +892,14 @@ def test_replay_renders_exactly_what_the_live_renderer_renders(path: Path) -> No
     prints it as the prompt line. That one line is reproduced here rather than waved
     through, so a second divergence cannot arrive unnoticed.
     """
+    from latent_intel.frontends import _shared
+
     result = runner.invoke(app, ["replay", str(path)])
     assert result.exit_code == 0
 
-    console = capture(width=80)
-    for event in ev.read_stream(path.read_text()):
+    # The CLI's own width: Rich prints one column narrower on Windows.
+    console = capture(width=_shared.console.width)
+    for event in ev.read_stream(path.read_text(encoding="utf-8")):
         if isinstance(event, ev.UserMessage):
             console.print(f"[prompt]›[/] {event.text}")
         else:
@@ -921,7 +942,9 @@ def test_a_type_this_build_never_heard_of_replays_as_a_line(tmp_path: Path) -> N
     # And a type nothing can parse into an event still comes back out unchanged: the
     # re-emitted line is the recorded line, not a re-serialisation of what was salvaged.
     piped = runner.invoke(app, ["replay", str(recording), "--json"])
-    assert piped.stdout.splitlines() == recording.read_text().splitlines()
+    assert (
+        piped.stdout.splitlines() == recording.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def test_record_tees_the_run_and_replays_identically(tmp_path: Path) -> None:
@@ -929,7 +952,9 @@ def test_record_tees_the_run_and_replays_identically(tmp_path: Path) -> None:
     it wrote is events this build understands, and reading it back gives the run."""
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (corpus / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
     runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
 
     recording = tmp_path / "run.jsonl"
@@ -937,7 +962,7 @@ def test_record_tees_the_run_and_replays_identically(tmp_path: Path) -> None:
     assert live.exit_code == 0
     assert "c:note.md" in live.stdout  # teed, not diverted
 
-    lines = recording.read_text().splitlines()
+    lines = recording.read_text(encoding="utf-8").splitlines()
     assert lines
     for line in lines:
         # The acceptance criterion a web client will depend on, asserted against a
@@ -953,9 +978,11 @@ def test_a_run_cut_off_partway_replays_up_to_the_cut(tmp_path: Path) -> None:
     """An interrupted run is the common case, which is why the file is appended and
     flushed per event. The half-written last line renders as the unknown line rather
     than losing everything before it."""
-    whole = (STREAMS / "search.jsonl").read_text()
+    whole = (STREAMS / "search.jsonl").read_text(encoding="utf-8")
     cut = tmp_path / "interrupted.jsonl"
-    cut.write_text(whole[: whole.index("\n", whole.index("\n") + 1) + 60])
+    cut.write_text(
+        whole[: whole.index("\n", whole.index("\n") + 1) + 60], encoding="utf-8"
+    )
 
     result = runner.invoke(app, ["replay", str(cut)])
     assert result.exit_code == 0
@@ -968,7 +995,7 @@ def test_since_starts_at_that_line_of_the_file() -> None:
     operation and restarts, so two runs appended to one file give it several line 3s.
     A line number is what the person reading the file already has in the gutter."""
     path = STREAMS / "search.jsonl"
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
 
     whole = runner.invoke(app, ["replay", str(path), "--json", "--since", "1"])
     tail = runner.invoke(app, ["replay", str(path), "--json", "--since", "3"])
@@ -986,7 +1013,7 @@ def test_replay_json_re_emits_the_recorded_lines_byte_for_byte(path: Path) -> No
     result = runner.invoke(app, ["replay", str(path), "--json"])
     assert result.exit_code == 0
     assert result.stdout.splitlines() == [
-        line for line in path.read_text().splitlines() if line.strip()
+        line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -995,10 +1022,12 @@ def test_a_stream_from_a_newer_schema_is_named_once_and_still_rendered(
 ) -> None:
     """Named rather than refused: the run still reads, and a version this build does
     not know about is a caveat on stderr rather than a silent misreading."""
-    line = json.loads((STREAMS / "search.jsonl").read_text().splitlines()[1])
+    line = json.loads(
+        (STREAMS / "search.jsonl").read_text(encoding="utf-8").splitlines()[1]
+    )
     line["schema_version"] = ev.SCHEMA_VERSION + 1
     path = tmp_path / "from-a-newer-build.jsonl"
-    path.write_text(json.dumps(line) + "\n" + json.dumps(line) + "\n")
+    path.write_text(json.dumps(line) + "\n" + json.dumps(line) + "\n", encoding="utf-8")
 
     result = runner.invoke(app, ["replay", str(path)])
     assert result.exit_code == 0
@@ -1012,7 +1041,7 @@ def test_replaying_a_file_that_is_not_there_says_so_and_exits_nonzero(
 ) -> None:
     result = runner.invoke(app, ["replay", str(tmp_path / "never-written.jsonl")])
     assert result.exit_code == 1
-    assert "never-written.jsonl" in result.stderr
+    assert "never-written.jsonl" in "".join(result.stderr.split())
 
 
 def test_a_record_target_that_cannot_be_opened_is_a_line_not_a_traceback(
@@ -1031,19 +1060,23 @@ def test_record_on_get_writes_the_document_it_fetched(tmp_path: Path) -> None:
     """`--record` is on every command that streams, not on `search` alone."""
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (corpus / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
     runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
 
     recording = tmp_path / "fetch.jsonl"
     result = runner.invoke(app, ["get", "c:note.md", "--record", str(recording)])
     assert result.exit_code == 0
-    assert "document_fetched" in recording.read_text()
+    assert "document_fetched" in recording.read_text(encoding="utf-8")
 
 
 def test_a_recording_opens_with_what_produced_it(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (corpus / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
     runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
 
     recording = tmp_path / "run.jsonl"
@@ -1054,7 +1087,7 @@ def test_a_recording_opens_with_what_produced_it(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0
 
-    first = ev.parse_event(recording.read_text().splitlines()[0])
+    first = ev.parse_event(recording.read_text(encoding="utf-8").splitlines()[0])
     assert isinstance(first, ev.RunContext)
     assert (first.purpose, first.title) == ("demo", "first look")
     assert [s.id for s in first.sources] == ["c"]
@@ -1067,7 +1100,7 @@ def test_the_json_stream_has_no_header(tmp_path: Path) -> None:
     recording = tmp_path / "run.jsonl"
     result = runner.invoke(app, ["search", "x", "--json", "--record", str(recording)])
     assert "run_context" not in result.stdout
-    assert "run_context" in recording.read_text().splitlines()[0]
+    assert "run_context" in recording.read_text(encoding="utf-8").splitlines()[0]
 
 
 @pytest.mark.parametrize(
@@ -1098,10 +1131,12 @@ def test_a_file_with_no_header_replays_and_says_so() -> None:
 
 def test_a_header_from_another_format_is_named_once(tmp_path: Path) -> None:
     """Its version means nothing against ours, so no schema warning follows."""
-    header = json.loads((ROOT_FORMATS / "search.jsonl").read_text().splitlines()[0])
+    header = json.loads(
+        (ROOT_FORMATS / "search.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
     header.update(format="other.tool", format_version=3)
     path = tmp_path / "other.jsonl"
-    path.write_text(json.dumps(header) + "\n")
+    path.write_text(json.dumps(header) + "\n", encoding="utf-8")
     result = runner.invoke(app, ["replay", str(path)])
     assert "other.tool" in result.stderr
     assert "schema_version" not in result.stderr
@@ -1110,8 +1145,9 @@ def test_a_header_from_another_format_is_named_once(tmp_path: Path) -> None:
 def test_a_header_appended_after_a_json_capture_still_warns(tmp_path: Path) -> None:
     path = tmp_path / "mixed.jsonl"
     path.write_text(
-        (STREAMS / "search.jsonl").read_text()
-        + (ROOT_FORMATS / "search.jsonl").read_text()
+        (STREAMS / "search.jsonl").read_text(encoding="utf-8")
+        + (ROOT_FORMATS / "search.jsonl").read_text(encoding="utf-8"),
+        encoding="utf-8",
     )
     result = runner.invoke(app, ["replay", str(path)])
     assert result.exit_code == 0
@@ -1119,10 +1155,12 @@ def test_a_header_appended_after_a_json_capture_still_warns(tmp_path: Path) -> N
 
 
 def test_a_header_cannot_restyle_the_terminal(tmp_path: Path) -> None:
-    header = json.loads((ROOT_FORMATS / "search.jsonl").read_text().splitlines()[0])
+    header = json.loads(
+        (ROOT_FORMATS / "search.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
     header["context"]["hash"] = "[bold]xx" + "0" * 56
     path = tmp_path / "styled.jsonl"
-    path.write_text(json.dumps(header) + "\n")
+    path.write_text(json.dumps(header) + "\n", encoding="utf-8")
     result = runner.invoke(app, ["replay", str(path)])
     assert "[bold]xx" in result.stdout
 
@@ -1133,7 +1171,7 @@ def test_an_unwritable_data_directory_is_one_line_not_a_traceback(
     from latent_intel import config as config_module
 
     blocked = tmp_path / "blocked"
-    blocked.write_text("a file where a directory should be")
+    blocked.write_text("a file where a directory should be", encoding="utf-8")
     monkeypatch.setenv(config_module.ENV_HOME, str(blocked))
     result = runner.invoke(app, ["search", "x", "--record", "run"])
     assert result.exit_code == 1
@@ -1172,7 +1210,7 @@ def test_doctor_lists_the_modes_each_runtime_honours_and_warns_on_open_browse(
 ) -> None:
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n")
+    (corpus / "note.md").write_text("# Note\n", encoding="utf-8")
     runner.invoke(app, ["connect", str(corpus), "--kind", "files", "--as", "c"])
     config = config_module.load()
     config.web = "browse"
@@ -1224,7 +1262,7 @@ def test_any_drops_a_configured_cap_the_claude_code_runtimes_cannot_hold(
         app, ["ask", "anything?", "--web", "search", "--any", "--record", str(path)]
     )
     assert result.exit_code == 0, result.output
-    header = ev.parse_event(path.read_text().splitlines()[0])
+    header = ev.parse_event(path.read_text(encoding="utf-8").splitlines()[0])
     assert header.web == WebScope(mode="search")  # type: ignore[union-attr]
 
     alone = runner.invoke(app, ["ask", "anything?", "--any"])
@@ -1356,9 +1394,7 @@ def test_validate_reports_targets_that_are_not_there_and_starts_nothing(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     marker = tmp_path / "started"
-    server = bin_dir / "example-mcp"
-    server.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n")
-    server.chmod(0o755)
+    program(bin_dir, "example-mcp", marker)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     (tmp_path / "projects" / "here").mkdir(parents=True)
     _deployment(
@@ -1377,7 +1413,9 @@ def test_validate_reports_targets_that_are_not_there_and_starts_nothing(
     result = runner.invoke(app, ["deployment", "validate", "field"])
     assert result.exit_code == 1
     err = flat(result.stderr)
-    assert "not-here" in err and "also-not-here" in err
+    assert "not-here" in "".join(err.split()) and "also-not-here" in "".join(
+        err.split()
+    )
     assert "no-such-server-xyz" in err and "PATH" in err
     for clean in ("'fine'", "'served'", "'hosted'", "'remote'"):
         assert clean not in err
@@ -1390,7 +1428,7 @@ def test_deployment_add_finds_a_deployment_one_folder_down(tmp_path: Path) -> No
     parent = tmp_path / "deployments"
     for name in ("field", "lab"):
         (parent / name).mkdir(parents=True)
-        (parent / name / f"{name}.yaml").write_text(f"name: {name}\n")
+        (parent / name / f"{name}.yaml").write_text(f"name: {name}\n", encoding="utf-8")
     result = runner.invoke(app, ["deployment", "add", str(parent)])
     assert result.exit_code == 0, result.output
     assert "field" in result.stdout and "lab" in result.stdout
@@ -1405,7 +1443,7 @@ def test_deployment_add_lists_only_what_it_finds_first_and_names_a_shadow(
     parent = tmp_path / "deployments"
     for name in ("lab", "field"):
         (parent / name).mkdir(parents=True)
-        (parent / name / f"{name}.yaml").write_text(f"name: {name}\n")
+        (parent / name / f"{name}.yaml").write_text(f"name: {name}\n", encoding="utf-8")
     result = runner.invoke(app, ["deployment", "add", str(parent)])
     assert result.exit_code == 0, result.output
     assert "(field)" in flat(result.stdout)
@@ -1418,7 +1456,9 @@ def test_one_file_reached_from_two_search_paths_shadows_nothing(
     """`projects/lab/lab.yaml` is found one folder down from `projects` and again from
     `projects/lab` once that is added: one file, so no shadow to warn about."""
     (tmp_path / "projects" / "lab").mkdir(parents=True)
-    (tmp_path / "projects" / "lab" / "lab.yaml").write_text("name: lab\n")
+    (tmp_path / "projects" / "lab" / "lab.yaml").write_text(
+        "name: lab\n", encoding="utf-8"
+    )
     result = runner.invoke(app, ["deployment", "add", str(tmp_path / "projects/lab")])
     assert result.exit_code == 0, result.output
     assert "(lab)" in flat(result.stdout)
@@ -1441,7 +1481,9 @@ def test_deployment_add_says_when_it_finds_nothing_and_records_nothing(
 ) -> None:
     empty = tmp_path / "empty"
     (empty / "deeper" / "still").mkdir(parents=True)
-    (empty / "deeper" / "still" / "still.yaml").write_text("name: still\n")
+    (empty / "deeper" / "still" / "still.yaml").write_text(
+        "name: still\n", encoding="utf-8"
+    )
     result = runner.invoke(app, ["deployment", "add", str(empty)])
     assert result.exit_code == 1
     assert "✓" not in result.output
@@ -1465,7 +1507,9 @@ def test_a_source_connected_to_a_renamed_deployment_attaches_and_disconnects(
     _renamed(tmp_path)
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (corpus / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
 
     connected = runner.invoke(
         app, ["connect", str(corpus), "--kind", "files", "--as", "c"]
@@ -1661,7 +1705,9 @@ def test_eval_from_the_built_in_deployment_refuses_and_writes_nothing(
 
 def _notes(directory: Path) -> Path:
     directory.mkdir(parents=True)
-    (directory / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (directory / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
     return directory
 
 
@@ -1674,6 +1720,7 @@ def test_a_relative_connect_path_is_saved_absolute_with_home_as_tilde(
     user = tmp_path / "user"
     _notes(user / "work" / "notes")
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.chdir(user / "work")
 
     result = runner.invoke(app, ["connect", "./notes", "--kind", "files", "--as", "n"])
@@ -1690,13 +1737,14 @@ def test_a_relative_connect_path_outside_home_is_saved_absolute(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "user"))
     code = _notes(tmp_path / "elsewhere" / "repo")
     monkeypatch.chdir(code.parent)
 
     result = runner.invoke(app, ["connect", "repo", "--kind", "code"])
     assert result.exit_code == 0, result.output
     recorded = config_module.load().find("repo")
-    assert recorded is not None and recorded.target == str(code)
+    assert recorded is not None and recorded.target == code.as_posix()
 
 
 def test_a_home_or_variable_path_is_saved_as_typed(
@@ -1707,6 +1755,7 @@ def test_a_home_or_variable_path_is_saved_as_typed(
     user = tmp_path / "user"
     _notes(user / "notes")
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.setenv("NOTES_ROOT", str(user))
     monkeypatch.chdir(tmp_path)
 
@@ -1728,6 +1777,7 @@ def test_a_relative_path_under_a_symlinked_directory_keeps_the_link(
     _notes(real / "notes")
     (user / "drive").symlink_to(real)
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.chdir(user / "drive")
     monkeypatch.setenv("PWD", str(user / "drive"))
 
@@ -1737,6 +1787,7 @@ def test_a_relative_path_under_a_symlinked_directory_keeps_the_link(
     assert recorded is not None and recorded.target == "~/drive/notes"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows reads `..` by name")
 def test_a_parent_path_under_a_symlinked_directory_means_what_ls_means(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1749,6 +1800,7 @@ def test_a_parent_path_under_a_symlinked_directory_means_what_ls_means(
     _notes(real.parent / "x")
     (user / "drive").symlink_to(real)
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.chdir(user / "drive")
     monkeypatch.setenv("PWD", str(user / "drive"))
 
@@ -1765,6 +1817,7 @@ def test_a_relative_path_holding_a_variable_is_anchored_with_it_kept(
     user = tmp_path / "user"
     _notes(user / "data" / "notes")
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.setenv("SUBDIR", "notes")
     monkeypatch.chdir(user)
 

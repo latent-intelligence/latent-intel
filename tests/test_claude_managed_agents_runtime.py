@@ -232,7 +232,7 @@ def test_the_definition_matches_the_golden_file() -> None:
     definition = ClaudeManagedAgentsRuntime(
         model="claude-opus-5-5", effort="high"
     ).definition(tools(), **context())
-    assert definition == json.loads(GOLDEN.read_text())
+    assert definition == json.loads(GOLDEN.read_text(encoding="utf-8"))
 
 
 def test_approval_filters_the_tools_and_the_web_is_all_the_toolset_turns_on() -> None:
@@ -465,7 +465,9 @@ def test_a_sync_is_kept_in_the_user_overlay_and_reaches_the_runtime(
     built = agent.build("claude-managed-agents", **options)
     assert built.available()
     # The deployment's own file is untouched: a deployment is read, never written.
-    assert "synced" not in (tmp_path / "projects" / "research.yaml").read_text()
+    assert "synced" not in (tmp_path / "projects" / "research.yaml").read_text(
+        encoding="utf-8"
+    )
 
     # And syncing again with nothing changed makes no request.
     CliRunner().invoke(app, ["managed", "sync"])

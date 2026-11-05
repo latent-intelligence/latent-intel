@@ -23,8 +23,8 @@ measured 2026-10-12 against `latent-wiki serve`. (Under 1.x it killed only `uv` 
 orphaned the server, which is why older notes say to point at the executable.)
 
 **The four keys a server registration carries, and what each becomes here.** `command`
-and `args` are the target, one string split with `shlex`. `env` is a list, each item a
-bare `NAME` that forwards this process's value or a `NAME=value` literal — the SDK's
+and `args` are the target, one string read by `commandline`. `env` is a list, each item
+a bare `NAME` that forwards this process's value or a `NAME=value` literal — the SDK's
 stdio transport starts a child with six variables and nothing else, so a server that
 runs under another host does not start here without it. `cwd` is for a server that
 looks for its own `.env` in the working directory, and for `python -m`. Both go
@@ -58,11 +58,11 @@ import sys
 import tempfile
 from contextlib import ExitStack
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO
+from typing import TYPE_CHECKING, Any, TextIO, cast
 
 import anyio
 
-from .. import registry
+from .. import commandline
 from ..models import (
     Capability,
     ConnectError,
@@ -198,8 +198,14 @@ class McpConnector:
                     # A temp file rather than devnull, so a server that dies on
                     # startup can be quoted back instead of discarded.
                     if not self.show_server_stderr:
-                        self._errlog = files.enter_context(
-                            tempfile.TemporaryFile("w+")  # noqa: SIM115 — the stack is the manager
+                        # On Windows `TemporaryFile` is a wrapper, not a `TextIO`.
+                        self._errlog = cast(
+                            TextIO,
+                            files.enter_context(
+                                tempfile.TemporaryFile(  # noqa: SIM115 — the stack is the manager
+                                    "w+", encoding="utf-8", errors="replace"
+                                )
+                            ),
                         )
                     transport = _transport(
                         self.target,
@@ -416,7 +422,7 @@ class McpConnector:
             return None
         if self.target.startswith(("http://", "https://")):
             return {"type": "http", "url": self.target}
-        parts = shlex.split(self.target)
+        parts = commandline.argv(self.target)
         if not parts:
             return None
         spec: dict[str, Any] = {"command": parts[0], "args": parts[1:]}
@@ -480,9 +486,13 @@ def _transport(
         return target
     if target.startswith(("http://", "https://")):
         return target
-    parts = shlex.split(target)
+    parts = commandline.argv(target)
     if not parts:
         raise ConnectError("no server command given")
+    # A relative path starts from `cwd`, as `deployment validate` looks for it there:
+    # Windows looks the program up from this process's directory, not the child's.
+    if cwd and os.path.dirname(parts[0]) and not os.path.isabs(parts[0]):
+        parts[0] = os.path.join(cwd, parts[0])
 
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -543,7 +553,7 @@ def _cwd_of(source_id: str, value: Any) -> str | None:
     """
     if value is None:
         return None
-    path = registry.expand(str(value))
+    path = commandline.expand(str(value))
     if not os.path.isdir(path):
         raise ConnectError(f"{source_id}: cwd {path} is not a directory")
     return path

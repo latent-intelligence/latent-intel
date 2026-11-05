@@ -23,6 +23,7 @@ from typing import Any
 
 import yaml
 
+from .commandline import expand
 from .models import ConnectError
 
 #: Where a registry lives when nothing says otherwise: beside the config, per install.
@@ -115,13 +116,6 @@ def has_content(path: Path) -> bool:
         return path.is_file() or (path.is_dir() and any(path.iterdir()))
     except OSError:
         return False
-
-
-def expand(value: str) -> str:
-    """`~` and `${VAR}`, but leave a URI alone."""
-    if "://" in value:
-        return value
-    return str(Path(os.path.expandvars(value)).expanduser())
 
 
 def default_registry() -> Path:

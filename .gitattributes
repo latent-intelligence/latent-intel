@@ -1,0 +1,2 @@
+# LF on every OS: fixtures are hashed and compared line for line.
+* text=auto eol=lf

@@ -1,0 +1,43 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: extractions/setup-just@v2
+      - run: just install
+      - run: just check
+
+  platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            # claude-agent-sdk publishes no Windows wheel, so `all` cannot install.
+            extras: --extra dev --extra openai-agents
+          - os: macos-latest
+            extras: --extra dev --extra all
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync ${{ matrix.extras }} --locked
+      - run: uv run --no-sync ruff check src/ tests/
+      - run: uv run --no-sync mypy src/
+      - run: uv run --no-sync lint-imports
+      - run: uv run --no-sync pytest -q

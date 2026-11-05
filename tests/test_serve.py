@@ -27,8 +27,12 @@ def anyio_backend() -> str:
 
 @pytest.fixture
 def corpus(tmp_path: Path) -> Path:
-    (tmp_path / "note.md").write_text("# Note\n\nCompaction is bounded.\n")
-    (tmp_path / "other.md").write_text("# Other\n\nProvenance traces to a store.\n")
+    (tmp_path / "note.md").write_text(
+        "# Note\n\nCompaction is bounded.\n", encoding="utf-8"
+    )
+    (tmp_path / "other.md").write_text(
+        "# Other\n\nProvenance traces to a store.\n", encoding="utf-8"
+    )
     return tmp_path
 
 

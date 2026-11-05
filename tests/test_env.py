@@ -129,7 +129,11 @@ def test_no_env_file_means_no_flag(tmp_path: Path) -> None:
 def test_a_dotenv_is_ignored_at_every_depth() -> None:
     """A deployment directory can live anywhere, including inside a checkout. The
     ignore rule must not be anchored to the repo root."""
-    rules = (Path(__file__).parent.parent / ".gitignore").read_text().splitlines()
+    rules = (
+        (Path(__file__).parent.parent / ".gitignore")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
     stripped = [line.strip() for line in rules]
 
     assert ".env" in stripped, ".env must be ignored"
@@ -143,6 +147,6 @@ def test_no_module_emits_an_environment_value() -> None:
     emitters = ("print(", "console.print", "log.info", "log.debug", "logger.")
 
     for path in source.rglob("*.py"):
-        for number, line in enumerate(path.read_text().splitlines(), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if "os.environ" in line and any(e in line for e in emitters):
                 raise AssertionError(f"{path.name}:{number} emits an env value: {line}")

@@ -107,14 +107,13 @@ class CodeConnector:
     def _included(self, key: str) -> bool:
         parts = Path(key).parts
         prefixes = ["/".join(parts[: n + 1]) for n in range(len(parts))]
-        if any(
-            fnmatch(name, p) for name in (*parts, *prefixes) for p in self.exclude
-        ):
+        if any(fnmatch(name, p) for name in (*parts, *prefixes) for p in self.exclude):
             return False
         return any(fnmatch(parts[-1], p) or fnmatch(key, p) for p in self.include)
 
     def _key(self, path: Path) -> str:
-        return str(path.relative_to(self.root))
+        # `/` on every OS: a ref is the same wherever the repository is checked out.
+        return path.relative_to(self.root).as_posix()
 
     def _path(self, key: str) -> Path:
         """Resolve a key, refusing anything that climbs out of the root.

@@ -44,7 +44,7 @@ def deployment(tmp_path: Path) -> Path:
     shutil.copytree(FORMATS / "context-store", root / "context")
     shutil.copy(root / "wiki" / "wiki.yaml", root / "wiki.yaml")
     (root / "heronsgate.yaml").write_text(
-        "schema_version: 1\nwiki: {config: wiki.yaml}\n"
+        "schema_version: 1\nwiki: {config: wiki.yaml}\n", encoding="utf-8"
     )
     return root
 

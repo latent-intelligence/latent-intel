@@ -198,13 +198,17 @@ def run(work: Path) -> Path:
     (work / "projects").mkdir(parents=True)
     corpus = work / "notes"
     corpus.mkdir()
-    (corpus / "tides.md").write_text("# Tides\n\nThe Moon's gravity.\n")
+    (corpus / "tides.md").write_text(
+        "# Tides\n\nThe Moon's gravity.\n", encoding="utf-8"
+    )
     (work / "projects" / "research.yaml").write_text(
         f"name: research\nroot: {work / 'out'}\n"
-        f"sources:\n  - {{id: notes, kind: files, target: {corpus}}}\n"
+        f"sources:\n  - {{id: notes, kind: files, target: {corpus}}}\n",
+        encoding="utf-8",
     )
-    (work / "cases.yaml").write_text(CASES)
-    (work / "variants.yaml").write_text(VARIANTS)
+    # LF on every OS: the manifest records the cases file's hash.
+    (work / "cases.yaml").write_text(CASES, encoding="utf-8", newline="\n")
+    (work / "variants.yaml").write_text(VARIANTS, encoding="utf-8", newline="\n")
 
     with _isolated(work):
         planned = batch.plan(work / "cases.yaml", work / "variants.yaml")
@@ -263,6 +267,6 @@ def write(target: Path = SAMPLE) -> list[Path]:
     for path, text in files.items():
         out = target / path
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
+        out.write_text(text, encoding="utf-8", newline="\n")
         written.append(out)
     return written

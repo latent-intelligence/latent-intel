@@ -8,6 +8,7 @@ observed rather than imagined.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ from latent_intel import events as ev
 from latent_intel.agent import base as agent
 from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.agent.runtimes import claude_cli
+from latent_intel.agent.runtimes.claude_agent_sdk import ClaudeAgentSdkRuntime
 from latent_intel.agent.runtimes.claude_cli import (
     ClaudeCliRuntime,
     allowed_tools,
@@ -78,6 +80,23 @@ def test_the_in_process_runtimes_load_even_where_they_cannot_run() -> None:
     assert "anthropic-sdk" in agent.available_kinds()
     assert "openai-agents" in agent.available_kinds()
     assert "claude-agent-sdk" in agent.available_kinds()
+
+
+def test_a_missing_claude_agent_sdk_names_the_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Here rather than beside the runtime's other tests, which need the SDK: this one
+    has to run where it is missing, as on Windows, which has no wheel for it."""
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "never-printed-key")
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "never-printed-resource")
+    real = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a: None if name == "claude_agent_sdk" else real(name, *a),
+    )
+    reason = ClaudeAgentSdkRuntime().unavailable_reason()
+    assert reason is not None and "latent-intel[claude-agent-sdk]" in reason
 
 
 def test_each_extra_is_a_runtime_and_all_names_every_one() -> None:
@@ -413,7 +432,7 @@ def test_an_npm_shim_to_a_script_runs_through_node(
     script = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code"
     script.mkdir(parents=True)
     script = script / "cli.js"
-    script.write_text("")
+    script.write_text("", encoding="utf-8")
     shim = _shim(tmp_path, r"node_modules\@anthropic-ai\claude-code\cli.js")
     monkeypatch.setattr(
         claude_cli.shutil, "which", _which(claude=str(shim), node="/usr/bin/node")
@@ -428,6 +447,11 @@ def test_a_shim_with_no_recognisable_target_is_launched_as_is(
     shim.write_text("@echo something else entirely\r\n", encoding="utf-8")
     monkeypatch.setattr(claude_cli.shutil, "which", _which(claude=str(shim)))
     assert claude_cli.resolve_command(["claude"]) == [str(shim)]
+
+
+def test_a_command_with_a_windows_path_keeps_its_backslashes() -> None:
+    runtime = claude_cli.ClaudeCliRuntime(command=r"C:\tools\claude.exe --verbose")
+    assert runtime.command == [r"C:\tools\claude.exe", "--verbose"]
 
 
 def test_a_real_binary_passes_through_with_its_arguments() -> None:
@@ -486,6 +510,7 @@ async def test_claude_cli_gets_skill_bodies_and_never_the_engine_tool(
 # -- a server's start directory, which the binary ignores --------------------
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows refuses `cwd`: no sh")
 def test_a_server_with_cwd_is_started_there_by_sh() -> None:
     """Claude Code ignores `cwd` in `--mcp-config`, so the block carries it in the
     command: `sh` changes directory and execs the server, every argument still its own
@@ -557,6 +582,7 @@ def test_the_wrapped_command_runs_in_its_directory(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows refuses `cwd`: no sh")
 async def test_the_binary_is_given_the_wrapped_block_and_an_unwrapped_one_as_is() -> (
     None
 ):
@@ -790,11 +816,11 @@ def test_killing_intel_ask_ends_the_claude_it_started(
     )
     try:
         deadline = time.monotonic() + 30
-        while not pid_file.is_file() or not pid_file.read_text():
+        while not pid_file.is_file() or not pid_file.read_text(encoding="utf-8"):
             assert parent.poll() is None, parent.stdout.read() if parent.stdout else ""
             assert time.monotonic() < deadline, "the fake claude never started"
             time.sleep(0.05)
-        child = int(pid_file.read_text())
+        child = int(pid_file.read_text(encoding="utf-8"))
         assert _alive(child)
 
         parent.send_signal(getattr(signal, signame))
@@ -806,9 +832,9 @@ def test_killing_intel_ask_ends_the_claude_it_started(
     finally:
         if parent.poll() is None:
             parent.kill()
-        if pid_file.is_file() and pid_file.read_text():
+        if pid_file.is_file() and pid_file.read_text(encoding="utf-8"):
             with contextlib.suppress(ProcessLookupError):
-                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                os.kill(int(pid_file.read_text(encoding="utf-8")), signal.SIGKILL)
 
 
 @pytest.mark.anyio

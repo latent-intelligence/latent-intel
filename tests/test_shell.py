@@ -584,7 +584,9 @@ def test_record_tees_the_session_and_off_reports_what_it_wrote(
 
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (corpus / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
     config_module.save(config_module.load())
     before = config_module.config_path().read_bytes()
 
@@ -603,7 +605,7 @@ def test_record_tees_the_session_and_off_reports_what_it_wrote(
     anyio.run(search)
     repl._record(session, recording, Local("record", "off"))
 
-    written = path.read_text().splitlines()
+    written = path.read_text(encoding="utf-8").splitlines()
     assert written
     for line in written:
         assert not isinstance(ev.parse_event(line), ev.UnknownEvent)
@@ -680,7 +682,9 @@ def test_a_recording_opens_with_its_header_and_adds_one_on_a_change(
 
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    (corpus / "note.md").write_text("# Note\n\nRetrieval is finding material.\n")
+    (corpus / "note.md").write_text(
+        "# Note\n\nRetrieval is finding material.\n", encoding="utf-8"
+    )
     _shell(monkeypatch)
     recording = repl.Recording()
     path = tmp_path / "run.jsonl"
@@ -701,7 +705,9 @@ def test_a_recording_opens_with_its_header_and_adds_one_on_a_change(
         await session.aclose()
 
     anyio.run(go)
-    events = [ev.parse_event(line) for line in path.read_text().splitlines()]
+    events = [
+        ev.parse_event(line) for line in path.read_text(encoding="utf-8").splitlines()
+    ]
     headers = [e for e in events if isinstance(e, ev.RunContext)]
 
     assert isinstance(events[0], ev.RunContext)
@@ -903,7 +909,9 @@ def test_scope_heads_a_recording_again_and_writes_no_config(
         session, Local("scope", "search", {"block": "b.example.org"}), recording
     )
 
-    headers = [ev.parse_event(line) for line in path.read_text().splitlines()]
+    headers = [
+        ev.parse_event(line) for line in path.read_text(encoding="utf-8").splitlines()
+    ]
     assert [h.web for h in headers] == [  # type: ignore[union-attr]
         WebScope(),
         WebScope(mode="search", blocked_domains=["b.example.org"]),
@@ -944,7 +952,7 @@ def test_switching_deployment_says_the_session_s_scope_was_dropped(
     console = _shell(monkeypatch)
     session = Session(runtime=_Searching())  # type: ignore[arg-type]
     repl._local(session, Local("scope", "search"), repl.Recording())
-    (tmp_path / "other.yaml").write_text("name: other\n")
+    (tmp_path / "other.yaml").write_text("name: other\n", encoding="utf-8")
     monkeypatch.setenv("LATENT_INTEL_PROJECTS", str(tmp_path))
     repl._local(session, Local("deployment", "other"), repl.Recording())
 
@@ -977,6 +985,7 @@ def test_shell_connect_saves_a_relative_path_absolute(
     user = tmp_path / "user"
     (user / "notes").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(user))
+    monkeypatch.setenv("USERPROFILE", str(user))
     monkeypatch.chdir(user)
     _shell(monkeypatch)
     session = Session()

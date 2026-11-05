@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from latent_intel import subagents
@@ -112,7 +113,8 @@ def test_an_unreadable_file_is_named_without_its_path(tmp_path: Path) -> None:
     (tmp_path / "odd.md").mkdir()
     problems: list[str] = []
     assert subagents.load(tmp_path, problems) == []
-    assert problems == ["agents: odd.md: Is a directory"]
+    reason = "Permission denied" if sys.platform == "win32" else "Is a directory"
+    assert problems == [f"agents: odd.md: {reason}"]
     assert str(tmp_path) not in problems[0]
 
 
