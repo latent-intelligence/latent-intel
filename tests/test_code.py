@@ -27,19 +27,24 @@ def repo(tmp_path: Path) -> Path:
     (tmp_path / "src" / "app").mkdir(parents=True)
     (tmp_path / "src" / "app" / "ranking.py").write_text(
         "".join(f"line {n}\n" for n in range(1, 50))
-        + "def rank_hits(hits):\n    return sorted(hits)\n"
+        + "def rank_hits(hits):\n    return sorted(hits)\n",
+        encoding="utf-8",
     )
     (tmp_path / "src" / "app" / "deep.py").write_text(
-        "x = 1\n" * 5000 + "class DeepSymbol:\n    pass\n"
+        "x = 1\n" * 5000 + "class DeepSymbol:\n    pass\n", encoding="utf-8"
     )
     (tmp_path / "src" / "app" / "bundle.js").write_text(
-        "DeepSymbol;" * (MAX_SEARCH_BYTES // 10)
+        "DeepSymbol;" * (MAX_SEARCH_BYTES // 10), encoding="utf-8"
     )
-    (tmp_path / "README.md").write_text("# Example\n\nA small example repository.\n")
-    (tmp_path / ".env").write_text("SECRET=1\n")
+    (tmp_path / "README.md").write_text(
+        "# Example\n\nA small example repository.\n", encoding="utf-8"
+    )
+    (tmp_path / ".env").write_text("SECRET=1\n", encoding="utf-8")
     for noise in (".git", ".venv", "node_modules", "dist", "build", "__pycache__"):
         (tmp_path / noise).mkdir()
-        (tmp_path / noise / "rank_hits.py").write_text("def rank_hits(): ...\n")
+        (tmp_path / noise / "rank_hits.py").write_text(
+            "def rank_hits(): ...\n", encoding="utf-8"
+        )
     return tmp_path
 
 
@@ -132,7 +137,7 @@ async def test_a_sibling_sharing_the_prefix_is_outside(tmp_path: Path) -> None:
     """`/repo2` starts with `/repo` as a string and is not inside it."""
     (tmp_path / "repo").mkdir()
     (tmp_path / "repo2").mkdir()
-    (tmp_path / "repo2" / "secret.py").write_text("token = 1\n")
+    (tmp_path / "repo2" / "secret.py").write_text("token = 1\n", encoding="utf-8")
     connector = CodeConnector("repo", str(tmp_path / "repo"))
     with pytest.raises(ConnectError, match="outside"):
         await connector.fetch("../repo2/secret.py")
@@ -219,7 +224,7 @@ def test_options_survive_the_server_spec(repo: Path) -> None:
 
 
 async def test_an_empty_file_reads_as_empty(repo: Path) -> None:
-    (repo / "src" / "app" / "__init__.py").write_text("")
+    (repo / "src" / "app" / "__init__.py").write_text("", encoding="utf-8")
     doc = await CodeConnector("repo", str(repo)).fetch("src/app/__init__.py")
     assert doc.body == ""
 
@@ -228,7 +233,7 @@ async def test_a_symlinked_file_is_not_listed_or_searched(
     repo: Path, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     outside = tmp_path_factory.mktemp("outside") / "secrets.txt"
-    outside.write_text("SECRET_TOKEN=1\n")
+    outside.write_text("SECRET_TOKEN=1\n", encoding="utf-8")
     (repo / "leak.txt").symlink_to(outside)
     connector = CodeConnector("repo", str(repo))
 
@@ -238,7 +243,7 @@ async def test_a_symlinked_file_is_not_listed_or_searched(
 
 async def test_an_exclude_with_a_path_prunes_it(repo: Path) -> None:
     (repo / "src" / "gen").mkdir()
-    (repo / "src" / "gen" / "g.py").write_text("generated = True\n")
+    (repo / "src" / "gen" / "g.py").write_text("generated = True\n", encoding="utf-8")
     connector = CodeConnector("repo", str(repo), exclude="src/gen docs/* .git")
 
     assert "src/gen/g.py" not in await connector.call("list_files", {})
@@ -263,7 +268,7 @@ async def test_search_refuses_a_filter_it_cannot_apply(repo: Path) -> None:
 async def test_a_capitalised_justfile_is_read(repo: Path) -> None:
     """`Justfile` is how just's own documentation and most repositories spell it, and
     the default patterns match case-sensitively."""
-    (repo / "Justfile").write_text("check:\n    pytest\n")
+    (repo / "Justfile").write_text("check:\n    pytest\n", encoding="utf-8")
     connector = CodeConnector("repo", str(repo))
 
     doc = await connector.fetch("Justfile")

@@ -53,10 +53,12 @@ def corpus(tmp_path: Path) -> Path:
     (tmp_path / "retrieval.md").write_text(
         "---\ntitle: ignored\n---\n\n"
         "# Retrieval\n\n"
-        "Retrieval is how a system finds material before generating.\n"
+        "Retrieval is how a system finds material before generating.\n",
+        encoding="utf-8",
     )
     (tmp_path / "notes" / "compaction.md").write_text(
-        "# Compaction\n\nRewriting an accumulated context destroys it.\n"
+        "# Compaction\n\nRewriting an accumulated context destroys it.\n",
+        encoding="utf-8",
     )
     return tmp_path
 
@@ -99,7 +101,9 @@ async def test_files_connector_refuses_a_sibling_sharing_its_prefix(
     """`/notes-private` starts with `/notes` as a string but is not inside it."""
     (tmp_path / "notes").mkdir()
     (tmp_path / "notes-private").mkdir()
-    (tmp_path / "notes-private" / "secret.md").write_text("# Secret\n")
+    (tmp_path / "notes-private" / "secret.md").write_text(
+        "# Secret\n", encoding="utf-8"
+    )
     connector = FilesConnector("notes", str(tmp_path / "notes"))
     with pytest.raises(ConnectError, match="outside"):
         await connector.fetch("../notes-private/secret.md")
@@ -419,14 +423,15 @@ async def test_every_run_event_survives_json(corpus: Path) -> None:
 
 def test_unknown_registry_id_lists_what_is_known(tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
-    (tmp_path / "a" / "manifest.json").write_text("{}")
+    (tmp_path / "a" / "manifest.json").write_text("{}", encoding="utf-8")
     (tmp_path / "b").mkdir()
-    (tmp_path / "b" / "note.md").write_text("x")
+    (tmp_path / "b" / "note.md").write_text("x", encoding="utf-8")
     path = tmp_path / "stores.yaml"
     path.write_text(
         f"stores:\n"
         f"  - {{id: alpha, kind: wiki, paths: {{root: {tmp_path}/a}}}}\n"
-        f"  - {{id: beta, kind: context-store, paths: {{raw: {tmp_path}/b}}}}\n"
+        f"  - {{id: beta, kind: context-store, paths: {{raw: {tmp_path}/b}}}}\n",
+        encoding="utf-8",
     )
     assert registry.resolve("beta", str(path)) == ("files", f"{tmp_path}/b")
     with pytest.raises(ConnectError, match="alpha, beta"):
@@ -442,7 +447,8 @@ def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
         f"stores:\n"
         f"  - id: w\n"
         f"    kind: markdown-vault\n"
-        f"    paths: {{root: {tmp_path}/absent, mirror: 's3://bucket/w'}}\n"
+        f"    paths: {{root: {tmp_path}/absent, mirror: 's3://bucket/w'}}\n",
+        encoding="utf-8",
     )
     assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w")
 
@@ -454,9 +460,12 @@ def test_a_registry_entry_falls_back_to_its_mirror(tmp_path: Path) -> None:
     registry.clear_cache()
     assert registry.resolve("w", str(path)) == ("files", "s3://bucket/w")
 
-    (local / "manifest.json").write_text("{}")  # now the local copy is really there
+    (local / "manifest.json").write_text(
+        "{}", encoding="utf-8"
+    )  # now the local copy is really there
     registry.clear_cache()
-    assert registry.resolve("w", str(path)) == ("files", str(local))
+    kind, target = registry.resolve("w", str(path))
+    assert kind == "files" and Path(target) == local
     # …and --remote still forces the mirror, which is how you check it is current.
     assert registry.resolve("w", str(path), remote=True) == ("files", "s3://bucket/w")
 
@@ -467,7 +476,10 @@ def test_a_registered_wiki_is_reached_only_through_the_server_it_names(
     """This client builds no server command: a wiki entry records one, or is not
     connectable, and the message says which line to add."""
     path = tmp_path / "stores.yaml"
-    path.write_text("stores:\n  - {id: w, kind: wiki, paths: {mirror: 's3://b/w'}}\n")
+    path.write_text(
+        "stores:\n  - {id: w, kind: wiki, paths: {mirror: 's3://b/w'}}\n",
+        encoding="utf-8",
+    )
     registry.clear_cache()
     with pytest.raises(ConnectError, match="access: mcp:<server command>") as caught:
         registry.resolve("w", str(path))
@@ -478,7 +490,8 @@ def test_a_wiki_registered_with_its_own_server_keeps_it(tmp_path: Path) -> None:
     """…and --remote is refused rather than ignored: the command chooses the store."""
     path = tmp_path / "stores.yaml"
     path.write_text(
-        "stores:\n  - {id: w, kind: wiki, access: 'mcp:wiki-server --ro'}\n"
+        "stores:\n  - {id: w, kind: wiki, access: 'mcp:wiki-server --ro'}\n",
+        encoding="utf-8",
     )
     registry.clear_cache()
     assert registry.resolve("w", str(path)) == ("mcp", "wiki-server --ro")
@@ -489,7 +502,9 @@ def test_a_wiki_registered_with_its_own_server_keeps_it(tmp_path: Path) -> None:
 def test_a_wiki_without_a_server_says_so_even_under_remote(tmp_path: Path) -> None:
     """The useful message first: a mirror would not make it connectable."""
     path = tmp_path / "stores.yaml"
-    path.write_text("stores:\n  - {id: w, kind: wiki, paths: {root: /nowhere}}\n")
+    path.write_text(
+        "stores:\n  - {id: w, kind: wiki, paths: {root: /nowhere}}\n", encoding="utf-8"
+    )
     registry.clear_cache()
     with pytest.raises(ConnectError, match="access: mcp:<server command>"):
         registry.resolve("w", str(path), remote=True)
@@ -499,7 +514,9 @@ def test_remote_without_a_mirror_says_what_to_do(tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
     path = tmp_path / "stores.yaml"
     path.write_text(
-        f"stores:\n  - {{id: w, kind: markdown-vault, paths: {{root: {tmp_path}/a}}}}\n"
+        "stores:\n"
+        f"  - {{id: w, kind: markdown-vault, paths: {{root: {tmp_path}/a}}}}\n",
+        encoding="utf-8",
     )
     with pytest.raises(ConnectError, match="declares no mirror"):
         registry.resolve("w", str(path), remote=True)
@@ -511,7 +528,10 @@ def test_a_missing_registry_is_empty_not_an_error(tmp_path: Path) -> None:
 
 def test_an_mcp_access_entry_maps_to_the_mcp_kind(tmp_path: Path) -> None:
     path = tmp_path / "stores.yaml"
-    path.write_text("stores:\n  - {id: gh, kind: saas, access: 'mcp:github-server'}\n")
+    path.write_text(
+        "stores:\n  - {id: gh, kind: saas, access: 'mcp:github-server'}\n",
+        encoding="utf-8",
+    )
     assert registry.resolve("gh", str(path)) == ("mcp", "github-server")
 
 
@@ -1278,7 +1298,8 @@ async def test_load_skill_is_a_session_tool_and_routes_to_the_engine(
     directory = tmp_path / "projects"
     (directory / "skills" / "citing").mkdir(parents=True)
     (directory / "skills" / "citing" / "SKILL.md").write_text(
-        "---\nname: citation-style\ndescription: How to cite.\n---\nCite inline.\n"
+        "---\nname: citation-style\ndescription: How to cite.\n---\nCite inline.\n",
+        encoding="utf-8",
     )
     _project(tmp_path, monkeypatch, "skills: ./skills\n")
 
@@ -1308,12 +1329,12 @@ async def test_a_source_may_not_take_the_engine_s_id(tmp_path: Path) -> None:
 def _skills_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     directory = tmp_path / "projects"
     (directory / "skills").mkdir(parents=True)
-    (directory / "skills" / "cite.md").write_text("Cite inline.\n")
+    (directory / "skills" / "cite.md").write_text("Cite inline.\n", encoding="utf-8")
     (directory / "skills" / "deploy.md").write_text(
-        "---\ndisable-model-invocation: true\n---\nShip it.\n"
+        "---\ndisable-model-invocation: true\n---\nShip it.\n", encoding="utf-8"
     )
     (directory / "skills" / "lore.md").write_text(
-        "---\nuser-invocable: false\n---\nOld system.\n"
+        "---\nuser-invocable: false\n---\nOld system.\n", encoding="utf-8"
     )
     _project(tmp_path, monkeypatch, "skills: ./skills\n")
 
@@ -1371,7 +1392,9 @@ async def test_arguments_fill_the_invoked_body_and_the_message_records_the_skill
     which skill ran, or a recording could not show why the prompt changed."""
     directory = tmp_path / "projects"
     (directory / "skills").mkdir(parents=True)
-    (directory / "skills" / "review.md").write_text("Review paper $ARGUMENTS.\n")
+    (directory / "skills" / "review.md").write_text(
+        "Review paper $ARGUMENTS.\n", encoding="utf-8"
+    )
     _project(tmp_path, monkeypatch, "skills: ./skills\n")
     runtime = FakeRuntime()
     session = Session(runtime=runtime)
@@ -1871,7 +1894,7 @@ def test_switching_project_drops_the_session_s_scope(
     session.set_web(WebScope(mode="search"))
     assert session.web_override == WebScope(mode="search")
 
-    (tmp_path / "projects" / "other.yaml").write_text("name: other\n")
+    (tmp_path / "projects" / "other.yaml").write_text("name: other\n", encoding="utf-8")
     monkeypatch.setenv("LATENT_INTEL_PROJECT", "other")
     settings_module.invalidate()
 
@@ -2008,18 +2031,19 @@ def _registries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A machine registry and a deployment's own, each naming `design` differently."""
     for name in ("machine", "deployed"):
         (tmp_path / name).mkdir()
-        (tmp_path / name / "note.md").write_text(name)
+        (tmp_path / name / "note.md").write_text(name, encoding="utf-8")
     machine = tmp_path / "registry.yaml"  # what KNOWLEDGE_REGISTRY points at
     row = "  - {{id: {}, kind: context-store, paths: {{raw: {}}}}}\n"
     machine.write_text(
         "stores:\n"
         + row.format("design", tmp_path / "machine")
-        + row.format("shared", tmp_path / "machine")
+        + row.format("shared", tmp_path / "machine"),
+        encoding="utf-8",
     )
     projects = tmp_path / "projects"
     projects.mkdir(exist_ok=True)
     (projects / "stores.yaml").write_text(
-        "stores:\n" + row.format("design", tmp_path / "deployed")
+        "stores:\n" + row.format("design", tmp_path / "deployed"), encoding="utf-8"
     )
     _project(tmp_path, monkeypatch, "registry: ./stores.yaml\n")
     return machine
@@ -2074,7 +2098,9 @@ async def test_a_session_given_a_deployment_resolves_against_its_registry(
     _registries(tmp_path, monkeypatch)
     _project(tmp_path, monkeypatch, "name: deploy\n")
     session = Session(deployment=tmp_path / "projects" / "variant.yaml")
-    (tmp_path / "projects" / "variant.yaml").write_text("registry: ./stores.yaml\n")
+    (tmp_path / "projects" / "variant.yaml").write_text(
+        "registry: ./stores.yaml\n", encoding="utf-8"
+    )
     await session.connect("design")
     assert await _attached(session) == "deployed"
     await session.aclose()

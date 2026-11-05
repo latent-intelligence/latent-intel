@@ -80,7 +80,7 @@ def recording(path: Path | None) -> Iterator[Callable[[ev.BaseEvent], None]]:
     if path.parent == recordings_home():
         # Ours to create, unlike a directory someone typed: a typo there stays an error.
         path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("a", encoding="utf-8")
+    handle = path.open("a", encoding="utf-8", newline="\n")
     try:
 
         def write(event: ev.BaseEvent) -> None:

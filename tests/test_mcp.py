@@ -651,6 +651,8 @@ async def test_two_servers_of_one_name_are_told_apart_by_what_they_list() -> Non
 
 def children() -> set[int]:
     """This process's live child processes, so a test can say none was left behind."""
+    if sys.platform == "win32":
+        pytest.skip("counting child processes needs pgrep")
     out = subprocess.run(
         ["pgrep", "-P", str(os.getpid())], capture_output=True, text=True, check=False
     ).stdout

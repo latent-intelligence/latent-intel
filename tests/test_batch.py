@@ -25,7 +25,9 @@ from latent_intel.connectors.files import FilesConnector
 pytestmark = pytest.mark.anyio
 
 SCHEMA = json.loads(
-    (Path(__file__).parents[1] / "schemas" / "recording.v1.json").read_text()
+    (Path(__file__).parents[1] / "schemas" / "recording.v1.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 CASES = """\
@@ -115,7 +117,11 @@ def _plan(setup: dict[str, Any], repeat: int = 1) -> batch.Plan:
 
 
 def _lines(path: UPath) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line]
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
 
 
 async def test_two_cases_two_variants_two_repeats_write_eight_recordings(
@@ -125,7 +131,7 @@ async def test_two_cases_two_variants_two_repeats_write_eight_recordings(
     manifest = await batch.execute(planned)
 
     directory = setup["root"] / "runs" / planned.run_id
-    on_disk = json.loads((directory / "manifest.json").read_text())
+    on_disk = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     assert on_disk == manifest
     assert manifest["format"] == "latent-intel.eval-run"
     assert manifest["format_version"] == 1
@@ -176,7 +182,8 @@ async def test_a_run_reads_neither_the_reference_nor_writes_a_path(
     manifest = await batch.execute(planned)
     directory = setup["root"] / "runs" / planned.run_id
     written = "".join(
-        (directory / e["path"]).read_text() for e in manifest["recordings"]
+        (directory / e["path"]).read_text(encoding="utf-8")
+        for e in manifest["recordings"]
     ) + json.dumps(manifest)
     assert "SECRET-ANSWER" not in written
     assert str(setup["tmp"]) not in written
@@ -253,7 +260,7 @@ async def test_the_manifest_lists_every_run_before_the_first_one_starts(
     pending: list[list[str]] = []
 
     def look(_: batch.Recording) -> None:
-        manifest = json.loads((directory / "manifest.json").read_text())
+        manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
         pending.append([e["status"] for e in manifest["recordings"]])
 
     await batch.execute(planned, progress=look)
@@ -631,20 +638,25 @@ SAMPLE = Path(__file__).parent / "fixtures" / "formats" / "eval-run"
 
 def test_the_committed_manifest_schema_is_the_one_the_model_produces() -> None:
     """Regenerate with `just schemas` when the manifest changes."""
-    assert json.loads(MANIFEST_SCHEMA.read_text()) == batch.manifest_schema()
+    assert (
+        json.loads(MANIFEST_SCHEMA.read_text(encoding="utf-8"))
+        == batch.manifest_schema()
+    )
 
 
 async def test_every_manifest_a_run_writes_is_valid_against_the_schema(
     setup: dict[str, Any],
 ) -> None:
-    validator = jsonschema.Draft202012Validator(json.loads(MANIFEST_SCHEMA.read_text()))
+    validator = jsonschema.Draft202012Validator(
+        json.loads(MANIFEST_SCHEMA.read_text(encoding="utf-8"))
+    )
     seen: list[dict[str, Any]] = []
     planned = _plan(setup)
     directory = setup["root"] / "runs" / planned.run_id
     manifest = await batch.execute(
         planned,
         progress=lambda _: seen.append(
-            json.loads((directory / "manifest.json").read_text())
+            json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
         ),
     )
     for written in [*seen, manifest]:
@@ -652,8 +664,10 @@ async def test_every_manifest_a_run_writes_is_valid_against_the_schema(
 
 
 def test_the_schema_refuses_a_manifest_with_no_version() -> None:
-    validator = jsonschema.Draft202012Validator(json.loads(MANIFEST_SCHEMA.read_text()))
-    manifest = json.loads((SAMPLE / "manifest.json").read_text())
+    validator = jsonschema.Draft202012Validator(
+        json.loads(MANIFEST_SCHEMA.read_text(encoding="utf-8"))
+    )
+    manifest = json.loads((SAMPLE / "manifest.json").read_text(encoding="utf-8"))
     del manifest["format_version"]
     assert not validator.is_valid(manifest)
 
@@ -673,8 +687,10 @@ def test_the_published_sample_is_what_the_code_writes(tmp_path: Path) -> None:
 
 
 def test_the_published_sample_shows_every_case_a_reader_handles() -> None:
-    manifest = json.loads((SAMPLE / "manifest.json").read_text())
-    jsonschema.validate(manifest, json.loads(MANIFEST_SCHEMA.read_text()))
+    manifest = json.loads((SAMPLE / "manifest.json").read_text(encoding="utf-8"))
+    jsonschema.validate(
+        manifest, json.loads(MANIFEST_SCHEMA.read_text(encoding="utf-8"))
+    )
     recording = jsonschema.Draft202012Validator(SCHEMA)
     statuses = {e["status"] for e in manifest["recordings"]}
     assert statuses == {"ok", "failed", "pending"}

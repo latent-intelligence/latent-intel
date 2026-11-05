@@ -432,7 +432,7 @@ def test_an_npm_shim_to_a_script_runs_through_node(
     script = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code"
     script.mkdir(parents=True)
     script = script / "cli.js"
-    script.write_text("")
+    script.write_text("", encoding="utf-8")
     shim = _shim(tmp_path, r"node_modules\@anthropic-ai\claude-code\cli.js")
     monkeypatch.setattr(
         claude_cli.shutil, "which", _which(claude=str(shim), node="/usr/bin/node")
@@ -510,6 +510,7 @@ async def test_claude_cli_gets_skill_bodies_and_never_the_engine_tool(
 # -- a server's start directory, which the binary ignores --------------------
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows refuses `cwd`: no sh")
 def test_a_server_with_cwd_is_started_there_by_sh() -> None:
     """Claude Code ignores `cwd` in `--mcp-config`, so the block carries it in the
     command: `sh` changes directory and execs the server, every argument still its own
@@ -581,6 +582,7 @@ def test_the_wrapped_command_runs_in_its_directory(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows refuses `cwd`: no sh")
 async def test_the_binary_is_given_the_wrapped_block_and_an_unwrapped_one_as_is() -> (
     None
 ):
@@ -814,11 +816,11 @@ def test_killing_intel_ask_ends_the_claude_it_started(
     )
     try:
         deadline = time.monotonic() + 30
-        while not pid_file.is_file() or not pid_file.read_text():
+        while not pid_file.is_file() or not pid_file.read_text(encoding="utf-8"):
             assert parent.poll() is None, parent.stdout.read() if parent.stdout else ""
             assert time.monotonic() < deadline, "the fake claude never started"
             time.sleep(0.05)
-        child = int(pid_file.read_text())
+        child = int(pid_file.read_text(encoding="utf-8"))
         assert _alive(child)
 
         parent.send_signal(getattr(signal, signame))
@@ -830,9 +832,9 @@ def test_killing_intel_ask_ends_the_claude_it_started(
     finally:
         if parent.poll() is None:
             parent.kill()
-        if pid_file.is_file() and pid_file.read_text():
+        if pid_file.is_file() and pid_file.read_text(encoding="utf-8"):
             with contextlib.suppress(ProcessLookupError):
-                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                os.kill(int(pid_file.read_text(encoding="utf-8")), signal.SIGKILL)
 
 
 @pytest.mark.anyio

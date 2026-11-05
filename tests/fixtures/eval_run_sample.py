@@ -198,13 +198,16 @@ def run(work: Path) -> Path:
     (work / "projects").mkdir(parents=True)
     corpus = work / "notes"
     corpus.mkdir()
-    (corpus / "tides.md").write_text("# Tides\n\nThe Moon's gravity.\n")
+    (corpus / "tides.md").write_text(
+        "# Tides\n\nThe Moon's gravity.\n", encoding="utf-8"
+    )
     (work / "projects" / "research.yaml").write_text(
         f"name: research\nroot: {work / 'out'}\n"
-        f"sources:\n  - {{id: notes, kind: files, target: {corpus}}}\n"
+        f"sources:\n  - {{id: notes, kind: files, target: {corpus}}}\n",
+        encoding="utf-8",
     )
-    (work / "cases.yaml").write_text(CASES)
-    (work / "variants.yaml").write_text(VARIANTS)
+    (work / "cases.yaml").write_text(CASES, encoding="utf-8")
+    (work / "variants.yaml").write_text(VARIANTS, encoding="utf-8")
 
     with _isolated(work):
         planned = batch.plan(work / "cases.yaml", work / "variants.yaml")

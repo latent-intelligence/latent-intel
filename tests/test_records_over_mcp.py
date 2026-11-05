@@ -113,8 +113,9 @@ async def test_two_deployments_are_two_sources(
     other.mkdir()
     (other / "brindlewick-annex.yaml").write_text(
         (deployment / "brindlewick-hives.yaml")
-        .read_text()
-        .replace("store_id: brindlewick-hives", "store_id: brindlewick-annex")
+        .read_text(encoding="utf-8")
+        .replace("store_id: brindlewick-hives", "store_id: brindlewick-annex"),
+        encoding="utf-8",
     )
     subprocess.run(
         [*RECORDS, "deployment", "run", str(other)], check=True, capture_output=True

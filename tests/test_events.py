@@ -84,7 +84,7 @@ def test_recorded_stream_parses_and_round_trips(path: Path) -> None:
     reading SSE sees something different from a renderer reading the same event
     in-process, and the frontends stop being interchangeable.
     """
-    lines = [ln for ln in path.read_text().splitlines() if ln.strip()]
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
     assert lines
 
     for line in lines:
@@ -110,7 +110,7 @@ def test_recorded_stream_parses_and_round_trips(path: Path) -> None:
 )
 def test_sequence_is_monotonic_within_an_operation(path: Path) -> None:
     """Ordering has to survive a transport that does not preserve it."""
-    events = list(ev.read_stream(path.read_text()))
+    events = list(ev.read_stream(path.read_text(encoding="utf-8")))
     by_operation: dict[str, list[int]] = {}
     for event in events:
         by_operation.setdefault(str(event.operation_id), []).append(event.sequence)
@@ -121,7 +121,7 @@ def test_sequence_is_monotonic_within_an_operation(path: Path) -> None:
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
 def test_nested_events_name_a_parent_in_the_same_stream(path: Path) -> None:
-    events = list(ev.read_stream(path.read_text()))
+    events = list(ev.read_stream(path.read_text(encoding="utf-8")))
     ids = {e.event_id for e in events}
     for event in events:
         if event.parent_id is not None:
@@ -132,7 +132,7 @@ def test_every_result_carries_provenance() -> None:
     """A result that cannot say where it came from is worse than no result — a reader
     has no signal to doubt it. Required field, not a convention."""
     for path in FIXTURES:
-        for event in ev.read_stream(path.read_text()):
+        for event in ev.read_stream(path.read_text(encoding="utf-8")):
             if isinstance(event, ev.RetrievalResult):
                 for hit in event.hits:
                     assert hit.provenance.source_id == event.source_id
@@ -247,7 +247,9 @@ def test_scores_are_not_comparable_across_sources() -> None:
     """The search fixture pins this deliberately: a lexical count of 12.0 and a cosine
     of 0.81 in the same stream. Any future 'merge and sort' would rank the cosine last
     on a number that does not mean the same thing — so results group by source."""
-    events = list(ev.read_stream((STREAMS / "search.jsonl").read_text()))
+    events = list(
+        ev.read_stream((STREAMS / "search.jsonl").read_text(encoding="utf-8"))
+    )
     results = [e for e in events if isinstance(e, ev.RetrievalResult)]
     assert len(results) == 2
     assert {r.source_id for r in results} == {"design", "papers"}
@@ -315,15 +317,17 @@ RECORDINGS = sorted((ROOT / "tests/fixtures/formats/recording").glob("*.jsonl"))
 
 def test_the_committed_schema_is_the_one_the_models_produce() -> None:
     """Regenerate with `just schemas` when an event changes."""
-    assert json.loads(SCHEMA.read_text()) == ev.recording_schema()
+    assert json.loads(SCHEMA.read_text(encoding="utf-8")) == ev.recording_schema()
 
 
 @pytest.mark.parametrize("path", RECORDINGS, ids=lambda p: p.stem)
 def test_every_published_recording_conforms(path: Path) -> None:
     import jsonschema
 
-    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
-    lines = [json.loads(line) for line in path.read_text().splitlines()]
+    validator = jsonschema.Draft202012Validator(
+        json.loads(SCHEMA.read_text(encoding="utf-8"))
+    )
+    lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     for line in lines:
         validator.validate(line)
     assert lines[0]["type"] == "run_context"
@@ -335,8 +339,10 @@ def test_every_published_recording_conforms(path: Path) -> None:
 def test_the_schema_rejects_a_malformed_header() -> None:
     import jsonschema
 
-    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
-    header = json.loads(RECORDINGS[0].read_text().splitlines()[0])
+    validator = jsonschema.Draft202012Validator(
+        json.loads(SCHEMA.read_text(encoding="utf-8"))
+    )
+    header = json.loads(RECORDINGS[0].read_text(encoding="utf-8").splitlines()[0])
     header["sources"] = [{"id": "design"}]  # no kind
     assert not validator.is_valid(header)
 
@@ -347,7 +353,9 @@ def test_what_a_session_records_conforms() -> None:
 
     from latent_intel.session import Session
 
-    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
+    validator = jsonschema.Draft202012Validator(
+        json.loads(SCHEMA.read_text(encoding="utf-8"))
+    )
     validator.validate(json.loads(ev.dump_event(Session().run_context())))
 
 
@@ -356,8 +364,10 @@ def test_the_schema_holds_producers_to_the_known_purposes() -> None:
     schema is where a producer is held to the list."""
     import jsonschema
 
-    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
-    header = json.loads(RECORDINGS[0].read_text().splitlines()[0])
+    validator = jsonschema.Draft202012Validator(
+        json.loads(SCHEMA.read_text(encoding="utf-8"))
+    )
+    header = json.loads(RECORDINGS[0].read_text(encoding="utf-8").splitlines()[0])
     header["purpose"] = "benchmark"
     assert not validator.is_valid(header)
     assert isinstance(ev.parse_event(header), ev.RunContext)
@@ -369,7 +379,7 @@ def test_published_headers_are_ones_the_writer_produces() -> None:
 
     written = set(json.loads(ev.dump_event(Session().run_context())))
     for path in RECORDINGS:
-        header = json.loads(path.read_text().splitlines()[0])
+        header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
         assert set(header) == written
         assert header["context"]["hash"]
 
@@ -385,8 +395,10 @@ def test_a_header_s_web_scope_is_additive_and_an_unknown_one_still_renders() -> 
 
     from latent_intel.ui import render
 
-    validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
-    header = json.loads(RECORDINGS[0].read_text().splitlines()[0])
+    validator = jsonschema.Draft202012Validator(
+        json.loads(SCHEMA.read_text(encoding="utf-8"))
+    )
+    header = json.loads(RECORDINGS[0].read_text(encoding="utf-8").splitlines()[0])
 
     older = {k: v for k, v in header.items() if k != "web"}
     parsed = ev.parse_event(older)

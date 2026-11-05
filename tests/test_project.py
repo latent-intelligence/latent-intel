@@ -274,11 +274,15 @@ def test_the_standard_layout_and_flat_files_load_together_in_name_order(
         "---\nBody.\n",
         encoding="utf-8",
     )
-    (skills / "b-outline" / "reference.md").write_text("Not a skill.\n")
+    (skills / "b-outline" / "reference.md").write_text(
+        "Not a skill.\n", encoding="utf-8"
+    )
     (skills / "c-store").mkdir()
-    (skills / "c-store" / "SKILL.md").write_text("Unnamed store notes.\n")
+    (skills / "c-store" / "SKILL.md").write_text(
+        "Unnamed store notes.\n", encoding="utf-8"
+    )
     (skills / "a-flat.md").write_text("Flat.\n", encoding="utf-8")
-    (skills / "notes.txt").write_text("Not markdown.\n")
+    (skills / "notes.txt").write_text("Not markdown.\n", encoding="utf-8")
     path = write(tmp_path, "mixed", "skills: ./skills\n")
 
     loaded = project.load(path)
@@ -299,8 +303,8 @@ def test_a_skill_directory_without_skill_md_is_a_problem(tmp_path: Path) -> None
     """The failure this layout used to have, made loud: a folder that loads nothing."""
     skills = tmp_path / "skills"
     (skills / "empty").mkdir(parents=True)
-    (skills / "empty" / "skill.markdown").write_text("Misnamed.\n")
-    (skills / "fine.md").write_text("Fine.\n")
+    (skills / "empty" / "skill.markdown").write_text("Misnamed.\n", encoding="utf-8")
+    (skills / "fine.md").write_text("Fine.\n", encoding="utf-8")
     path = write(tmp_path, "hollow", "skills: ./skills\n")
 
     loaded = project.load(path)
@@ -314,8 +318,8 @@ def test_two_skills_with_one_name_keep_the_first_and_say_so(tmp_path: Path) -> N
     model the wrong text."""
     skills = tmp_path / "skills"
     (skills / "cite").mkdir(parents=True)
-    (skills / "cite" / "SKILL.md").write_text("From the folder.\n")
-    (skills / "cite.md").write_text("From the flat file.\n")
+    (skills / "cite" / "SKILL.md").write_text("From the folder.\n", encoding="utf-8")
+    (skills / "cite.md").write_text("From the flat file.\n", encoding="utf-8")
     path = write(tmp_path, "twice", "skills: ./skills\n")
 
     loaded = project.load(path)
@@ -331,7 +335,7 @@ def test_a_description_alone_is_frontmatter_and_the_filename_still_names(
     skills = tmp_path / "skills"
     skills.mkdir()
     (skills / "corpus-map.md").write_text(
-        "---\ndescription: What lives where.\n---\nTwo directories.\n"
+        "---\ndescription: What lives where.\n---\nTwo directories.\n", encoding="utf-8"
     )
     path = write(tmp_path, "described", "skills: ./skills\n")
 
@@ -544,10 +548,15 @@ def test_a_skill_opening_with_a_thematic_break_keeps_its_first_paragraph(
     skills = tmp_path / "skills"
     skills.mkdir()
     (skills / "rule.md").write_text(
-        "---\nRule: cite the earlier page when two agree\n---\nEverything after.\n"
+        "---\nRule: cite the earlier page when two agree\n---\nEverything after.\n",
+        encoding="utf-8",
     )
-    (skills / "prose.md").write_text("---\nHow this corpus is organised.\n---\nrest\n")
-    (tmp_path / "p.yaml").write_text("schema_version: 1\nname: p\nskills: ./skills\n")
+    (skills / "prose.md").write_text(
+        "---\nHow this corpus is organised.\n---\nrest\n", encoding="utf-8"
+    )
+    (tmp_path / "p.yaml").write_text(
+        "schema_version: 1\nname: p\nskills: ./skills\n", encoding="utf-8"
+    )
 
     loaded = project.load(tmp_path / "p.yaml")
 
@@ -563,7 +572,7 @@ def test_a_persona_that_is_not_utf8_is_a_problem_not_a_crash(tmp_path: Path) -> 
     command that has to work on the machine whose project is malformed."""
     (tmp_path / "persona.md").write_bytes("caf\xe9 au lait".encode("cp1252"))
     (tmp_path / "p.yaml").write_text(
-        "schema_version: 1\nname: p\nagent: {persona: ./persona.md}\n"
+        "schema_version: 1\nname: p\nagent: {persona: ./persona.md}\n", encoding="utf-8"
     )
 
     loaded = project.load(tmp_path / "p.yaml")
@@ -576,13 +585,16 @@ def test_a_description_is_built_the_way_claude_code_builds_it(tmp_path: Path) ->
     """`description`, else the body's first line; `when_to_use` appended; capped."""
     skills = tmp_path / "skills"
     skills.mkdir()
-    (skills / "a.md").write_text("\n# Release checklist\n\nBody.\n")
+    (skills / "a.md").write_text("\n# Release checklist\n\nBody.\n", encoding="utf-8")
     (skills / "b.md").write_text(
         "---\ndescription: Outline a report.\n"
         "when_to_use: >\n  Asked for\n  a summary.\n"
-        "---\nBody.\n"
+        "---\nBody.\n",
+        encoding="utf-8",
     )
-    (skills / "c.md").write_text(f"---\ndescription: {'x' * 2000}\n---\nBody.\n")
+    (skills / "c.md").write_text(
+        f"---\ndescription: {'x' * 2000}\n---\nBody.\n", encoding="utf-8"
+    )
     path = write(tmp_path, "described", "skills: ./skills\n")
 
     by_name = {s.name: s.description for s in project.load(path).skills}
@@ -596,9 +608,13 @@ def test_invocation_flags_are_read_as_claude_code_reads_them(tmp_path: Path) -> 
     """Its defaults and its spellings: `On` and `0` included."""
     skills = tmp_path / "skills"
     skills.mkdir()
-    (skills / "deploy.md").write_text("---\ndisable-model-invocation: On\n---\nShip.\n")
-    (skills / "lore.md").write_text("---\nuser-invocable: 0\n---\nOld system.\n")
-    (skills / "plain.md").write_text("Plain.\n")
+    (skills / "deploy.md").write_text(
+        "---\ndisable-model-invocation: On\n---\nShip.\n", encoding="utf-8"
+    )
+    (skills / "lore.md").write_text(
+        "---\nuser-invocable: 0\n---\nOld system.\n", encoding="utf-8"
+    )
+    (skills / "plain.md").write_text("Plain.\n", encoding="utf-8")
     path = write(tmp_path, "flags", "skills: ./skills\n")
 
     loaded = project.load(path)
@@ -615,10 +631,10 @@ def test_invocation_flags_are_read_as_claude_code_reads_them(tmp_path: Path) -> 
 def test_a_skill_named_like_a_project_command_is_a_problem(tmp_path: Path) -> None:
     """One `/name` space: the skill wins, as in Claude Code, and the loader says so."""
     (tmp_path / "skills").mkdir()
-    (tmp_path / "skills" / "brief.md").write_text("A skill.\n")
+    (tmp_path / "skills" / "brief.md").write_text("A skill.\n", encoding="utf-8")
     (tmp_path / "commands").mkdir()
     (tmp_path / "commands" / "brief.md").write_text(
-        "---\nkind: prompt\ndescription: d\n---\nWrite a brief.\n"
+        "---\nkind: prompt\ndescription: d\n---\nWrite a brief.\n", encoding="utf-8"
     )
     path = write(tmp_path, "clash", "skills: ./skills\ncommands: ./commands\n")
 
@@ -637,14 +653,20 @@ def test_what_a_skill_asks_for_and_this_build_will_not_do_is_said(
     skills = tmp_path / "skills"
     (skills / "pdf").mkdir(parents=True)
     (skills / "pdf" / "SKILL.md").write_text(
-        "---\nallowed-tools: Read\nargument-hint: [file]\n---\nRead the PDF.\n"
+        "---\nallowed-tools: Read\nargument-hint: [file]\n---\nRead the PDF.\n",
+        encoding="utf-8",
     )
-    (skills / "spaced.md").write_text("---\nname: Report Outline\n---\nOutline it.\n")
+    (skills / "spaced.md").write_text(
+        "---\nname: Report Outline\n---\nOutline it.\n", encoding="utf-8"
+    )
     (skills / "dead.md").write_text(
-        "---\ndisable-model-invocation: true\nuser-invocable: false\n---\nNobody.\n"
+        "---\ndisable-model-invocation: true\nuser-invocable: false\n---\nNobody.\n",
+        encoding="utf-8",
     )
-    (skills / "positional.md").write_text("Compare $0 with $ARGUMENTS[1].\n")
-    (skills / "whole.md").write_text("Review $ARGUMENTS carefully.\n")
+    (skills / "positional.md").write_text(
+        "Compare $0 with $ARGUMENTS[1].\n", encoding="utf-8"
+    )
+    (skills / "whole.md").write_text("Review $ARGUMENTS carefully.\n", encoding="utf-8")
     path = write(tmp_path, "asks", "skills: ./skills\n")
 
     loaded = project.load(path)
