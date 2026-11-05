@@ -133,6 +133,11 @@ files = ["src/latent_intel"]
 module = ["mcp.*", "s3fs.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Not installed on Windows, which has no wheel for it; imported only inside the turn.
+module = ["claude_agent_sdk.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

@@ -12,8 +12,12 @@ import importlib.util
 from typing import Any
 from uuid import UUID, uuid4
 
-import claude_agent_sdk as sdk
 import pytest
+
+# No Windows wheel is published, so the extra is not installed there.
+pytest.importorskip("claude_agent_sdk", reason="claude-agent-sdk is not installed")
+
+import claude_agent_sdk as sdk
 
 from latent_intel import events as ev
 from latent_intel.agent import hosts

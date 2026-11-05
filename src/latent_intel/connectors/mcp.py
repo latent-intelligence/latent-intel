@@ -58,7 +58,7 @@ import sys
 import tempfile
 from contextlib import ExitStack
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO
+from typing import TYPE_CHECKING, Any, TextIO, cast
 
 import anyio
 
@@ -198,8 +198,12 @@ class McpConnector:
                     # A temp file rather than devnull, so a server that dies on
                     # startup can be quoted back instead of discarded.
                     if not self.show_server_stderr:
-                        self._errlog = files.enter_context(
-                            tempfile.TemporaryFile("w+")  # noqa: SIM115 — the stack is the manager
+                        # On Windows `TemporaryFile` is a wrapper, not a `TextIO`.
+                        self._errlog = cast(
+                            TextIO,
+                            files.enter_context(
+                                tempfile.TemporaryFile("w+")  # noqa: SIM115 — the stack is the manager
+                            ),
                         )
                     transport = _transport(
                         self.target,
