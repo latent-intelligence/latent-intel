@@ -7,6 +7,7 @@ Drive path or an S3 bucket, they would not run in CI and the seam would be unver
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import Iterable
@@ -759,6 +760,23 @@ async def test_connect_many_opens_a_subprocess_source_the_session_can_close() ->
     assert [d.id for d in session.sources()] == ["probe"]
     assert "probe.whoami" in [t.qualified for t in session.tools()]
     await session.aclose()
+
+
+@pytest.mark.anyio
+async def test_an_mcp_command_reaches_the_server_with_its_slashes() -> None:
+    """A path in an MCP command line arrives as typed. Expanding the line as a path
+    turned `/` into `\\` on Windows, and the split then read each `\\` as an escape,
+    so the server got `C:Userssomeonewiki` and could not start."""
+    session = Session()
+    spec = f"{probe_command()} --deployment C:/Users/someone/wiki"
+    failures = await session.connect_many(
+        [SourceRequest(spec=spec, kind="mcp", source_id="probe")]
+    )
+    assert failures == []
+    reported = json.loads(await session.call_tool("probe", "whoami", {}))
+    await session.aclose()
+
+    assert reported["argv"] == ["--deployment", "C:/Users/someone/wiki"]
 
 
 # -- the tool router --------------------------------------------------------

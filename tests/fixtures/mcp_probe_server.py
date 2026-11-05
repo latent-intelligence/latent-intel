@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 from mcp.server import MCPServer
 
@@ -21,11 +22,12 @@ server = MCPServer("probe", instructions="Reports its own environment.")
 
 @server.tool()
 def whoami() -> str:
-    """The environment and working directory this server was started with."""
+    """The arguments, environment and working directory this server was started with."""
     return json.dumps(
         {
             "env": {name: os.environ[name] for name in REPORTED if name in os.environ},
             "cwd": os.getcwd(),
+            "argv": sys.argv[1:],
         }
     )
 

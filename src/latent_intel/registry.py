@@ -118,10 +118,14 @@ def has_content(path: Path) -> bool:
 
 
 def expand(value: str) -> str:
-    """`~` and `${VAR}`, but leave a URI alone."""
+    """`~` and `${VAR}`, but leave a URI alone.
+
+    Not through `Path`: an MCP target is a command line, and on Windows `Path` turned
+    its `/` into `\\`, which the later shlex split read as escapes and dropped.
+    """
     if "://" in value:
         return value
-    return str(Path(os.path.expandvars(value)).expanduser())
+    return os.path.expanduser(os.path.expandvars(value))
 
 
 def default_registry() -> Path:
