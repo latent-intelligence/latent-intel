@@ -892,10 +892,13 @@ def test_replay_renders_exactly_what_the_live_renderer_renders(path: Path) -> No
     prints it as the prompt line. That one line is reproduced here rather than waved
     through, so a second divergence cannot arrive unnoticed.
     """
+    from latent_intel.frontends import _shared
+
     result = runner.invoke(app, ["replay", str(path)])
     assert result.exit_code == 0
 
-    console = capture(width=80)
+    # The CLI's own width: Rich prints one column narrower on Windows.
+    console = capture(width=_shared.console.width)
     for event in ev.read_stream(path.read_text(encoding="utf-8")):
         if isinstance(event, ev.UserMessage):
             console.print(f"[prompt]›[/] {event.text}")
