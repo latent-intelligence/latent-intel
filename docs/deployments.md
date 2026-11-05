@@ -78,7 +78,9 @@ root: ./products
   using it is skipped.
 - **A URI such as `s3://…`** is kept as written.
 - **An `mcp` target is a command line or a URL,** so it is substituted but not resolved; a
-  relative executable is what the `cwd` option is for.
+  relative executable is what the `cwd` option is for. It is split into arguments the same
+  way on every OS: quotes group words as in a POSIX shell, and `\` is an ordinary
+  character, so a Windows path may use either slash. Quote an argument that holds a space.
 
 ## Top level
 

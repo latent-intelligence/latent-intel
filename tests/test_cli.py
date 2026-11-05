@@ -25,6 +25,7 @@ from latent_intel.frontends.cli.main import app
 from latent_intel.models import Capability, Descriptor, WebScope
 from latent_intel.ui import banner, render
 from latent_intel.ui.theme import THEME
+from tests.fixtures.programs import program
 
 ROOT_FORMATS = Path(__file__).parent / "fixtures" / "formats" / "recording"
 STREAMS = Path(__file__).parent / "fixtures" / "streams"
@@ -1356,9 +1357,7 @@ def test_validate_reports_targets_that_are_not_there_and_starts_nothing(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     marker = tmp_path / "started"
-    server = bin_dir / "example-mcp"
-    server.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\n")
-    server.chmod(0o755)
+    program(bin_dir, "example-mcp", marker)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     (tmp_path / "projects" / "here").mkdir(parents=True)
     _deployment(

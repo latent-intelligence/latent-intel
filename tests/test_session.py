@@ -763,12 +763,13 @@ async def test_connect_many_opens_a_subprocess_source_the_session_can_close() ->
 
 
 @pytest.mark.anyio
-async def test_an_mcp_command_reaches_the_server_with_its_slashes() -> None:
-    """A path in an MCP command line arrives as typed. Expanding the line as a path
-    turned `/` into `\\` on Windows, and the split then read each `\\` as an escape,
-    so the server got `C:Userssomeonewiki` and could not start."""
+@pytest.mark.parametrize("path", ["C:/Users/someone/wiki", r"C:\Users\someone\wiki"])
+async def test_an_mcp_command_reaches_the_server_with_its_slashes(path: str) -> None:
+    """A path in an MCP command line arrives as typed, with either slash. Expanding the
+    line as a path turned `/` into `\\` on Windows, and the split then read each `\\`
+    as an escape, so the server got `C:Userssomeonewiki` and could not start."""
     session = Session()
-    spec = f"{probe_command()} --deployment C:/Users/someone/wiki"
+    spec = f"{probe_command()} --deployment {path}"
     failures = await session.connect_many(
         [SourceRequest(spec=spec, kind="mcp", source_id="probe")]
     )
@@ -776,7 +777,7 @@ async def test_an_mcp_command_reaches_the_server_with_its_slashes() -> None:
     reported = json.loads(await session.call_tool("probe", "whoami", {}))
     await session.aclose()
 
-    assert reported["argv"] == ["--deployment", "C:/Users/someone/wiki"]
+    assert reported["argv"] == ["--deployment", path]
 
 
 # -- the tool router --------------------------------------------------------

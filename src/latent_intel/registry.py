@@ -23,6 +23,7 @@ from typing import Any
 
 import yaml
 
+from .commandline import expand
 from .models import ConnectError
 
 #: Where a registry lives when nothing says otherwise: beside the config, per install.
@@ -115,17 +116,6 @@ def has_content(path: Path) -> bool:
         return path.is_file() or (path.is_dir() and any(path.iterdir()))
     except OSError:
         return False
-
-
-def expand(value: str) -> str:
-    """`~` and `${VAR}`, but leave a URI alone.
-
-    Not through `Path`: an MCP target is a command line, and on Windows `Path` turned
-    its `/` into `\\`, which the later shlex split read as escapes and dropped.
-    """
-    if "://" in value:
-        return value
-    return os.path.expanduser(os.path.expandvars(value))
 
 
 def default_registry() -> Path:

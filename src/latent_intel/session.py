@@ -37,7 +37,7 @@ from uuid import UUID, uuid4
 
 import anyio
 
-from . import __version__, registry
+from . import __version__, commandline, registry
 from . import events as ev
 from . import settings as settings_module
 from .agent import base as agent
@@ -160,7 +160,7 @@ class Session:
             kind, target = registry.resolve(spec, self._registry(), remote=remote)
             source_id = source_id or spec
         else:
-            target = registry.expand(spec)
+            target = _located(kind, spec)
             source_id = source_id or _id_from(target)
 
         _claim(source_id)
@@ -203,7 +203,7 @@ class Session:
                     )
                     source_id = request.source_id or request.spec
                 else:
-                    kind, target = request.kind, registry.expand(request.spec)
+                    kind, target = request.kind, _located(request.kind, request.spec)
                     source_id = request.source_id or _id_from(target)
                     _anchored(kind, request.spec, target, source_id)
                 _claim(source_id)
@@ -1159,6 +1159,12 @@ def _claim(source_id: str) -> None:
         raise ConnectError(
             f"'{source_id}' is reserved for web tool calls — attach it under another id"
         )
+
+
+def _located(kind: str, spec: str) -> str:
+    """A target, expanded unless it is a command line: an `mcp` target is expanded
+    argument by argument when it is split, so an expansion cannot break the split."""
+    return spec if kind == "mcp" else commandline.expand(spec)
 
 
 def _id_from(target: str) -> str:

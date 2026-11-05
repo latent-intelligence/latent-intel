@@ -15,6 +15,7 @@ from upath import UPath
 
 from latent_intel import project
 from latent_intel.models import Skill
+from tests.fixtures.programs import program
 
 
 def write(directory: Path, name: str, body: str) -> Path:
@@ -404,11 +405,10 @@ def test_check_sources_reads_an_mcp_command_as_attach_does(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A URL among the arguments does not make the target a URL; `$VAR` and `~` are
-    expanded before the split; a missing `cwd` is the cause, not the program in it."""
+    expanded in each argument after the split; a missing `cwd` is the cause, not the
+    program in it."""
     (tmp_path / "bin").mkdir()
-    script = tmp_path / "bin" / "serve-here"
-    script.write_text("#!/bin/sh\n")
-    script.chmod(0o755)
+    program(tmp_path / "bin", "serve-here", tmp_path / "started")
     monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
     monkeypatch.setenv("TOOL_DIR", str(tmp_path / "bin"))
     loaded = project.load(
@@ -426,11 +426,9 @@ def test_check_sources_reads_an_mcp_command_as_attach_does(
 
     problems = project.check_sources(loaded)
 
-    assert len(problems) == 3, problems
+    assert len(problems) == 2, problems
     assert problems[0].startswith("source 'bridged'") and "absent-bridge" in problems[0]
-    # Attach leaves a line with `://` in it unexpanded, so `$TOOL_DIR` cannot start.
-    assert problems[1].startswith("source 'kept'") and "$TOOL_DIR" in problems[1]
-    assert problems[2].startswith("source 'nocwd'") and "cwd" in problems[2]
+    assert problems[1].startswith("source 'nocwd'") and "cwd" in problems[1]
 
 
 @pytest.mark.parametrize("body", ["defaults: search\n", "defaults: {1: a, web: off}\n"])
@@ -457,9 +455,7 @@ def test_check_sources_names_what_would_not_attach_and_starts_nothing(
     (tmp_path / "here").mkdir()
     (tmp_path / "bin").mkdir()
     marker = tmp_path / "started"
-    script = tmp_path / "bin" / "serve-here"
-    script.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
-    script.chmod(0o755)
+    program(tmp_path / "bin", "serve-here", marker)
     monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
     loaded = project.load(
         write(

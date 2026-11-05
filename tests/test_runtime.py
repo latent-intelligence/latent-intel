@@ -8,6 +8,7 @@ observed rather than imagined.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ from latent_intel import events as ev
 from latent_intel.agent import base as agent
 from latent_intel.agent.base import WEB_REMEDY
 from latent_intel.agent.runtimes import claude_cli
+from latent_intel.agent.runtimes.claude_agent_sdk import ClaudeAgentSdkRuntime
 from latent_intel.agent.runtimes.claude_cli import (
     ClaudeCliRuntime,
     allowed_tools,
@@ -78,6 +80,23 @@ def test_the_in_process_runtimes_load_even_where_they_cannot_run() -> None:
     assert "anthropic-sdk" in agent.available_kinds()
     assert "openai-agents" in agent.available_kinds()
     assert "claude-agent-sdk" in agent.available_kinds()
+
+
+def test_a_missing_claude_agent_sdk_names_the_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Here rather than beside the runtime's other tests, which need the SDK: this one
+    has to run where it is missing, as on Windows, which has no wheel for it."""
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "never-printed-key")
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "never-printed-resource")
+    real = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a: None if name == "claude_agent_sdk" else real(name, *a),
+    )
+    reason = ClaudeAgentSdkRuntime().unavailable_reason()
+    assert reason is not None and "latent-intel[claude-agent-sdk]" in reason
 
 
 def test_each_extra_is_a_runtime_and_all_names_every_one() -> None:
@@ -428,6 +447,11 @@ def test_a_shim_with_no_recognisable_target_is_launched_as_is(
     shim.write_text("@echo something else entirely\r\n", encoding="utf-8")
     monkeypatch.setattr(claude_cli.shutil, "which", _which(claude=str(shim)))
     assert claude_cli.resolve_command(["claude"]) == [str(shim)]
+
+
+def test_a_command_with_a_windows_path_keeps_its_backslashes() -> None:
+    runtime = claude_cli.ClaudeCliRuntime(command=r"C:\tools\claude.exe --verbose")
+    assert runtime.command == [r"C:\tools\claude.exe", "--verbose"]
 
 
 def test_a_real_binary_passes_through_with_its_arguments() -> None:

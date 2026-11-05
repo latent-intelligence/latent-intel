@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shlex
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,7 +31,7 @@ from typing import Any, cast
 
 import yaml
 
-from . import procedures, subagents
+from . import commandline, procedures, subagents
 from .config import SourceSpec
 from .models import Skill
 
@@ -585,15 +584,8 @@ def check_sources(project: Project) -> list[str]:
             if not Path(target).is_dir():
                 problems.append(f"source '{spec.id}': no directory at {target}")
         elif spec.kind == "mcp" and not target.startswith(("http://", "https://")):
-            # Expanded as attach expands it, then split: `$VAR` and `~`, unless the
-            # line holds `://` anywhere, which attach then leaves as written.
-            line = (
-                target
-                if "://" in target
-                else str(Path(os.path.expandvars(target)).expanduser())
-            )
             try:
-                command = shlex.split(line)[0]
+                command = commandline.argv(target)[0]
             except (ValueError, IndexError):
                 problems.append(f"source '{spec.id}': no command in {target!r}")
                 continue
@@ -601,15 +593,16 @@ def check_sources(project: Project) -> list[str]:
             if cwd is not None and not Path(str(cwd)).is_dir():
                 problems.append(f"source '{spec.id}': cwd {cwd} is not a directory")
                 continue
-            if os.sep in command:
+            # `dirname`, not `os.sep in`: Windows takes either slash in a path.
+            if os.path.dirname(command):
                 found = shutil.which(str(Path(str(cwd or ".")) / command))
             else:
                 found = shutil.which(command)
             if found is None:
                 problems.append(
-                    f"source '{spec.id}': {command} is not on PATH"
-                    if os.sep not in command
-                    else f"source '{spec.id}': no program at {command}"
+                    f"source '{spec.id}': no program at {command}"
+                    if os.path.dirname(command)
+                    else f"source '{spec.id}': {command} is not on PATH"
                 )
     return problems
 

@@ -24,17 +24,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-          - macos-latest
+        include:
+          - os: windows-latest
+            # claude-agent-sdk publishes no Windows wheel, so `all` cannot install.
+            extras: --extra dev --extra openai-agents
+          - os: macos-latest
+            extras: --extra dev --extra all
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      # claude-agent-sdk publishes no Windows wheel, so `all` cannot install there.
-      - run: uv sync --extra dev --extra openai-agents --locked
+      - run: uv sync ${{ matrix.extras }} --locked
       - run: uv run --no-sync ruff check src/ tests/
       - run: uv run --no-sync mypy src/
       - run: uv run --no-sync lint-imports
