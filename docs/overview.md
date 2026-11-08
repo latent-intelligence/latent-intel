@@ -27,7 +27,7 @@ subagents are plain files you can change and compare.
 - **Documents,** by ref, in full.
 - **Answers** that cite the refs they used, and say when the sources do not answer.
 - **An event stream** behind all of it: what the terminal shows is a rendering of events, which
-  can be printed as JSON lines, recorded to a file, replayed, and run in batches for latent-eval
+  can be printed as JSON lines, recorded to a file, replayed, and run in batches for kb-eval
   to score. Recordings and batch runs are published formats.
 
 ## How it works
@@ -60,4 +60,4 @@ machine costs nothing.
 It is a client: it owns how sources are put together, not what is in them. It parses no wiki and
 embeds nothing; latent-wiki and latent-records answer for their own stores through
 `latent-wiki serve` and `latent-records serve`, which it attaches like any MCP server.
-latent-eval scores its recordings. None of them is imported here.
+kb-eval scores its recordings. None of them is imported here.

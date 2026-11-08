@@ -3,7 +3,7 @@
 A recording is a session's event stream written to a file, headed by what produced it.
 `--record` on `search`, `get`, `ask` and `run`, and `/record` in the shell, write one;
 `intel replay` and `/replay` render one. Other programs read recordings from disk:
-`latent-eval` turns them into run records in its own adapter, and a demo renderer reads
+`kb-eval` turns them into run records in its own adapter, and a demo renderer reads
 them for presentation. Neither imports `latent-intel`.
 
 | | |

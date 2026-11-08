@@ -2,7 +2,7 @@
 
 `intel eval run` puts every case through every variant, `--repeat` times, and records each
 run. A run's directory holds one [recording](recording.md) per case, variant and epoch, and a
-`manifest.json` that names them. `latent-eval` reads the recordings and turns them into run
+`manifest.json` that names them. `kb-eval` reads the recordings and turns them into run
 records; the manifest says which recordings belong to one run and which never finished.
 
 | | |
@@ -60,14 +60,15 @@ The model and host that answered are in each recording's `run_context`, along wi
 
 ## Inputs
 
-**Cases** are `latent-eval.dataset` v1 (its `docs/contracts/dataset.md`), YAML or JSON Lines.
+**Cases** are `eval.dataset` v1 (its `docs/contracts/dataset.md`), YAML or JSON Lines;
+`latent-eval.dataset`, its name before kb-eval's rename, is read too.
 Only `id`, `input.question` and `metadata` are read. `reference` is never read, because the
 answer is the scorer's business.
 
-- **A stamped file** is held to the spec, as `latent-eval` would hold it when it scores: its
+- **A stamped file** is held to the spec, as `kb-eval` would hold it when it scores: its
   stamp, its keys, and each case's fields. Only `format_version`, or a `format` of
-  `latent-eval.dataset`, stamps a file.
-- **An unstamped file** is read as `latent-eval` reads it, and the command says it is
+  `eval.dataset`, stamps a file.
+- **An unstamped file** is read as `kb-eval` reads it, and the command says it is
   unstamped. A missing `input` is empty, and YAML's `context:` stands in for `input:`.
 - **In either kind,** a case with no text `input.question` refuses the batch before anything
   runs, and every such case is named.

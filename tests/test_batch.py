@@ -363,6 +363,29 @@ def test_cases_are_read_from_json_lines(setup: dict[str, Any]) -> None:
     ]
 
 
+@pytest.mark.parametrize("name", ["eval.dataset", "latent-eval.dataset"])
+def test_cases_are_read_under_either_name_of_the_format(
+    setup: dict[str, Any], name: str
+) -> None:
+    """kb-eval writes `eval.dataset`; files from before its rename say
+    `latent-eval.dataset`."""
+    path = setup["work"] / "cases.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "format": name,
+                "format_version": 1,
+                "id": "q1",
+                "input": {"question": "hi"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    planned = batch.plan(path, setup["work"] / "variants.yaml")
+    assert planned.cases_stamped and [c.id for c in planned.cases] == ["q1"]
+
+
 def test_an_unstamped_file_is_read_as_latent_eval_reads_it(
     setup: dict[str, Any],
 ) -> None:

@@ -404,9 +404,7 @@ def _deployment(session: Session, name: str) -> None:
     """
     resolved = settings_module.load()
     if not name:
-        console.print(
-            f"[dim]deployment[/] [source]{resolved.chosen or 'none'}[/]"
-        )
+        console.print(f"[dim]deployment[/] [source]{resolved.chosen or 'none'}[/]")
         return
 
     overridden = session.web_override is not None
@@ -668,8 +666,7 @@ def _runtime_option(session: Session, key: str, name: str) -> None:
     if not name:
         shown = Session.runtime_setting(current, key) or "unset"
         console.print(
-            f"[dim]{key}[/] [source]{escape(shown)}[/] "
-            f"[dim]for {escape(current)}[/]"
+            f"[dim]{key}[/] [source]{escape(shown)}[/] [dim]for {escape(current)}[/]"
         )
         _report_reason(Session.runtime_reason(current))
         return

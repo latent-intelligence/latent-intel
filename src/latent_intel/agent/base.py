@@ -205,9 +205,7 @@ class Provisioned(Protocol):
     makes the requests, and is called only when someone asks for it.
     """
 
-    def definition(
-        self, tools: Sequence[ToolSpec], **context: Any
-    ) -> dict[str, Any]:
+    def definition(self, tools: Sequence[ToolSpec], **context: Any) -> dict[str, Any]:
         """The agent this runtime would create, given the tools attached and the
         context a turn is given (`sources`, `persona`, `persona_mode`, `skills`,
         `web`, `name`). Makes no request."""
