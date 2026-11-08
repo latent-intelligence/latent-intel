@@ -190,7 +190,7 @@ class Plan:
     cases: list[Case]
     cases_name: str
     cases_sha256: str
-    #: False for a file written before `eval.dataset` had a stamp.
+    #: False for a file written before the dataset format had a stamp.
     cases_stamped: bool
     variants: list[Variant]
     repeat: int
@@ -396,7 +396,8 @@ def _stamp(row: Any, name: str) -> None:
     ):
         found = (row.get("format"), version) if isinstance(row, dict) else row
         raise BatchError(
-            f"{name}: stamped {found!r}, not {DATASET_FORMAT} v{DATASET_VERSION}"
+            f"{name}: stamped {found!r}, not {' or '.join(DATASET_FORMATS)} "
+            f"v{DATASET_VERSION}"
         )
 
 

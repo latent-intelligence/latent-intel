@@ -464,7 +464,9 @@ def diagnose(host: Host, *, name: str) -> str | None:
     contradiction to report, and naming one would bury the four variables it wants.
     """
     return (
-        empty(host, name=name) or missing(host, name=name) or conflict(host, name=name)
+        empty(host, name=name)
+        or missing(host, name=name)
+        or conflict(host, name=name)
     )
 
 

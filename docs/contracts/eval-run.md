@@ -67,7 +67,7 @@ answer is the scorer's business.
 
 - **A stamped file** is held to the spec, as `kb-eval` would hold it when it scores: its
   stamp, its keys, and each case's fields. Only `format_version`, or a `format` of
-  `eval.dataset`, stamps a file.
+  `eval.dataset` or `latent-eval.dataset`, stamps a file.
 - **An unstamped file** is read as `kb-eval` reads it, and the command says it is
   unstamped. A missing `input` is empty, and YAML's `context:` stands in for `input:`.
 - **In either kind,** a case with no text `input.question` refuses the batch before anything

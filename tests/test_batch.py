@@ -31,7 +31,7 @@ SCHEMA = json.loads(
 )
 
 CASES = """\
-format: latent-eval.dataset
+format: eval.dataset
 format_version: 1
 name: tides
 cases:
@@ -333,9 +333,9 @@ def test_no_active_deployment_refuses(
         ("- just a list\n", "cases:"),
         ("cases:\n  - {id: q1, metadata: [a]}\n", "metadata"),
         ("format: other\nformat_version: 1\ncases: []\n", "other"),
-        ("format: latent-eval.dataset\nformat_version: 2\ncases: []\n", "v1"),
-        ("format: latent-eval.dataset\nformat_version: true\ncases: []\n", "v1"),
-        ("format: latent-eval.dataset\ncases: []\n", "None"),
+        ("format: eval.dataset\nformat_version: 2\ncases: []\n", "v1"),
+        ("format: eval.dataset\nformat_version: true\ncases: []\n", "v1"),
+        ("format: eval.dataset\ncases: []\n", "None"),
     ],
 )
 def test_a_case_this_cannot_run_is_refused_before_anything_runs(
@@ -349,9 +349,9 @@ def test_a_case_this_cannot_run_is_refused_before_anything_runs(
 def test_cases_are_read_from_json_lines(setup: dict[str, Any]) -> None:
     path = setup["work"] / "cases.jsonl"
     path.write_text(
-        '{"format": "latent-eval.dataset", "format_version": 1, "id": "q1", '
+        '{"format": "eval.dataset", "format_version": 1, "id": "q1", '
         '"input": {"question": "hi"}, "reference": "x"}\n\n'
-        '{"format": "latent-eval.dataset", "format_version": 1, "id": "q2", '
+        '{"format": "eval.dataset", "format_version": 1, "id": "q2", '
         '"input": {"question": "there"}, "metadata": {"split": "dev"}}\n',
         encoding="utf-8",
     )
@@ -368,25 +368,30 @@ def test_cases_are_read_under_either_name_of_the_format(
     setup: dict[str, Any], name: str
 ) -> None:
     """kb-eval writes `eval.dataset`; files from before its rename say
-    `latent-eval.dataset`."""
-    path = setup["work"] / "cases.jsonl"
-    path.write_text(
-        json.dumps(
-            {
-                "format": name,
-                "format_version": 1,
-                "id": "q1",
-                "input": {"question": "hi"},
-            }
-        )
-        + "\n",
+    `latent-eval.dataset`. Both are stamps, in YAML and in JSON Lines."""
+    case = {"id": "q1", "input": {"question": "hi"}}
+    lines = setup["work"] / "cases.jsonl"
+    lines.write_text(
+        json.dumps({"format": name, "format_version": 1, **case}) + "\n",
         encoding="utf-8",
     )
-    planned = batch.plan(path, setup["work"] / "variants.yaml")
-    assert planned.cases_stamped and [c.id for c in planned.cases] == ["q1"]
+    document = setup["work"] / "cases.yaml"
+    document.write_text(
+        json.dumps({"format": name, "format_version": 1, "cases": [case]}),
+        encoding="utf-8",
+    )
+    for path in (lines, document):
+        planned = batch.plan(path, setup["work"] / "variants.yaml")
+        assert planned.cases_stamped and [c.id for c in planned.cases] == ["q1"]
+    with pytest.raises(batch.BatchError, match="v1"):
+        document.write_text(
+            json.dumps({"format": name, "format_version": 2, "cases": [case]}),
+            encoding="utf-8",
+        )
+        batch.plan(document, setup["work"] / "variants.yaml")
 
 
-def test_an_unstamped_file_is_read_as_latent_eval_reads_it(
+def test_an_unstamped_file_is_read_as_kb_eval_reads_it(
     setup: dict[str, Any],
 ) -> None:
     """The spec's own legacy sample: an extra key ignored, a numeric id a string."""
@@ -413,7 +418,7 @@ def test_an_unstamped_yaml_file_may_say_context_for_input(
 
 def test_a_stamped_file_does_not_read_context(setup: dict[str, Any]) -> None:
     (setup["work"] / "cases.yaml").write_text(
-        "format: latent-eval.dataset\nformat_version: 1\n"
+        "format: eval.dataset\nformat_version: 1\n"
         "cases:\n  - {id: q1, context: {question: hi}}\n",
         encoding="utf-8",
     )
@@ -424,7 +429,7 @@ def test_a_stamped_file_does_not_read_context(setup: dict[str, Any]) -> None:
 def test_a_json_lines_file_that_mixes_stamps_is_refused(setup: dict[str, Any]) -> None:
     path = setup["work"] / "mixed.jsonl"
     path.write_text(
-        '{"format": "latent-eval.dataset", "format_version": 1, "id": "q1", '
+        '{"format": "eval.dataset", "format_version": 1, "id": "q1", '
         '"input": {"question": "hi"}}\n'
         '{"id": "q2", "input": {"question": "there"}}\n',
         encoding="utf-8",
@@ -517,10 +522,10 @@ def test_an_old_file_s_own_format_key_does_not_stamp_it(
 def test_a_stamped_file_is_held_to_the_spec_before_anything_is_spent(
     setup: dict[str, Any], body: str, message: str
 ) -> None:
-    """latent-eval refuses these when it scores; refusing them only then is a paid
+    """kb-eval refuses these when it scores; refusing them only then is a paid
     batch thrown away."""
     (setup["work"] / "cases.yaml").write_text(
-        "format: latent-eval.dataset\nformat_version: 1\n" + body, encoding="utf-8"
+        "format: eval.dataset\nformat_version: 1\n" + body, encoding="utf-8"
     )
     with pytest.raises(batch.BatchError, match=message):
         _plan(setup)
