@@ -1,18 +1,18 @@
 # Run an eval batch
 
-Put a set of questions through several setups, each run recorded, for latent-eval to score. A
+Put a set of questions through several setups, each run recorded, for kb-eval to score. A
 setup, a **variant**, is a deployment, a runtime and that runtime's options, so a batch compares
 models, hosts, or one persona or skill set against another on the same questions. Scoring happens
-in latent-eval, which reads the recordings; nothing here judges an answer.
+in kb-eval, which reads the recordings; nothing here judges an answer.
 
 ## The cases
 
-latent-eval's dataset format, `latent-eval.dataset` v1, as YAML or JSON Lines. Each case's
+kb-eval's dataset format, `eval.dataset` v1, as YAML or JSON Lines. Each case's
 question is `input.question`; `id` and `metadata` are kept, and `reference` is never read.
 
 ```yaml
 # cases.yaml
-format: latent-eval.dataset
+format: eval.dataset
 format_version: 1
 name: collapse
 cases:
@@ -23,7 +23,7 @@ cases:
     metadata: {topic: remedies}
 ```
 
-A file without the stamp is read as latent-eval reads one, and the batch says so. A case with no
+A file without the stamp is read as kb-eval reads one, and the batch says so. A case with no
 question refuses the whole batch, naming every such case.
 
 ## The variants

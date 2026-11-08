@@ -17,7 +17,7 @@ needs one of those as a contract should ask for it to be published.
 | A registry, `registry.yaml` | `connect <id>`, `stores`, a source's `from:` | none | `stores:`, each with `id`, `kind`, `access`, `paths` | An id it does not hold; a wiki entry without `access: mcp:<command>` |
 | `.env` | every command | none | dotenv | Nothing; it never overrides an exported variable ([credentials](../deployments.md#credentials)) |
 | A recording | `replay`, `/replay` | [`latent-intel.recording`](recording.md) v1 | JSON Lines | Nothing: a line it cannot read renders as unknown, and a missing header or newer version is named on stderr |
-| Cases | `eval run` | `latent-eval.dataset` v1, published by latent-eval | YAML or JSON Lines; `id`, `input.question` and `metadata` are read | [Inputs](eval-run.md#inputs) |
+| Cases | `eval run` | `eval.dataset` v1, published by kb-eval | YAML or JSON Lines; `id`, `input.question` and `metadata` are read | [Inputs](eval-run.md#inputs) |
 | Variants | `eval run` | none | YAML, `variants:` of `id`, `deployment`, `runtime`, `options` | An unknown key; `approval` in `options`; a deployment with a problem |
 
 ## Writes
@@ -26,7 +26,7 @@ needs one of those as a contract should ask for it to be published.
 |---|---|---|
 | Recordings | `--record` on `search`, `get`, `ask` and `run`; `/record` | **Yes:** [`latent-intel.recording`](recording.md) v1 |
 | The event stream on stdout | `--json` on the same commands | **Yes:** each line is an event of [`latent-intel.recording`](recording.md) v1, with no header |
-| Eval runs | `eval run` | **Yes:** [`latent-intel.eval-run`](eval-run.md) v1. latent-eval reads it |
+| Eval runs | `eval run` | **Yes:** [`latent-intel.eval-run`](eval-run.md) v1. kb-eval reads it |
 | A new deployment file | `deployment new` | No: the worked example, commented |
 | Your config, `config.yaml`, and its overlays | `connect`, `disconnect`, `deployment use` and `add`; the shell's `/connect`, `/disconnect`, `/deployment`, `/runtime`, `/model` and `/host` | No: [your config](../deployments.md#your-config) |
 | The managed agent's ids | `managed sync`, in your config's overlay | No |

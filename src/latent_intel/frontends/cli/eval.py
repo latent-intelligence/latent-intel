@@ -1,4 +1,4 @@
-"""`intel eval` — batches of recorded runs, for `latent-eval` to score.
+"""`intel eval` — batches of recorded runs, for `kb-eval` to score.
 
 A thin wrapper over `batch`: the library plans and runs, this prints and asks. Scoring
 happens outside, over the recordings. The shell has no `/eval run`; inside it, record
@@ -22,7 +22,7 @@ app = typer.Typer(name="eval", help=__doc__, no_args_is_help=True)
 
 @app.command("run")
 def run(
-    cases: Path = typer.Argument(..., help="A latent-eval dataset: .yaml or .jsonl."),
+    cases: Path = typer.Argument(..., help="A kb-eval dataset: .yaml or .jsonl."),
     variants: Path = typer.Argument(..., help="A YAML file with a `variants:` list."),
     repeat: int = typer.Option(1, "--repeat", help="Runs per case and variant."),
     dry_run: bool = typer.Option(
@@ -50,7 +50,7 @@ def run(
     if not planned.cases_stamped:
         console.print(
             f"[warn]![/] [dim]{escape(planned.cases_name)} is unstamped — read as "
-            "latent-eval.dataset v1, its fields unchecked[/]"
+            "eval.dataset v1, its fields unchecked[/]"
         )
     console.print(
         f"[dim]{len(planned.cases)} cases × {len(planned.variants)} variants × "

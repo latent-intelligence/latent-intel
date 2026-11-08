@@ -1,7 +1,7 @@
-"""Batch eval runs — cases × variants × repeats, each one recorded for `latent-eval`.
+"""Batch eval runs — cases × variants × repeats, each one recorded for `kb-eval`.
 
 Run once, score many: this writes recordings and a manifest that names them, and
-`latent-eval` reads them from disk. Neither imports the other.
+`kb-eval` reads them from disk. Neither imports the other.
 
 **The case file is read as little as possible.** `id`, `input.question` and
 `metadata`; never `reference`, which is the scorer's business. The less this reads,
@@ -56,8 +56,10 @@ MANIFEST_VERSION: Final = 1
 
 MANIFEST_NAME = "manifest.json"
 
-#: The case files this reads — `latent-eval`'s, published as its `dataset.md`.
-DATASET_FORMAT = "latent-eval.dataset"
+#: The case files this reads — kb-eval's, published as its `dataset.md`; written as
+#: `eval.dataset`, and as `latent-eval.dataset` before kb-eval's rename.
+DATASET_FORMAT = "eval.dataset"
+DATASET_FORMATS = (DATASET_FORMAT, "latent-eval.dataset")
 DATASET_VERSION = 1
 STAMP = ("format", "format_version")
 CASE_FIELDS = frozenset({"id", "input", "reference", "metadata"})
@@ -188,7 +190,7 @@ class Plan:
     cases: list[Case]
     cases_name: str
     cases_sha256: str
-    #: False for a file written before `latent-eval.dataset` had a stamp.
+    #: False for a file written before the dataset format had a stamp.
     cases_stamped: bool
     variants: list[Variant]
     repeat: int
@@ -286,10 +288,10 @@ def plan(cases: Path, variants: Path, *, repeat: int = 1) -> Plan:
 
 
 def load_cases(path: Path) -> tuple[list[Case], bool]:
-    """`latent-eval.dataset` v1, YAML or JSON Lines, and whether the file is stamped.
+    """`eval.dataset` v1, YAML or JSON Lines, and whether the file is stamped.
 
     A stamped file is held to the stamp: another format or version is refused. An
-    unstamped one is read as `latent-eval` reads it — `input` defaults to `{}`, and
+    unstamped one is read as `kb-eval` reads it — `input` defaults to `{}`, and
     YAML's `context:` stands in for `input:` — because the spec guarantees only its
     `id`. Either way a case with no question is refused before anything runs, every
     such case named at once: skipping one would score a smaller set than was asked.
@@ -359,12 +361,12 @@ def load_cases(path: Path) -> tuple[list[Case], bool]:
 
 
 def _is_stamped(data: dict[str, Any]) -> bool:
-    """As `latent-eval` decides it: a bare `format` key may be an old file's own."""
-    return "format_version" in data or data.get("format") == DATASET_FORMAT
+    """As `kb-eval` decides it: a bare `format` key may be an old file's own."""
+    return "format_version" in data or data.get("format") in DATASET_FORMATS
 
 
 def _stamped_case(row: Any, where: str) -> None:
-    """What `latent-eval` holds a stamped case to, so a batch never spends on a file
+    """What `kb-eval` holds a stamped case to, so a batch never spends on a file
     its scorer will then refuse."""
     if not isinstance(row, dict):
         raise BatchError(f"{where}: a case is a mapping")
@@ -388,13 +390,14 @@ def _stamp(row: Any, name: str) -> None:
     version = row.get("format_version") if isinstance(row, dict) else None
     if (
         not isinstance(row, dict)
-        or row.get("format") != DATASET_FORMAT
+        or row.get("format") not in DATASET_FORMATS
         or isinstance(version, bool)
         or version != DATASET_VERSION
     ):
         found = (row.get("format"), version) if isinstance(row, dict) else row
         raise BatchError(
-            f"{name}: stamped {found!r}, not {DATASET_FORMAT} v{DATASET_VERSION}"
+            f"{name}: stamped {found!r}, not {' or '.join(DATASET_FORMATS)} "
+            f"v{DATASET_VERSION}"
         )
 
 

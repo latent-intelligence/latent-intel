@@ -19,7 +19,7 @@ In reading order:
    runtimes honour them.
 7. [Script and record](guides/script-and-record.md): `--json`, recordings, replay.
 8. [Run an eval batch](guides/run-an-eval-batch.md): cases through variants, recorded for
-   latent-eval.
+   kb-eval.
 9. [Use managed agents](guides/use-managed-agents.md): `intel managed sync`, staleness, cost.
 
 ## Reference
