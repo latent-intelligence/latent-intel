@@ -649,12 +649,12 @@ def test_editing_a_registry_mid_session_is_picked_up(
     registry.clear_cache()
     assert set(registry.load(str(stores))) == {"one"}
 
-    os.utime(stores, (0, 0))  # a distinct mtime; content change alone is not enough
     stores.write_text(
         f"stores:\n  - id: two\n    kind: context-store\n"
         f"    paths: {{root: {tmp_path}}}\n",
         encoding="utf-8",
     )
+    os.utime(stores, (0, 0))  # a distinct mtime; content change alone is not enough
     assert set(registry.load(str(stores))) == {"two"}
 
 
