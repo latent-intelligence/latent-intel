@@ -29,6 +29,7 @@ from latent_intel import events as ev
 from latent_intel.connectors import base as connectors
 from latent_intel.connectors.mcp import (
     McpConnector,
+    _abandoned,
     _effect_of,
     _transport,
     read_mcp_config,
@@ -828,17 +829,15 @@ async def test_a_failure_before_the_server_starts_is_a_connect_error(
 
 
 class SlowToExit(StuckOnExit):
-    """A transport that stops its server, then ignores every cancel and ends on its
-    own a second later."""
+    """A transport that ignores every cancel for a second, then stops its server and
+    ends on its own."""
 
     async def __aexit__(self, *exc: Any) -> None:
-        await self.inner.__aexit__(None, None, None)
         end = time.monotonic() + 1.0
         while (left := end - time.monotonic()) > 0:
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.sleep(left)
-            except asyncio.CancelledError:
-                continue
+        await self.inner.__aexit__(None, None, None)
 
 
 async def test_a_server_left_running_is_named_in_the_log(
@@ -849,7 +848,7 @@ async def test_a_server_left_running_is_named_in_the_log(
     await connector.aopen()
     await connector.aclose()
     assert "slow" in caplog.text and "did not stop" in caplog.text
-    await anyio.sleep(1.5)
+    await asyncio.wait(list(_abandoned), timeout=10)
 
 
 class FailsToClose(StuckOnExit):
